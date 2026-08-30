@@ -1,0 +1,104 @@
+#!/bin/bash
+# On screen lock, mute the ROOM outputs (and mic) so nothing spurious plays to
+# officemates/roommates while AFK; restore on unlock.
+#
+# Bluetooth devices are SKIPPED on purpose: headphones/earbuds are private audio
+# (on your ears), so music or a call keeps playing while the screen is locked,
+# and BT can never get stuck muted. The old code muted @DEFAULT and then, on
+# unlock, unmuted whatever was default AT THAT MOMENT -- so if the active device
+# changed across the lock (a BT connect/disconnect), it muted device A and
+# unmuted device B, leaving the headphones muted and WirePlumber remembering it.
+# We now (1) never touch BT and (2) restore BY NAME: unmute exactly what we
+# muted, regardless of what is default at unlock.
+#
+# Event resolution (first wins):
+#   1. $1 passed by hook runner ("lock" or "unlock")
+#   2. $0 basename containing "lock" or "unlock"
+
+STATE="${XDG_CACHE_HOME:-$HOME/.cache}/mute-on-lock.state"
+
+# ---- pactl helpers ----
+
+default_sink()   { pactl get-default-sink   2>/dev/null; }
+default_source() { pactl get-default-source 2>/dev/null; }
+
+is_muted() {
+  local type="$1" target="$2"   # type: sink | source
+  pactl "get-${type}-mute" "$target" 2>/dev/null \
+    | awk '{print ($2=="yes") ? 1 : 0}'
+}
+
+set_mute() {
+  local type="$1" target="$2" value="$3"   # value: 0 | 1
+  [[ -n "$target" ]] || return 0
+  pactl "set-${type}-mute" "$target" "$value" 2>/dev/null
+}
+
+# A node name tells us the bus: bluez sinks/sources are named bluez_*. BT is
+# personal audio (on your ears), so lock leaves it strictly alone.
+is_bt() { [[ "$1" == bluez_* ]]; }
+
+# mute this device on lock? yes iff it exists, is NOT Bluetooth, and is not
+# already muted (so unlock only unmutes what lock actually changed).
+should_mute() {
+  local type="$1" name="$2"
+  [[ -n "$name" ]] || return 1
+  is_bt "$name" && return 1
+  [[ "$(is_muted "$type" "$name")" == "0" ]]
+}
+
+# ---- lock / unlock ----
+
+# Record each device we mute BY NAME so unlock restores exactly it. BT and
+# already-muted devices are never recorded, so they are never unmuted for us.
+on_lock() {
+  local sink src
+  sink=$(default_sink); src=$(default_source)
+
+  mkdir -p "$(dirname "$STATE")"
+  : > "$STATE.tmp"
+  if should_mute sink "$sink"; then
+    set_mute sink "$sink" 1
+    printf 'sink=%s\n' "$sink" >> "$STATE.tmp"
+  fi
+  if should_mute source "$src"; then
+    set_mute source "$src" 1
+    printf 'source=%s\n' "$src" >> "$STATE.tmp"
+  fi
+  mv "$STATE.tmp" "$STATE"
+}
+
+on_unlock() {
+  [[ -f "$STATE" ]] || return 0
+  local kind name
+  while IFS='=' read -r kind name; do
+    [[ -n "$name" ]] || continue
+    case "$kind" in
+      sink)   set_mute sink   "$name" 0 ;;
+      source) set_mute source "$name" 0 ;;
+    esac
+  done < "$STATE"
+  rm -f "$STATE"
+}
+
+resolve_event() {
+  [[ -n "$1" ]] && { echo "$1"; return; }
+  case "$(basename "$0")" in
+    *unlock*) echo "unlock" ;;
+    *lock*)   echo "lock"   ;;
+    *) echo "$0: can't determine event from \$0; pass 'lock' or" \
+            "'unlock' as \$1" >&2; return 1 ;;
+  esac
+}
+
+main() {
+  local event
+  event=$(resolve_event "$1") || exit 1
+  case "$event" in
+    lock)   on_lock   ;;
+    unlock) on_unlock ;;
+    *) echo "$0: unknown event '$event'" >&2; exit 1 ;;
+  esac
+}
+
+main "$@"

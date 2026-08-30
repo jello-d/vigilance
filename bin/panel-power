@@ -1,0 +1,280 @@
+#!/bin/sh
+# panel-power -- screen power for idle, choosing mechanism by capability.
+#
+# Contract is STABLE across machines; this script absorbs all per-hardware
+# divergence -- including HOW "off/on" is achieved. Callers:
+#   - swaylock's burn-in blank forks `panel-power peripherals on|off` (the idle
+#     screen-off path: idle -> swayidle -> lock -> swaylock -> here; or a manual
+#     lock -> swaylock -> here). This is the one that blanks on idle.
+#   - wayfire.ini binds `panel-power on` to a manual force-displays-on key.
+# swayidle no longer calls panel-power directly (its standalone blank timer is
+# retired -- swaylock's blank-after owns the post-lock blank; see swayidle-mgr).
+#
+#   panel-power off            blank   (DDC panel: VCP D6=02; else lock surface)
+#   panel-power on             restore (DDC panel: VCP D6=01; else lock surface)
+#   panel-power peripherals X  ride swaylock's blank: DDC monitor + backlight
+#   panel-power off --force    hard off (DDC VCP D6=04) -- see WARNING below
+#
+# MECHANISM, chosen by capability: a DDC/CI-capable external monitor gets a REAL
+# power-down over DDC/MCCS (VCP D6); anything else (an eDP laptop panel, or a
+# monitor with no usable DDC) blanks via the lock surface. DDC is preferred even
+# on NVIDIA: setvcp is an out-of-band I2C/MCCS command to the monitor's OWN
+# scaler, NOT a compositor connector/DPMS change, so it does NOT trigger the
+# wlroots re-modeset that DESTROYS views on this Wayfire build. Only connector
+# cycling (wlopm/DPMS) is unsafe here; DDC is not. So the old "NVIDIA -> never
+# touch hardware, paint the lock surface black" rule is RETIRED -- black-paint
+# left a non-OLED backlight fully ON (a lit black screen, no real sleep, e.g.
+# manifestor's HP E243). The lock-surface FALLBACK: the patched swaylock paints
+# its solid background over the image on SIGUSR2 (blank) / restores on SIGRTMIN,
+# a Wayland client so no modeset; on OLED that black is already off. Both paths
+# are directional + idempotent: off blanks, on restores, a repeat is a no-op.
+#
+# WHY D6=02 FOR OFF (not 03/04): D6=02 (Standby) is the widely-supported DDC-
+# ALIVE power-down -- it kills the backlight but keeps the DDC link up, so D6=01
+# still wakes it. D6=03 (Suspend) is NOT advertised by every monitor (the HP
+# E243 here offers only 01/02), and D6=04 (Off) drops the DP link into a state
+# DDC cannot wake (recovery is a physical power button or DP replug), so the
+# deep D6=04 is kept only behind --force.
+#
+# WHY WE FILTER "Invalid display": a laptop eDP shows up in `ddcutil detect`
+# with a real I2C bus and DRM connector, but under an "Invalid display" heading,
+# because the internal panel is not DDC/CI-controllable. Pairing its bus and
+# connector anyway routed eDP hosts into the DDC branch, where setvcp always
+# failed and the screen never blanked (confirmed on the laptop: bus 11, eDP-1,
+# Monitor "SDC"). We therefore map ONLY displays inside a real "Display N"
+# block. With the eDP excluded, a single-panel laptop yields an empty map and
+# correctly falls through to the compositor-side signal blank (see above).
+
+set -u
+
+# Helper lookups below (command -v) must NOT depend on the caller's PATH. The
+# swaylock blank hook execl()s us with the compositor's minimal PATH, which
+# carries ~/bin but not ~/.local/bin, where package commands like qmk-ripple
+# live. That silently broke kbd_rgb: `command -v qmk-ripple` found nothing, so
+# it returned a clean 0 and the keyboard stayed lit, while every other
+# peripheral (all of them /usr/bin or direct sysfs) dimmed correctly.
+# Normalize once, here, so every helper resolves the same way no matter who
+# invoked us.
+PATH="$HOME/.local/bin:$HOME/bin:$PATH"
+export PATH
+
+action=${1:-}
+opt=${2:-}
+force=""
+# `peripherals on|off` is swaylock's set_blanked() hook (panel backlight +
+# keyboard LED only, no surface touch); it takes on|off as $2, so bypass the
+# surface-path option/action parsing here and dispatch it below, after the LED
+# helpers are defined.
+if [ "$action" != peripherals ]; then
+  case "$opt" in
+    --force)          force=--force ;;
+    "")               ;;
+    *) echo "$0: unknown option '$opt'" >&2; exit 1 ;;
+  esac
+  case "$action" in
+    on|off) ;;
+    *) echo "usage: $0 {on | off [--force] | peripherals on|off}" >&2
+       exit 1 ;;
+  esac
+fi
+
+
+# Compositor-side blank: signal the patched swaylock to paint solid black
+# (SIGUSR2) / restore the image (RTMIN+0). No connector or hardware touch, so no
+# re-modeset; a no-op when swaylock is not up (a blank racing past an unlock) --
+# exactly the safe behaviour we want.
+sig_swaylock() {
+  case "$1" in
+    off) pkill -USR2            -x swaylock ;;  # image -> color (black)
+    on)  pkill --signal RTMIN+0 -x swaylock ;;  # color -> image
+  esac
+}
+
+# Backlight power for the eDP laptop. swaylock's black turns OLED pixels off but
+# leaves an LED backlight ON, so on a non-OLED panel it saves no battery. Drop
+# the backlight to 0 too: brightnessctl writes the backlight sysfs, NOT a
+# connector/DPMS change, so no modeset, no flash, no phantom resume. Gate OFF on
+# swaylock (dim only while locked, so a stray post-unlock blank can't dim the
+# desktop); save the level once, restore it on unblank ungated (so an unlock
+# always brings it back).
+BL_SAVE=${XDG_RUNTIME_DIR:-/tmp}/panel-power.backlight
+backlight() {
+  command -v brightnessctl >/dev/null 2>&1 || return 0
+  case "$1" in
+    off)
+      pgrep -x swaylock >/dev/null 2>&1 || return 0
+      [ -f "$BL_SAVE" ] && return 0
+      brightnessctl get > "$BL_SAVE" 2>/dev/null || return 0
+      brightnessctl set 0 >/dev/null 2>&1 || true
+      ;;
+    on)
+      [ -f "$BL_SAVE" ] || return 0
+      brightnessctl set "$(cat "$BL_SAVE")" >/dev/null 2>&1 || true
+      rm -f "$BL_SAVE"
+      ;;
+  esac
+}
+
+# Keyboard backlight: the laptop's lit keys are a SEPARATE LED from the panel
+# backlight, so swaylock's black + a zero panel backlight still leave the keys
+# glowing in a dark room. Mirror backlight() exactly: gate OFF on swaylock (dim
+# only while locked), save the level once, restore ungated on wake (so an unlock
+# always brings it back). The LED name is vendor-specific (tpacpi::/asus::/
+# dell::kbd_backlight), so DISCOVER it rather than hardcode; a box without one
+# (a desktop) just no-ops. Written via brightnessctl's udev-granted group
+# perms, no sudo (same as backlight()).
+KBD_SAVE=${XDG_RUNTIME_DIR:-/tmp}/panel-power.kbd
+kbd_backlight() {
+  command -v brightnessctl >/dev/null 2>&1 || return 0
+  _kbd=
+  for _d in /sys/class/leds/*kbd_backlight*; do
+    [ -e "$_d/brightness" ] && { _kbd=${_d##*/}; break; }
+  done
+  [ -n "$_kbd" ] || return 0
+  case "$1" in
+    off)
+      pgrep -x swaylock >/dev/null 2>&1 || return 0
+      [ -f "$KBD_SAVE" ] && return 0
+      brightnessctl --class=leds --device="$_kbd" get >"$KBD_SAVE" 2>/dev/null \
+        || return 0
+      brightnessctl --class=leds --device="$_kbd" set 0 >/dev/null 2>&1 || true
+      ;;
+    on)
+      [ -f "$KBD_SAVE" ] || return 0
+      brightnessctl --class=leds --device="$_kbd" set "$(cat "$KBD_SAVE")" \
+        >/dev/null 2>&1 || true
+      rm -f "$KBD_SAVE"
+      ;;
+  esac
+}
+
+# Mute/mic indicator LEDs (platform::mute, platform::micmute) also glow on the
+# keyboard deck with the backlight off. Dim them DIRECTLY here, exactly like the
+# backlights above -- one owner for all peripheral blank-dimming. This is
+# deliberately INDEPENDENT of whatever drives the mute state (the mute-led-sync
+# daemon today; the kernel's snd_ctl_led once its flicker is fixed and the
+# daemon retires): blank-dimming is a separate concern that must outlive the
+# daemon, so it lives here, not as a daemon command. Gate OFF on swaylock, save
+# each level once, zero it, restore ungated on wake. Direct sysfs writes via the
+# input group (root:input, g+w -- the same perms path). A mute toggled during
+# the blank re-syncs on its next change via whatever drives the mute state.
+MUTELED_SAVE=${XDG_RUNTIME_DIR:-/tmp}/panel-power.muteleds
+MUTE_LEDS='/sys/class/leds/platform::mute /sys/class/leds/platform::micmute'
+mute_leds() {   # on|off (panel-power's sense: off = blanking)
+  case "$1" in
+    off)
+      pgrep -x swaylock >/dev/null 2>&1 || return 0
+      [ -f "$MUTELED_SAVE" ] && return 0
+      : > "$MUTELED_SAVE"
+      for _l in $MUTE_LEDS; do
+        [ -w "$_l/brightness" ] || continue
+        _v=$(cat "$_l/brightness" 2>/dev/null || echo 0)
+        printf '%s %s\n' "$_l" "$_v" >> "$MUTELED_SAVE"
+        printf 0 > "$_l/brightness" 2>/dev/null || true
+      done
+      ;;
+    on)
+      [ -f "$MUTELED_SAVE" ] || return 0
+      while read -r _l _v; do
+        [ -w "$_l/brightness" ] || continue
+        printf '%s' "$_v" > "$_l/brightness" 2>/dev/null || true
+      done < "$MUTELED_SAVE"
+      rm -f "$MUTELED_SAVE"
+      ;;
+  esac
+}
+
+# External keyboard RGB (a QMK board with host control, e.g. the ripple CSTM65):
+# blank/restore its backlight via the qmk-ripple tool over raw HID. Its OWN
+# gadget, not a panel: a no-op when the tool or keyboard is absent (it exits 2),
+# so a box without one costs nothing. Gate OFF on swaylock like the other
+# peripherals -- turning the keyboard dark while it is in use would be wrong;
+# restore (on) is ungated so an unlock always brings it back.
+kbd_rgb() {
+  command -v qmk-ripple >/dev/null 2>&1 || return 0
+  case "$1" in
+    off) pgrep -x swaylock >/dev/null 2>&1 || return 0
+         qmk-ripple off >/dev/null 2>&1 || true ;;
+    on)  qmk-ripple on  >/dev/null 2>&1 || true ;;
+  esac
+}
+
+# ddc_monitor <on|off>: REAL monitor power over DDC/MCCS (VCP D6) -- the out-of-
+# band path that never modesets. off = D6=02 (standby, backlight off), or D6=04
+# under --force; on = D6=01. Fires every DDC/CI panel in parallel. Returns 0 if
+# DDC monitor was driven, 1 if NONE is present (caller falls back to the lock
+# surface), 2 if a present panel did not answer (reported to stderr).
+ddc_monitor() {
+  case "$1" in
+    on)  _d6=01 ;;
+    off)
+      if [ "$force" = "--force" ]; then
+        _d6=04          # hard off: link-dropping, physical recovery only
+        echo "panel-power: --force hard off (D6=04); wake may need a" \
+             "power button" >&2
+      else
+        _d6=02          # standby: backlight off, DDC alive so 'on' works
+      fi ;;
+  esac
+  # Map "i2c_bus connector" for every DDC/CI display (see the "Invalid display"
+  # note in the header); an eDP with no usable DDC yields an EMPTY map.
+  _map=$(ddcutil detect --brief 2>/dev/null | awk '
+    /^Invalid display/ { valid = 0; bus = "" }
+    /^Display /        { valid = 1; bus = "" }
+    /I2C bus:/         { bus = $NF; sub(".*/i2c-", "", bus) }
+    /DRM connector:/   { conn = $NF; sub(/^card[0-9]+-/, "", conn);
+                         if (bus != "" && valid) { print bus, conn; bus = "" } }
+  ')
+  [ -n "$_map" ] || return 1
+  _fail=$(mktemp)
+  echo "$_map" | {
+    while read -r bus conn; do
+      ddcutil --bus "$bus" --noverify setvcp d6 "$_d6" 2>/dev/null \
+        || echo "$conn (bus $bus)" >>"$_fail" &
+    done
+    wait
+  }
+  [ -s "$_fail" ] || { rm -f "$_fail"; return 0; }
+  echo "panel-power: DDC '$1' (d6=$_d6) FAILED on:" >&2
+  sed 's/^/  /' "$_fail" >&2
+  if [ "$1" = on ]; then
+    cat >&2 <<'EOF'
+panel-power: these panels are not answering DDC -- their DDC channel is down,
+so no 'on' command can reach them. PHYSICAL RECOVERY: press each dark monitor's
+power button (confirmed to wake them), or unplug/replug its DisplayPort cable.
+EOF
+  fi
+  rm -f "$_fail"; return 2
+}
+
+# peripherals: the "blank-state" hardware hook that RIDES swaylock's blank and
+# restore (swaylock forks this on its burn-in blank / on the next input). It
+# drives every blank-able piece of HARDWARE -- the DDC monitor (real power-off)
+# plus the panel backlight, keyboard LED, and mute/mic LEDs -- but NOT the lock
+# surface, so calling it FROM swaylock cannot loop back through sig_swaylock.
+# This is now the ONE idle screen-off path (idle -> lock -> swaylock burn-in ->
+# here); the old swayidle blank timer that also called panel-power off/on is
+# retired, since swaylock's blank-after already replaced that watchdog.
+if [ "$action" = peripherals ]; then
+  case "$opt" in
+    on|off)
+      ddc_monitor "$opt" || true
+      backlight "$opt"; kbd_backlight "$opt"; mute_leds "$opt"
+      kbd_rgb "$opt"; exit 0 ;;
+    *) echo "usage: $0 peripherals {on|off}" >&2; exit 1 ;;
+  esac
+fi
+
+# --- direct off/on: the manual force-on keybind (<ctrl><super>P) and tests.
+# Drive the DDC monitor if present; else fall back to the lock-surface blank for
+# a no-DDC panel (eDP/OLED, where black already = off). Peripherals ride along.
+ddc_monitor "$action"; _rc=$?
+if [ "$_rc" -eq 1 ]; then
+  # No DDC/CI monitor: swaylock paints black (no modeset, unlike wlopm); the
+  # helpers are lock-gated so a blank racing past unlock no-ops, not the screen.
+  sig_swaylock "$action"
+elif [ "$_rc" -eq 2 ]; then
+  exit 1            # DDC present but setvcp failed (already reported)
+fi
+backlight "$action"; kbd_backlight "$action"; mute_leds "$action"
+kbd_rgb "$action"

@@ -1,0 +1,21 @@
+# smart-trigger (listen mode): lock the session on a logind Session.Lock signal
+# (AC lid-close via HandleLidSwitchExternalPower=lock, or `loginctl
+# lock-session`). Provisioned by the lock module. A systemd --user service so it
+# runs in the login user's own manager and can reach the session; bound to
+# default.target (the wayfire session does NOT reach graphical-session.target on
+# this box, but default.target is always active while logged in). Restart=
+# always:
+# this is the swayidle-independent Lock responder, so it must self-heal -- a
+# listener that dies must come back, not silently stop guarding.
+[Unit]
+Description=smart-trigger: lock the session on logind Session.Lock
+After=default.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/smart-trigger listen
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=default.target

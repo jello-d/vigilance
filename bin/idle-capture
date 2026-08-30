@@ -1,0 +1,26 @@
+#!/bin/sh
+# idle-capture -- TEMP root-cause probe, REAL-LOCK variant. The fake-lock test
+# falsified swayidle self-re-run (idled -> cmd -> done -> no re-idled), and the
+# compositor source is clean, so the phantom needs the REAL lock/unlock path.
+# Runs a short-timeout swayidle (-d) that fires the REAL smart-lock, tagged
+# LOCK_SOURCE=idle so the live cooldown suppresses any re-lock (NO loop -- the
+# screen locks ONCE). Captures swayidle's own idle/active/register decisions and
+# the raw ext-idle-notify traffic across a genuine lock/unlock.
+#
+# RUN, then: stay idle ~12s -> screen LOCKS -> unlock (password/finger) -> use
+# the machine a moment -> Ctrl-C. It will NOT re-lock (cooldown guard). If the
+# phantom fires, swayidle -d shows a SECOND "idle state" right after unlock; the
+# raw lines around it show what compositor event triggered it.
+set -u
+OUT=${IDLE_CAPTURE_LOG:-$HOME/.local/state/idle-capture.log}
+mkdir -p "$(dirname "$OUT")"
+if [ "${1:-}" = mark ]; then
+  printf '%s %s\n' "$(date +%T.%3N)" "$2" >> "$OUT"; exit 0
+fi
+: > "$OUT"
+printf '%s %s\n' "$(date +%T.%3N)" "idle-capture REAL lock (12s)" >> "$OUT"
+echo "idle-capture -> $OUT ; idle ~12s -> LOCK, unlock, use, Ctrl-C" >&2
+WAYLAND_DEBUG=1 LOCK_SOURCE=idle swayidle -d -w \
+  timeout 12 smart-lock \
+  resume  "$0 mark RESUMED" \
+  2>> "$OUT"

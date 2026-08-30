@@ -1,0 +1,23 @@
+# Lock the Wayland session before ANY system suspend, via smart-trigger.
+# Provisioned by the lock module; User= is templated to the login user at
+# install time (the service runs AS that user to reach its Wayland socket).
+#
+# Before=sleep.target + WantedBy=sleep.target: this oneshot runs as part of the
+# transition into sleep, and sleep.target waits for it to complete -- so the box
+# CANNOT suspend until smart-trigger has the screen locked. Swayidle-independent
+# (see modules/lock for why).
+[Unit]
+Description=screen lock before the system sleeps (smart-trigger)
+Documentation=man:swaylock(1)
+Before=sleep.target
+
+[Service]
+Type=oneshot
+User=@USER@
+ExecStart=/usr/local/bin/smart-trigger lock
+# smart-trigger self-bounds to ~8s; cap the unit so a missing/slow session can
+# never wedge the suspend transition.
+TimeoutStartSec=25
+
+[Install]
+WantedBy=sleep.target

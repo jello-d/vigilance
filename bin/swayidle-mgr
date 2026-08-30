@@ -1,0 +1,146 @@
+#!/bin/sh
+# swayidle-mgr -- managed swayidle, TIMER-ONLY: its one job is the idle-LOCK
+# timer. It used to also carry swayidle's before-sleep and logind-Lock duties
+# plus a phantom-relock detector, AND a panel blank/unblank timer -- but
+# swayidle WEDGES on this Wayfire build and silently drops events, so ALL
+# security-critical locking moved to the swayidle-INDEPENDENT smart-lock /
+# smart-trigger stack (modules/lock; CLAUDE.md "SCREEN LOCKING is swayidle-
+# INDEPENDENT"), and the post-lock screen BLANK moved into swaylock's own
+# blank-after (driven by panel-power's peripherals hook). A blank must never
+# fire UNLOCKED, so gating it behind swaylock is correct: idle -> swayidle ->
+# lock -> swaylock -> panel-power (or a manual lock -> swaylock -> panel-power).
+# What remains is a thin single-instance wrapper around the idle-lock timer:
+#
+#   swayidle-mgr start [-f]   run swayidle (idle-lock only); -f = foreground
+#   swayidle-mgr stop         tear it down
+#   swayidle-mgr restart      stop then start
+#   swayidle-mgr status       is it up, and when it last idle-locked
+#   swayidle-mgr tail         follow the event log
+#
+# swayidle invokes `swayidle-mgr event idle-lock` when the timer fires (the
+# driver below turns it into smart-lock). Do NOT re-add before-sleep, lock, or
+# blank wiring here -- locking wedges in the security path, and the blank now
+# rides swaylock (idle -> lock -> swaylock blank-after -> panel-power).
+set -eu
+
+# --- idle policy: single source of truth ------------------------------------
+LOCK_TIMEOUT=480          # seconds idle before the lock (the blank follows it,
+                          # inside swaylock's blank-after -- not a timer here)
+BIN=$HOME/.local/bin
+LOCK_CMD=${LOCK_CMD:-$BIN/smart-lock}   # overridable so a test never locks
+
+# --- paths ------------------------------------------------------------------
+RUNDIR=${XDG_RUNTIME_DIR:-/tmp}/swayidle-mgr
+LOGDIR=${SWAYIDLE_LOG_DIR:-$HOME/.local/state/swayidle-mgr}
+EVENT_LOG=$LOGDIR/events.log
+STATE=$RUNDIR/last-idle-lock
+
+# SDDM-started sessions can bypass systemd --user, leaving a thin PATH so a bare
+# pkill inside panel-power fails. Pin a known-good PATH regardless of launch.
+PATH=$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin:$HOME/bin
+export PATH
+
+# Absolute path to this script, so swayidle's sh -c can re-invoke us regardless
+# of the session PATH.
+SELF=$(command -v "$0" 2>/dev/null || true)
+case "$SELF" in
+  /*) ;;
+  *) SELF=$HOME/.local/bin/swayidle-mgr ;;
+esac
+
+ts() { date +%Y-%m-%dT%H:%M:%S.%N; }
+log() { printf '%s %s\n' "$(ts)" "$*" >> "$EVENT_LOG"; }
+
+need_session() {
+  : "${WAYLAND_DISPLAY:?not in a wayland session (WAYLAND_DISPLAY unset)}"
+  : "${XDG_RUNTIME_DIR:?XDG_RUNTIME_DIR unset}"
+}
+
+# --- what swayidle calls when the idle-lock timer fires ---------------------
+# Only idle-lock. The screen BLANK is NOT here: it lives inside swaylock (its
+# blank-after option, presence-aware and idle-inhibit-proof), which fires
+# panel-power via its peripherals hook AFTER the lock. Blanking an unlocked
+# screen would be a security hole, so the blank is deliberately gated behind
+# the lock, never an independent swayidle timer.
+cmd_event() {
+  kind=${1:?event kind required}
+  now=$(date +%s)
+  case "$kind" in
+    idle-lock)
+      prev=$(cat "$STATE" 2>/dev/null || echo 0)
+      case "$prev" in ''|*[!0-9]*) prev=0 ;; esac
+      printf '%s\n' "$now" > "$STATE"
+      log "idle-lock delta=$((now - prev))s"
+      export LOCK_SOURCE=idle   # tag the idle path (phantom guard)
+      exec "$LOCK_CMD"
+      ;;
+    *)
+      echo "swayidle-mgr: unknown event '$kind'" >&2
+      exit 1
+      ;;
+  esac
+}
+
+# --- lifecycle --------------------------------------------------------------
+cmd_stop() {
+  quiet=${1:-}
+  pkill -x swayidle 2>/dev/null || true
+  [ "$quiet" = quiet ] || log stop
+}
+
+# The foreground worker. Detached by cmd_start, or run inline via  start -f .
+_run() {
+  set -- -w
+  # SWAYIDLE_DEBUG=1 adds -d: swayidle's trace of idle/active/Register/timeout
+  # events into the worker's stdio log, to root-cause a phantom-relock storm.
+  # Opt-in, OFF by default -- normal behaviour is unchanged.
+  [ -n "${SWAYIDLE_DEBUG:-}" ] && set -- "$@" -d
+  set -- "$@" timeout "$LOCK_TIMEOUT" "$SELF event idle-lock"
+  exec swayidle "$@"
+}
+
+cmd_start() {
+  fg=0
+  case "${1:-}" in -f|--foreground) fg=1 ;; esac
+  need_session
+  mkdir -p "$RUNDIR" "$LOGDIR"
+  cmd_stop quiet
+  log "start foreground=$fg"
+  if [ "$fg" = 1 ]; then
+    _run
+  else
+    # setsid: own session so the launching shell (the Wayfire autostart) exiting
+    # does not SIGHUP it. Detached, so the caller returns at once.
+    setsid "$SELF" _run </dev/null >> "$LOGDIR/stdio.log" 2>&1 &
+    log "detached (launcher pid=$!)"
+  fi
+}
+
+cmd_status() {
+  if pgrep -x swayidle >/dev/null 2>&1; then
+    echo "swayidle: running"
+    ps -o pid,ppid,lstart,args -C swayidle 2>/dev/null
+  else
+    echo "swayidle: not running"
+  fi
+  [ -f "$STATE" ] && echo "last idle-lock epoch: $(cat "$STATE")" || true
+}
+
+# --- dispatch ---------------------------------------------------------------
+mkdir -p "$RUNDIR" "$LOGDIR"
+sub=${1:-}
+[ "$#" -gt 0 ] && shift || true
+case "$sub" in
+  start) cmd_start "$@" ;;
+  _run) _run ;;
+  stop) cmd_stop ;;
+  restart) cmd_stop; cmd_start "$@" ;;
+  status) cmd_status ;;
+  tail) exec tail -f "$EVENT_LOG" ;;
+  event) cmd_event "$@" ;;
+  *)
+    echo "swayidle-mgr: unknown command '$sub'" >&2
+    echo "usage: start [-f]|stop|restart|status|tail|event <kind>" >&2
+    exit 1
+    ;;
+esac

@@ -1,0 +1,59 @@
+#!/bin/sh
+# osd-mgr -- keep swayosd-server's control name alive on the session bus.
+#
+# swayosd-server is a fire-once GTK app (wayfire autostart, `osd = ...`). During
+# the login rush its GTK init can block on a slow xdg-desktop-portal / UPower
+# D-Bus activation and finish registering only its GApplication name
+# (org.erikreider.swayosd), never the CONTROL name org.erikreider.swayosd-server
+# that swayosd-client and the libinput key backend call. When that happens the
+# volume/brightness keys go dead with no recovery, because nothing supervises
+# the fire-once launch. Observed once on manifold (2026-08-13): server up, only
+# the app name registered, keys dead until a manual restart.
+#
+# This starts swayosd-server, VERIFIES the control name actually appears on the
+# session bus, and restarts it if it half-inits or dies. A bounded retry count
+# lets a normal logout (session bus torn down) exit instead of spinning.
+set -eu
+
+NAME=org.erikreider.swayosd-server
+READY_TIMEOUT=10   # seconds to wait for the control name after a (re)start
+POLL=0.25          # name-poll interval, during the startup window only
+MAX_FAILS=5        # consecutive failed starts before giving up (e.g. logout)
+
+has_name() {
+  busctl --user list --no-pager 2>/dev/null \
+    | awk '{print $1}' | grep -qx "$NAME"
+}
+
+srv=
+start_server() {
+  swayosd-server >/dev/null 2>&1 &
+  srv=$!
+}
+
+wait_ready() {
+  # 0 if the control name registers within READY_TIMEOUT, else 1.
+  steps=$(awk -v t="$READY_TIMEOUT" -v p="$POLL" 'BEGIN{print int(t/p)}')
+  i=0
+  while [ "$i" -lt "$steps" ]; do
+    kill -0 "$srv" 2>/dev/null || return 1
+    has_name && return 0
+    sleep "$POLL"
+    i=$((i + 1))
+  done
+  return 1
+}
+
+fails=0
+while [ "$fails" -lt "$MAX_FAILS" ]; do
+  start_server
+  if wait_ready; then
+    fails=0
+    wait "$srv" 2>/dev/null || true   # healthy: block until the server exits
+  else
+    fails=$((fails + 1))
+    kill "$srv" 2>/dev/null || true
+    wait "$srv" 2>/dev/null || true
+  fi
+  sleep 1
+done

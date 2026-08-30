@@ -1,0 +1,32 @@
+#!/bin/sh
+# lock-watch -- correlate what triggers a (re)lock. Logs the logind Session
+# Lock/Unlock D-Bus signals + swaylock/lid/AC transitions, timestamped, so a
+# relock storm can be attributed from the log instead of live-triggering.
+set -u
+LOGDIR="${XDG_STATE_HOME:-$HOME/.local/state}/lock-watch"
+mkdir -p "$LOGDIR"
+LOG="$LOGDIR/lock-watch.log"
+ts() { date '+%m-%d %H:%M:%S.%2N'; }
+echo "$(ts) === lock-watch started ===" >> "$LOG"
+
+# D-Bus: the exact Session.Lock/Unlock/PrepareForSleep signals smart-trigger sees
+( gdbus monitor --system --dest org.freedesktop.login1 2>/dev/null \
+  | while IFS= read -r l; do
+      case "$l" in
+        *Lock*|*Unlock*|*PrepareForSleep*|*"Lid"*)
+          echo "$(ts) DBUS $l" >> "$LOG" ;;
+      esac
+    done ) &
+
+prev_sl=""; prev_lid=""; prev_ac=""
+while :; do
+  sl=$(pgrep -xc swaylock 2>/dev/null); sl=${sl:-0}
+  lid=$(awk '{print $2}' /proc/acpi/button/lid/LID/state 2>/dev/null)
+  ac=$(cat /sys/class/power_supply/AC/online 2>/dev/null)
+  # Count, not a boolean: a relock storm STACKS swaylocks, so N>1 (or N flapping)
+  # is the signature we are hunting.
+  [ "$sl"  != "$prev_sl"  ] && { echo "$(ts) swaylock procs=$sl" >> "$LOG"; prev_sl=$sl; }
+  [ "$lid" != "$prev_lid" ] && { echo "$(ts) lid=$lid"      >> "$LOG"; prev_lid=$lid; }
+  [ "$ac"  != "$prev_ac"  ] && { echo "$(ts) AC=$ac"        >> "$LOG"; prev_ac=$ac; }
+  sleep 0.25
+done
