@@ -1,0 +1,85 @@
+.TH VIGILANCE 1 "" "vigilance" "User Commands"
+.SH NAME
+vigilance \- lock / screen-power / idle suite for a Wayland session
+.SH SYNOPSIS
+.B smart-lock
+.RB [ lock | unlock ]
+.br
+.B smart-trigger
+.RB { lock | listen }
+.br
+.B panel-power
+.RB { off | on }
+.br
+.B swayidle-mgr ", " osd-mgr ", " mute-on-lock ", " idle-capture ", " lock-watch
+.SH DESCRIPTION
+vigilance is a suite of small, single-purpose tools for what a machine does when
+you step away and when you return: lock the screen, blank or power down the
+panel, mute audio, and restore on unlock. There is no single
+.B vigilance
+command; each tool below is invoked by name, or driven by the systemd units in
+.IR systemd/ .
+.PP
+The security-critical paths are swayidle-INDEPENDENT by design. A single idle
+daemon that wedges must not be the lock guarantee, so locking is driven through
+.B smart-lock
+and
+.B smart-trigger
+from four triggers (idle timer, a manual keybind, suspend, and the logind
+Session.Lock signal), each independent of the others.
+.SH TOOLS
+.TP
+.B smart-lock
+The lock EXECUTOR: reads a per-display shape, draws a multi-output spanned lock,
+runs the lock/unlock hooks. Runs foreground so its unlock wait keeps the locker
+alive.
+.TP
+.B smart-trigger
+The robust LAUNCHER / LISTENER: runs the lock on suspend and on the logind
+Session.Lock signal, launching swaylock as a separate transient --user unit that
+survives the trigger's teardown.
+.TP
+.B swayidle-mgr
+A thin single-instance idle-lock timer (timer-only; the security paths do not
+depend on it).
+.TP
+.B panel-power
+Real screen-off over DDC/CI (modeset-safe), plus the peripherals hook. Never
+toggles a connector.
+.TP
+.B osd-mgr
+Supervises the on-screen-display server so it self-heals a half-init.
+.TP
+.B mute-on-lock
+Mutes audio while the session is locked.
+.TP
+.B idle-capture ", " lock-watch
+Opt-in diagnostics for tracing phantom-relock and idle behaviour.
+.SH FILES
+.TP
+.I systemd/smart-trigger.service
+The --user Session.Lock listener (install it with
+.BR "setup.sh service" ).
+.TP
+.I systemd/lock-on-sleep.service
+The SYSTEM suspend-lock unit (Before=sleep.target); needs root to place under
+.IR /etc/systemd/system .
+.TP
+.I ~/.config/shapes
+Optional per-display shape config (swaylock/wallpaper); absent, smart-lock uses
+a single-output lock.
+.SH RUNTIME DEPENDENCIES
+.BR swaylock ", " swayidle ", " wlopm ", " ddcutil .
+Optional: a display-shape resolver and a wallpaper slicer for the spanned lock;
+each degrades gracefully when absent.
+.SH SETUP
+.B ./setup.sh install
+links the tools (and this page) into
+.IR ~/.local ;
+.B ./setup.sh service
+adds the --user listener;
+.B ./setup.sh check
+audits the install. See the README.
+.SH SEE ALSO
+.BR swaylock (1),
+.BR swayidle (1)

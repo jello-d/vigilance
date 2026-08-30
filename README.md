@@ -21,15 +21,19 @@ the lock guarantee.
 
 ## Install
 
-    ./install              # symlink tools + the --user listener into ~/.local
+    ./setup.sh install     # symlink the tools (+ man) into ~/.local
+    ./setup.sh service     # + enable the --user Session.Lock listener
+    ./setup.sh all         # both of the above
 
-The suspend-lock **system** unit (`Before=sleep.target`) needs root; place
-`systemd/lock-on-sleep.service` under `/etc/systemd/system`
+`install` is the tools alone (what a provisioning layer delegates to); `service`
+adds the `--user` listener separately, so a host that wires systemd itself gets
+no duplicate unit. The suspend-lock **system** unit (`Before=sleep.target`)
+needs root; place `systemd/lock-on-sleep.service` under `/etc/systemd/system`
 (or let a host manager do it).
 
 ## Audit
 
-    ./install check        # every tool + dependency present
+    ./setup.sh check       # every tool + dependency present
 
 ## Dependencies
 
