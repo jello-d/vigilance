@@ -1,0 +1,82 @@
+#!/bin/sh
+# vigilance - manage the vigilance lock / screen-power / idle suite. The suite's
+# tools are standalone commands you invoke directly (or via the systemd units):
+#   smart-lock      the lock executor (shape config, spanning, hooks)
+#   smart-trigger   the robust launcher/listener (suspend + logind Session.Lock)
+#   swayidle-mgr    the idle-lock timer
+#   panel-power     DDC screen-off (modeset-safe), the peripherals hook
+#   osd-mgr         supervises the on-screen-display server
+#   mute-on-lock    mute audio while locked
+#   idle-capture, lock-watch   phantom-relock diagnostics (opt-in)
+# This umbrella installs + audits the set.
+#
+#   vigilance check      every tool + dependency present; [OK]/[FAIL] markers
+#   vigilance install    symlink the suite into ~/.local (+ the --user unit)
+#   vigilance version    the packaged version
+#
+# POSIX sh, non-privileged. The suspend-lock SYSTEM unit (Before=sleep.target)
+# needs root; `install` places the user pieces and points at that step.
+set -eu
+
+VERSION=0.1.0
+TOOLS="smart-lock smart-trigger swayidle-mgr panel-power osd-mgr"
+TOOLS="$TOOLS mute-on-lock idle-capture lock-watch"
+DEPS="swaylock swayidle wlopm ddcutil"   # external runtime deps (spanning/DDC)
+
+# self-location: our real path -> the package root -> share/vigilance.
+_self=$(command -v "$0" 2>/dev/null || echo "$0")
+_self=$(readlink -f "$_self" 2>/dev/null || echo "$_self")
+_root=$(CDPATH= cd -- "$(dirname -- "$_self")/.." && pwd)
+SHARE=$_root/share/vigilance
+
+# marker contract: plain [OK]/[FAIL]/[WARN] markers an integrator styles;
+# self-coloured at a terminal, plain when piped or under NO_COLOR.
+if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
+  _G=$(printf '\033[32m'); _R=$(printf '\033[31m')
+  _Y=$(printf '\033[33m'); _O=$(printf '\033[0m')
+else _G=; _R=; _Y=; _O=; fi
+ok()   { printf '  %s[OK]%s   %s\n' "$_G" "$_O" "$1"; }
+bad()  { printf '  %s[FAIL]%s %s\n' "$_R" "$_O" "$1"; RC=1; }
+warn() { printf '  %s[WARN]%s %s\n' "$_Y" "$_O" "$1"; }
+
+m_check() {
+  RC=0
+  echo "== vigilance (lock / screen-power / idle) =="
+  for _t in $TOOLS; do
+    if command -v "$_t" >/dev/null 2>&1; then ok "$_t present"
+    else bad "$_t not on PATH"; fi
+  done
+  for _d in $DEPS; do
+    command -v "$_d" >/dev/null 2>&1 && ok "dep $_d present" \
+      || warn "dep $_d absent ($_d powers spanning/DDC; degrades gracefully)"
+  done
+  if [ -d "${XDG_CONFIG_HOME:-$HOME/.config}/shapes" ]; then
+    ok "shape config present (~/.config/shapes)"
+  else
+    warn "no ~/.config/shapes; smart-lock uses a single-output lock"
+  fi
+  return "$RC"
+}
+
+m_install() {
+  _bin=${XDG_BIN_HOME:-$HOME/.local/bin}
+  _shr=${XDG_DATA_HOME:-$HOME/.local/share}
+  _usr=${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user
+  mkdir -p "$_bin" "$_shr" "$_usr"
+  for _t in $TOOLS; do ln -sfn "$_root/bin/$_t" "$_bin/$_t"; done
+  ln -sfn "$SHARE" "$_shr/vigilance"
+  ln -sfn "$SHARE/systemd/smart-trigger.service" "$_usr/smart-trigger.service"
+  echo "vigilance: installed the suite + the --user listener into ~/.local"
+  echo "vigilance: the suspend-lock SYSTEM unit needs root -- place"
+  echo "  $SHARE/systemd/lock-on-sleep.service under /etc/systemd/system"
+  echo "  (or let a host manager like tackup do it)."
+}
+
+case "${1:-check}" in
+  check)   m_check ;;
+  install) m_install ;;
+  version) echo "vigilance $VERSION" ;;
+  -h|--help|help) echo "usage: vigilance [check|install|version]" ;;
+  *) echo "vigilance: unknown command '${1:-}'" >&2
+     echo "usage: vigilance [check|install|version]" >&2; exit 2 ;;
+esac
