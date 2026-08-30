@@ -21,15 +21,15 @@ the lock guarantee.
 
 ## Install
 
-    vigilance install     # symlink tools + the --user listener into ~/.local
+    ./install              # symlink tools + the --user listener into ~/.local
 
 The suspend-lock **system** unit (`Before=sleep.target`) needs root; place
-`share/vigilance/systemd/lock-on-sleep.service` under `/etc/systemd/system`
+`systemd/lock-on-sleep.service` under `/etc/systemd/system`
 (or let a host manager do it).
 
 ## Audit
 
-    vigilance check       # every tool + dependency present
+    ./install check        # every tool + dependency present
 
 ## Dependencies
 
