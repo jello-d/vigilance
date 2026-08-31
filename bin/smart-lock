@@ -4,20 +4,21 @@
 # converging here (see modules/lock):
 #   - idle:         swayidle timer         (in-session, direct)
 #   - manual:       Super+L keybind        (in-session, direct)
-#   - suspend:      lock-on-sleep.service  -> tackup-lock -> here
-#   - Session.Lock: tackup-lock-listener   -> tackup-lock -> here
+#   - suspend:      lock-on-sleep.service  -> smart-trigger -> here
+#   - Session.Lock: smart-trigger.service  -> smart-trigger -> here
 #
 # Idempotent: if swaylock is already up it exits at once. Plus a scoped PHANTOM
-# GUARD: swayidle re-fires idle-lock right after an unlock (the compositor's idle
-# timer is not reset by the unlock input -- a wlroots idle-notify bug), which
-# storms as repeated re-locks. A legit idle-lock cannot occur < LOCK_TIMEOUT
-# (480s) after an unlock, so an idle-lock within a short cooldown of the last
-# unlock IS that phantom: suppressed here, but LOGGED LOUDLY (journal warning) so
-# it stays observable while symptomless. NEVER applied to suspend / manual /
-# Session.Lock (gating suspend would sleep the box UNLOCKED); the idle path tags
-# itself with LOCK_SOURCE=idle. (This restores the old COOLDOWN debounce that was
-# removed on the mistaken belief flock+pgrep covered it -- they only stop
-# CONCURRENT invocations, not swayidle's sequential re-fire after unlock.)
+# GUARD: swayidle re-fires idle-lock right after an unlock (the compositor's
+# idle timer is not reset by the unlock input -- a wlroots idle-notify bug),
+# which storms as repeated re-locks. A legit idle-lock cannot occur <
+# LOCK_TIMEOUT (480s) after an unlock, so an idle-lock within a short cooldown
+# of the last unlock IS that phantom: suppressed here, but LOGGED LOUDLY
+# (journal warning) so it stays observable while symptomless. NEVER applied to
+# suspend / manual / Session.Lock (gating suspend would sleep the box
+# UNLOCKED); the idle path tags itself with LOCK_SOURCE=idle. (This restores
+# the old COOLDOWN debounce that was removed on the mistaken belief flock+pgrep
+# covered it -- they only stop CONCURRENT invocations, not swayidle's
+# sequential re-fire after unlock.)
 #
 # Spanned lock screen: swaylock draws the same image on every output and has no
 # spanned mode, so on a multi-output host we pre-slice one wallpaper into one
@@ -148,11 +149,12 @@ run_hooks() {
     exit 0
   fi
 
-  # PHANTOM GUARD (idle path only): a legit idle-lock cannot fire < LOCK_TIMEOUT
-  # (480s) after an unlock, so an idle-lock within COOLDOWN of the last unlock is
-  # swayidle's post-unlock re-fire. Suppress it, but LOG LOUDLY so the phantom is
-  # still countable in the journal even though the user no longer sees it. Scoped
-  # to LOCK_SOURCE=idle so suspend / manual / Session.Lock are never gated.
+  # PHANTOM GUARD (idle path only): a legit idle-lock cannot fire <
+  # LOCK_TIMEOUT (480s) after an unlock, so an idle-lock within COOLDOWN of the
+  # last unlock is swayidle's post-unlock re-fire. Suppress it, but LOG LOUDLY
+  # so the phantom is still countable in the journal even though the user no
+  # longer sees it. Scoped to LOCK_SOURCE=idle so suspend / manual /
+  # Session.Lock are never gated.
   if [ "${LOCK_SOURCE:-}" = idle ] && [ -f "$UNLOCK_STAMP" ]; then
     _now=$(date +%s)
     _last=$(cat "$UNLOCK_STAMP" 2>/dev/null || echo 0)
@@ -161,7 +163,9 @@ run_hooks() {
     if [ "$((_now - _last))" -lt "$_cd" ]; then
       trace phantom-suppressed
       logger -t smart-lock -p user.warning \
-        "PHANTOM RELOCK SUPPRESSED: idle-lock $((_now - _last))s after unlock (swayidle re-fire; compositor idle-notify not reset on unlock). cooldown=${_cd}s"
+        "PHANTOM RELOCK SUPPRESSED: idle-lock $((_now - _last))s after unlock" \
+        "(swayidle re-fire; compositor idle-notify not reset on unlock)." \
+        "cooldown=${_cd}s"
       exit 0
     fi
   fi
