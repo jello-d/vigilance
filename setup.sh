@@ -59,7 +59,7 @@ do_install() {
   mkdir -p "$_hookd/lock.d" "$_hookd/unlock.d"
   ln -sfn "$_bin/mute-on-lock" "$_hookd/lock.d/10-mute-on-lock"
   ln -sfn "$_bin/mute-on-lock" "$_hookd/unlock.d/10-unmute-on-unlock"
-  echo "$PKG: linked the tools (+ man) + the mute lock-hooks into $PREFIX/$_cfg"
+  echo "$PKG: linked tools + man + the mute lock-hooks (~/.local, ~/.config)"
 }
 
 do_service() {
