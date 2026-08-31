@@ -51,3 +51,10 @@ POSIX shell (a couple of tools use bash arrays); no daemon of its own.
 ## License
 
 Apache-2.0.
+
+## Development
+
+An 80-column limit is enforced by a tracked pre-commit hook. Enable it once
+per clone:
+
+    git config core.hooksPath .githooks
