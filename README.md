@@ -1,6 +1,6 @@
 # vigilance
 
-**Keep watch over an idle or absent machine: lock, blank, mute, and restore.**
+**Keep watch over an idle or absent machine: lock, blank, and run your hooks.**
 
 vigilance is a suite of Wayland tools for what a machine should do when you
 step away, and when you return. It is built swayidle-INDEPENDENT for every
@@ -17,7 +17,12 @@ the lock guarantee.
 - **panel-power**: real screen-off over DDC/CI (modeset-safe, NVIDIA-safe), not
   a destructive connector toggle.
 - **osd-mgr**: supervises the OSD server so volume/brightness keys self-heal.
-- **mute-on-lock**, and the **idle-capture** / **lock-watch** diagnostics.
+- the **idle-capture** / **lock-watch** diagnostics.
+
+`smart-lock` runs every executable in `~/.config/lock-hooks/{lock,unlock}.d/` on
+lock/unlock (the event is passed as `$1`). That hook system is the extension
+point; vigilance ships no hooks of its own. An integrator drops in its own, for
+example muting audio while you are away.
 
 ## Install
 

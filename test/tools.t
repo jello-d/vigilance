@@ -1,6 +1,6 @@
 #!/bin/sh
 # test/tools.t - every shipped script parses under its own shell (the shebang
-# picks sh vs bash; smart-lock/mute-on-lock use bash arrays). Catches a syntax
+# picks sh vs bash; smart-lock uses bash arrays). Catches a syntax
 # regression before it ships.
 . "$(dirname "$0")/lib.sh"
 harness_init tools

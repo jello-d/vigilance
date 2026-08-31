@@ -11,11 +11,11 @@ vigilance \- lock / screen-power / idle suite for a Wayland session
 .B panel-power
 .RB { off | on }
 .br
-.B swayidle-mgr ", " osd-mgr ", " mute-on-lock ", " idle-capture ", " lock-watch
+.B swayidle-mgr ", " osd-mgr ", " idle-capture ", " lock-watch
 .SH DESCRIPTION
 vigilance is a suite of small, single-purpose tools for what a machine does when
 you step away and when you return: lock the screen, blank or power down the
-panel, mute audio, and restore on unlock. There is no single
+panel, and run your lock/unlock hooks (audio muting, etc.). There is no single
 .B vigilance
 command; each tool below is invoked by name, or driven by the systemd units in
 .IR systemd/ .
@@ -50,11 +50,17 @@ toggles a connector.
 .B osd-mgr
 Supervises the on-screen-display server so it self-heals a half-init.
 .TP
-.B mute-on-lock
-Mutes audio while the session is locked.
-.TP
 .B idle-capture ", " lock-watch
 Opt-in diagnostics for tracing phantom-relock and idle behaviour.
+.SH HOOKS
+.B smart-lock
+runs every executable in
+.IR ~/.config/lock-hooks/lock.d/
+on lock and
+.IR ~/.config/lock-hooks/unlock.d/
+on unlock, passing the event ("lock"/"unlock") as the first argument. This is
+the extension point: an integrator drops in its own hooks (audio muting, a
+presence beacon, ...); vigilance ships none.
 .SH FILES
 .TP
 .I systemd/smart-trigger.service

@@ -20,12 +20,6 @@ for _t in "$HERE"/bin/*; do _n=$(basename "$_t")
 [ -e "$SHR/man/man1/vigilance.1" ] || fail "man page not linked"
 [ -e "$CFG/systemd/user/smart-trigger.service" ] \
   && fail "install linked the --user unit (should be service-only)"
-# the mute lock-hooks are wired to the installed mute-on-lock (both entries)
-_lh=$CFG/lock-hooks
-[ "$(readlink "$_lh/lock.d/10-mute-on-lock")" = "$BIN/mute-on-lock" ] \
-  || fail "mute lock-hook not wired"
-[ "$(readlink "$_lh/unlock.d/10-unmute-on-unlock")" = "$BIN/mute-on-lock" ] \
-  || fail "unmute lock-hook not wired"
 
 # check runs (tools are on the sandbox PATH via BIN)
 PATH="$BIN:$PATH" run check >/dev/null 2>&1 || fail "check failed post-install"
@@ -35,6 +29,5 @@ run uninstall >/dev/null 2>&1 || fail "uninstall errored"
 for _t in "$HERE"/bin/*; do _n=$(basename "$_t")
   [ -e "$BIN/$_n" ] && fail "$_n symlink not removed"; done
 [ -e "$SHR/man/man1/vigilance.1" ] && fail "man page not removed"
-[ -e "$_lh/lock.d/10-mute-on-lock" ] && fail "mute lock-hook not removed"
 
 pass "install + check + uninstall"

@@ -1,10 +1,12 @@
 #!/bin/sh
 # setup.sh - install / uninstall / check / test the vigilance lock / screen-
 # power / idle suite: the standalone Wayland tools in bin/ (smart-lock,
-# smart-trigger, swayidle-mgr, panel-power, osd-mgr, mute-on-lock, idle-capture,
-# lock-watch). The SINGLE entry point a consumer or provisioning layer uses.
+# smart-trigger, swayidle-mgr, panel-power, osd-mgr, idle-capture, lock-watch).
+# The SINGLE entry point a consumer or provisioning layer uses. smart-lock runs
+# the hooks in ~/.config/lock-hooks/ on lock/unlock; that hook system is the
+# extension point, and the specific hooks are the integrator's to drop in.
 #
-#   ./setup.sh install     symlink the tools (+ man) + the mute lock-hooks
+#   ./setup.sh install     symlink the tools (+ man) into ~/.local
 #   ./setup.sh service     install + enable the --user Session.Lock listener
 #   ./setup.sh all         install + service
 #   ./setup.sh uninstall   remove the symlinks (+ the --user listener)
@@ -29,7 +31,6 @@ _shr=${XDG_DATA_HOME:-$PREFIX/share}
 _man=$_shr/man
 _cfg=${XDG_CONFIG_HOME:-$HOME/.config}
 _usr=$_cfg/systemd/user
-_hookd=$_cfg/lock-hooks           # smart-lock runs {lock,unlock}.d/* here
 _unit=$_root/systemd/smart-trigger.service
 DEPS="swaylock swayidle wlopm ddcutil"   # external runtime deps (spanning/DDC)
 RC=0
@@ -53,13 +54,7 @@ do_install() {
   _man_pages | while IFS= read -r _m; do
     _d=$_man/$(basename "$(dirname "$_m")")
     mkdir -p "$_d"; ln -sfn "$_m" "$_d/$(basename "$_m")"; done
-  # Wire mute-on-lock into smart-lock's hook dir so it fires on lock/unlock (it
-  # dispatches on the event -- $1 from the hook runner, or its $0 basename). One
-  # binary, two entries; the symlink targets the installed, stable mute-on-lock.
-  mkdir -p "$_hookd/lock.d" "$_hookd/unlock.d"
-  ln -sfn "$_bin/mute-on-lock" "$_hookd/lock.d/10-mute-on-lock"
-  ln -sfn "$_bin/mute-on-lock" "$_hookd/unlock.d/10-unmute-on-unlock"
-  echo "$PKG: linked tools + man + the mute lock-hooks (~/.local, ~/.config)"
+  echo "$PKG: linked the tools (+ man) into $PREFIX"
 }
 
 do_service() {
@@ -79,10 +74,7 @@ do_uninstall() {
     [ "$(readlink "$_l" 2>/dev/null)" = "$_m" ] && rm -f "$_l" || :; done
   [ "$(readlink "$_usr/smart-trigger.service" 2>/dev/null)" = "$_unit" ] \
     && rm -f "$_usr/smart-trigger.service" || :
-  for _h in lock.d/10-mute-on-lock unlock.d/10-unmute-on-unlock; do
-    [ "$(readlink "$_hookd/$_h" 2>/dev/null)" = "$_bin/mute-on-lock" ] \
-      && rm -f "$_hookd/$_h" || :; done
-  echo "$PKG: removed the ~/.local symlinks (+ the listener + mute lock-hooks)"
+  echo "$PKG: removed the ~/.local symlinks (+ the --user listener)"
 }
 
 do_check() {
@@ -96,10 +88,6 @@ do_check() {
   if [ -d "$_cfg/shapes" ]; then
     ok "shape config present (~/.config/shapes)"
   else warn "no ~/.config/shapes; smart-lock uses a single-output lock"; fi
-  for _h in lock.d/10-mute-on-lock unlock.d/10-unmute-on-unlock; do
-    [ "$(readlink "$_hookd/$_h" 2>/dev/null)" = "$_bin/mute-on-lock" ] \
-      && ok "mute lock-hook $_h wired" \
-      || warn "mute lock-hook $_h not wired (setup.sh install)"; done
 }
 
 _U="usage: setup.sh [install|service|all|uninstall|check|test|version]"
