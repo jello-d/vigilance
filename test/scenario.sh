@@ -30,6 +30,11 @@ scenario_init() {   # <name>
   VIGILANT=$HERE/bin/vigilant
   export VIGILANCE_HOOK_ROOT="$T/hooks"
   export VIGILANCE_RUN_DIR="$T/run"
+  # Sandbox the LOG too. Without this every scenario appends to the real
+  # ~/.local/state/vigilance.log, polluting the operator's record with test
+  # traffic. Same family as the brightnessctl leak in hooks.t: a test that
+  # writes outside its temp dir is reaching into the running system.
+  export VIGILANCE_LOG="$T/vigilant.log"
   RECORD=$T/record
   : > "$RECORD"
   mkdir -p "$VIGILANCE_HOOK_ROOT" "$VIGILANCE_RUN_DIR"
