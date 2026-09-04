@@ -1,0 +1,201 @@
+#!/bin/sh
+# test/vm/run - the VM substrate for vigilance's scenarios.
+#
+# Runs the SAME test/scenarios that test/run runs, but against real systemd,
+# real logind and a real suspend, inside a throwaway KVM guest. Nothing here
+# re-implements an assertion: the scenario files are the single source of
+# truth for what correct means, and this only supplies the capabilities the
+# stub substrate honestly cannot (see test/scenario.sh).
+#
+# WHY A VM AT ALL: the bugs in this suite's history were never logic errors,
+# they were WIRING errors, and every one of them survived a green stub run.
+# The stub tier answers "does the logic do what we mean"; this tier answers
+# "does a from-scratch install produce a working system". Only the second
+# would have caught a hook whose path went stale.
+#
+# It also means the systemd work needs no sudo on the host: the guest is root.
+#
+# Prereqs: qemu-system-x86_64, /dev/kvm writable (an ACL grant is enough),
+# xorriso, curl. No sudo. Usage: sh test/vm/run [--keep]
+set -eu
+
+HERE=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
+VM=${VIGILANCE_VM_DIR:-/var/tmp/vigilancevm}
+IMG=$VM/noble-server-cloudimg-amd64.img
+URL=https://cloud-images.ubuntu.com/noble/current/${IMG##*/}
+CONSOLE=$VM/console.log
+KEEP=${1:-}
+
+# Capabilities this substrate can honestly provide. Anything not listed here
+# still skips, even in the VM.
+# `compositor` is added at RUNTIME, only if sway actually comes up headless in
+# the guest. It is not asserted here: a capability we claim but cannot provide
+# would make a scenario silently pass against nothing, which is the exact
+# failure mode this suite is built to refuse.
+CAPS='systemd suspend logind'
+
+_die() { echo "vm: $*" >&2; exit 1; }
+
+for _c in qemu-system-x86_64 xorriso curl; do
+  command -v "$_c" >/dev/null 2>&1 || _die "missing prereq: $_c"
+done
+[ -w /dev/kvm ] || _die "/dev/kvm not writable (an ACL grant is enough)"
+
+mkdir -p "$VM"
+
+# --- base image -------------------------------------------------------------
+if [ ! -f "$IMG" ]; then
+  echo "vm: fetching base cloud image (once)"
+  curl -fSL -o "$IMG.part" "$URL" || _die "image download failed"
+  mv "$IMG.part" "$IMG"
+fi
+
+# --- the repo, as a read-only ISO ------------------------------------------
+# Simpler than 9p (no kernel module dependency) and it guarantees the guest
+# tests the tree as SHIPPED, not a live working copy it could accidentally
+# mutate.
+echo "vm: packing the repo"
+xorriso -as mkisofs -R -J -V VIGILANCE -quiet \
+  -o "$VM/repo.iso" "$HERE" 2>/dev/null || _die "repo.iso failed"
+
+# --- cloud-init seed --------------------------------------------------------
+# Tools come from `packages:`, never an apt-get inside runcmd: a script's apt
+# races cloud-init's own package lock and DEADLOCKS.
+#
+# All output goes to a FILE and is dumped to the serial at the very end.
+# Writing to /dev/ttyS0 live interleaves with boot spam and gets lost.
+_seed=$VM/seed
+rm -rf "$_seed"; mkdir -p "$_seed"
+cat > "$_seed/meta-data" <<EOF
+instance-id: vigilance-$$
+local-hostname: vigilance-vm
+EOF
+cat > "$_seed/user-data" <<EOF
+#cloud-config
+packages:
+  - dash
+  - util-linux
+  - sway
+  - swaylock
+runcmd:
+  - |
+    {
+      # cloud-init's runcmd has NO HOME. The tools derive their own, but this
+      # script must not assume one either: with HOME unset, a PATH built from
+      # "\$HOME/.local/bin" silently becomes "/.local/bin" and every tool then
+      # reads as not-installed. That is a harness bug that looks exactly like
+      # a product failure, so set it explicitly and once.
+      HOME=/root; export HOME
+      mkdir -p /mnt/repo /root/vigilance
+      mount -o ro /dev/disk/by-label/VIGILANCE /mnt/repo
+      cp -a /mnt/repo/. /root/vigilance/
+      cd /root/vigilance
+      chmod +x bin/* setup.sh test/run libexec/vigilance/hooks/* || true
+
+      echo "=== from-scratch install ==="
+      sh setup.sh install
+      PATH="\$HOME/.local/bin:\$PATH"; export PATH
+      sh setup.sh check || echo "SETUP_CHECK_DRIFT=\$?"
+
+      echo "=== session reality (what the probe must cope with) ==="
+      loginctl list-sessions || true
+      systemctl --user is-active graphical-session.target || true
+
+      echo "=== compositor probe (for the lock-span scenario) ==="
+      # A real swaylock is the only way to answer whether systemd's
+      # GuessMainPID latches ITS daemonized child, and whether ExecStopPost
+      # fires when it CRASHES. A synthetic forker cannot answer either.
+      export XDG_RUNTIME_DIR=/run/user/0
+      mkdir -p "\$XDG_RUNTIME_DIR"; chmod 700 "\$XDG_RUNTIME_DIR"
+      mkdir -p /root/.config/sway
+      printf 'exec true\\n' > /root/.config/sway/config
+      export WLR_BACKENDS=headless WLR_LIBINPUT_NO_DEVICES=1
+      export XDG_SESSION_TYPE=wayland
+      ( sway >/root/sway.log 2>&1 & ) 
+      _sock() { ls "\$XDG_RUNTIME_DIR"/wayland-* 2>/dev/null \
+        | grep -v '\.lock\$' | head -1; }
+      _n=0
+      while [ "\$_n" -lt 20 ]; do
+        if [ -n "\$(_sock)" ]; then break; fi
+        sleep 0.5; _n=\$((_n + 1))
+      done
+      if [ -n "\$(_sock)" ]; then
+        export WAYLAND_DISPLAY=\$(basename "\$(_sock)")
+        echo "  sway up, WAYLAND_DISPLAY=\$WAYLAND_DISPLAY"
+        SCENARIO_CAPS_EXTRA=compositor
+      else
+        echo "  sway did NOT come up headless; compositor scenarios will SKIP"
+        echo "  --- sway.log ---"; tail -15 /root/sway.log 2>/dev/null
+        SCENARIO_CAPS_EXTRA=
+      fi
+
+      echo "=== scenarios (VM substrate) ==="
+      SCENARIO_CAPS="$CAPS \${SCENARIO_CAPS_EXTRA:-}"; export SCENARIO_CAPS
+      SCENARIO_SUSPEND_CMD="rtcwake -m mem -s 5"; export SCENARIO_SUSPEND_CMD
+      sh test/run
+      echo "VIGILANCE_VM_EXIT=\$?"
+    } > /root/log 2>&1
+    cat /root/log > /dev/ttyS0
+    poweroff -f
+EOF
+xorriso -as mkisofs -R -J -V CIDATA -quiet \
+  -o "$VM/seed.iso" "$_seed" 2>/dev/null || _die "seed.iso failed"
+
+# --- a fresh overlay per run ------------------------------------------------
+# cloud-init runs once per instance-id, so a reused overlay would silently
+# skip the whole test and look like a pass.
+rm -f "$VM/boot.qcow2"
+qemu-img create -q -f qcow2 -F qcow2 -b "$IMG" "$VM/boot.qcow2" 8G \
+  || _die "overlay failed"
+
+: > "$CONSOLE"
+echo "vm: booting (console: $CONSOLE)"
+
+# The VERDICT COMES FROM THE SERIAL LOG, never from qemu's exit status, and
+# qemu is bounded by a timeout. Both are load-bearing: after an S3 cycle qemu
+# does NOT reliably exit when the guest powers down (observed: three runs left
+# three live VMs and the runner blocked forever). Trusting the child's exit
+# both hung the harness and leaked a VM per run.
+#
+# -global ICH9-LPC.disable_s3=0 is what makes a REAL S3 cycle possible in the
+# guest; without it rtcwake cannot suspend and the depth-across-suspend
+# scenario would be untestable here too.
+qemu-system-x86_64 -enable-kvm -machine q35 -m 2048 -smp 2 \
+  -global ICH9-LPC.disable_s3=0 \
+  -drive file="$VM/boot.qcow2",if=virtio \
+  -drive file="$VM/seed.iso",if=virtio,media=cdrom \
+  -drive file="$VM/repo.iso",if=virtio,media=cdrom \
+  -netdev user,id=n0 -device virtio-net-pci,netdev=n0 \
+  -display none -serial "file:$CONSOLE" -monitor none -no-reboot \
+  >/dev/null 2>&1 &
+_qpid=$!
+
+# Poll the log for the guest's completion marker, then stop the VM. Bounded, so
+# a guest that never reports cannot hang the run either way.
+_waited=0
+while [ "$_waited" -lt "${VM_TIMEOUT:-600}" ]; do
+  if grep -q 'VIGILANCE_VM_EXIT=' "$CONSOLE" 2>/dev/null; then break; fi
+  if ! kill -0 "$_qpid" 2>/dev/null; then break; fi
+  sleep 2
+  _waited=$((_waited + 2))
+done
+kill "$_qpid" 2>/dev/null || true
+wait "$_qpid" 2>/dev/null || true
+
+# --- verdict ----------------------------------------------------------------
+echo "vm: ---- guest output ----"
+sed -n '/=== from-scratch install ===/,$p' "$CONSOLE" || true
+echo "vm: ---- end ----"
+
+if [ "$KEEP" != --keep ]; then rm -f "$VM/boot.qcow2"; fi
+
+if grep -q 'VIGILANCE_VM_EXIT=0' "$CONSOLE" 2>/dev/null; then
+  echo "vm: PASS"
+  exit 0
+fi
+# A missing marker is NOT a pass. A guest that never got far enough to print
+# one has failed in a way that matters more than an assertion, not less.
+grep -q 'VIGILANCE_VM_EXIT=' "$CONSOLE" 2>/dev/null \
+  || _die "guest never reported (boot or cloud-init failure); see $CONSOLE"
+echo "vm: FAIL"
+exit 1
