@@ -1,12 +1,52 @@
 #!/bin/sh
 # test/run - run every vigilance shell test (test/*.t) and report. Non-zero if
 # any fails. POSIX sh, no dependency beyond a shell and the repo checkout.
+#
+# This is the STUB substrate. It provides no systemd, no logind, no suspend and
+# no hardware, and it does NOT pretend otherwise: a scenario declaring
+# `require systemd` skips here and runs for real under test/vm/run. A stubbed
+# `systemctl` would lie, and a lying stub is exactly how modules/tests/lock
+# stayed green while ~/bin/panel-power did not exist.
+#
+# SKIPS ARE COUNTED AND PRINTED. A green run that silently omitted half the
+# suite is the same false confidence that let lock-watch sit dead for 74,309
+# restarts, so the summary always states what was not covered here.
 set -eu
 _dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+
+# The capabilities this substrate can honour. test/vm/run sets a longer list.
+SCENARIO_CAPS=${SCENARIO_CAPS:-}
+export SCENARIO_CAPS
+
 _rc=0
+_pass=0
+_skip=0
+_need=""
 for _t in "$_dir"/*.t; do
   [ -f "$_t" ] || continue
-  sh "$_t" || _rc=1
+  _out=$(sh "$_t" 2>&1) || _rc=1
+  printf '%s\n' "$_out"
+  # Match the LAST line, not the first: a test may emit tool noise ahead of its
+  # verdict (rtcwake chatters on stderr during the real suspend scenario), and
+  # matching the head silently undercounted it. An undercount is precisely the
+  # false confidence this summary exists to prevent.
+  case "$(printf '%s\n' "$_out" | tail -n 1)" in
+    skip\ *)
+      _skip=$((_skip + 1))
+      _n=${_out#*(needs }; _n=${_n%)*}
+      case " $_need " in *" $_n "*) ;; *) _need="$_need $_n" ;; esac ;;
+    ok\ *) _pass=$((_pass + 1)) ;;
+  esac
 done
-[ "$_rc" -eq 0 ] && echo "all vigilance tests passed"
-exit "$_rc"
+
+if [ "$_rc" -ne 0 ]; then
+  echo "vigilance tests FAILED"
+  exit 1
+fi
+if [ "$_skip" -gt 0 ]; then
+  printf '%d passed, %d skipped here (need:%s) -- run test/vm/run for those\n' \
+    "$_pass" "$_skip" "$_need"
+else
+  printf 'all vigilance tests passed (%d)\n' "$_pass"
+fi
+exit 0

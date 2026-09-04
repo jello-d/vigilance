@@ -1,0 +1,492 @@
+#!/bin/sh
+# vigilant -- cross an edge, and be vigilant that it took effect.
+#
+# vigilance's two pillars, in one command: make sure ALL the things go dark
+# when they should, and make sure the mechanism that does it is WORKING. See
+# docs/framework-refactor.md for the model this implements.
+#
+# FIXED VERBS, and the ARGUMENT IS THE STATE. The verb set is closed, so a new
+# rung can never collide with a command name (which edge-as-verb could not
+# promise):
+#
+#   vigilant go <state>       traverse to state, respecting the ladder
+#   vigilant force <state>    assert state, ignoring the recorded depth
+#   vigilant only <state>     cross ONE edge into state, no traversal
+#   vigilant status           where we are, and where hooks live
+#   vigilant verify [edge]    run reverse hooks; assert reality
+#   vigilant hooks [edge]     what would run, in order, resolved
+#   vigilant check            wiring audit (stage 4)
+#
+# THE LADDER, one dimension: how far the machine has WITHDRAWN. Present tense
+# throughout, so a state names a condition the machine is IN, never something
+# that already happened to it:
+#
+#   open     fully here; unlocked and lit
+#   lock     session secured; the screen is still lit
+#   sleep    peripherals down (DDC standby, backlights 0, LEDs off)
+#   suspend  machine in S3/hibernate
+#
+# `go` is DECLARATIVE: say where you want to be and every edge in between is
+# crossed. So `go suspend` from `lock` fires sleep.d AND suspend.d, which is
+# why suspending now actually powers the monitor down instead of leaving it
+# lit. There is no minimum-rung special case; you simply cannot skip a rung.
+#
+# FIVE HOOK KINDS, and vigilant hardcodes NO mechanism in any of them. It
+# knows nothing of logind, swayidle, swaylock or systemd; each is a hook that
+# binds vigilance to one environment. That is the whole point of the split:
+#
+#   <edge>.d          DO it        actuators (drive the hardware)
+#   <edge>.verify.d   CHECK it     did the edge actually take effect
+#   <edge>.report.d   TELL         announce the change outward (logind's
+#                                  SetLockedHint, a bar, an indicator)
+#   <edge>.due.d      WHEN         when SHOULD this edge have fired? The
+#                                  timeout lives outside vigilant, so a hook
+#                                  reads it (swaylock.conf, a swayidle timer)
+#   <edge>.block.d    WHY NOT      is something legitimately preventing it
+#                                  (an idle inhibitor, a spurious re-fire)?
+#                                  Runs BEFORE the depth is committed, so a
+#                                  blocked edge changes NOTHING (exit 3).
+#                                  Exit 10 = BLOCK, anything else = allow.
+#                                  FAIL OPEN by design: a broken block hook
+#                                  must never be able to suppress a LOCK, so
+#                                  only an explicit 10 blocks. Suppressing a
+#                                  lock is a security failure; allowing a
+#                                  redundant one is merely noise.
+#   alert.d           SHOUT        tell the HUMAN something needed attention.
+#                                  NOT per-edge: it is cross-cutting, raised
+#                                  by vigilant itself
+#
+# LOG vs ALERT, deliberately different: the LOG is vigilant's own record and is
+# built in, because a supervisor that only records when an integrator wires
+# something up is not a supervisor. Alerting a human is POLICY (a toast, a bar,
+# an intervention flag), so it is a hook and vigilant assumes no mechanism.
+#
+# `due` and `block` are read INWARD from the environment; `report` is written
+# OUTWARD to it. Both directions are hooks, so playing nice with a stock
+# mechanism never means hardcoding an assumption about which mechanism it is.
+#
+# EDGES are the transitions between rungs, and hooks are keyed by them. A
+# DESCENT edge shares its name with the state it enters; only the ascent needs
+# words of its own:
+#
+#   open -> lock     lock        lock -> open     unlock
+#   lock -> sleep    sleep       sleep -> lock    wake
+#   sleep -> suspend suspend     suspend -> sleep resume
+#
+# Ascent is NOT the descent reversed. Leaving `sleep` the saved state is valid,
+# so a hook restores it; leaving `suspend` USB re-enumerated and a QMK board
+# forgot everything, so the saved state is STALE and the hook must re-assert
+# from config. Same hook, same direction, different correct behaviour, which is
+# why the runner passes the rung being LEFT as $2/FROM.
+#
+# HARD CONSTRAINT: `go suspend` does NOT suspend. It fires the hooks for that
+# edge, invoked BY the unit ordered Before=sleep.target. systemd stays the
+# actuator; vigilant only crosses edges. The moment this initiates a power
+# transition it competes with the trust root instead of riding it.
+#
+# EXIT CODES are a contract, because units and the patch branch on them:
+#   0  ok, including a no-op
+#   1  crossed, but one or more hooks FAILED (degraded, but we did move)
+#   2  usage error
+#   3  refused: a precondition was not met and NOTHING happened
+set -eu
+
+PKG=vigilant
+
+# HOME is NOT guaranteed. A login shell has it; a systemd unit with no User=,
+# a sleep hook under /lib/systemd/system-sleep, and cloud-init's runcmd do not,
+# and under `set -u` an unset HOME is a hard exit 2 before anything runs. Since
+# every edge crossing is invoked from exactly those contexts, derive it from
+# the passwd database rather than assume it, and fail LOUDLY if even that
+# cannot answer. (Caught by test/vm/run on its first boot.)
+if [ -z "${HOME:-}" ]; then
+  HOME=$(getent passwd "$(id -u)" 2>/dev/null | cut -d: -f6 || true)
+  if [ -z "$HOME" ]; then
+    echo "$PKG: HOME unset and not derivable from passwd" >&2
+    exit 1
+  fi
+  export HOME
+fi
+
+_cfg=${XDG_CONFIG_HOME:-$HOME/.config}
+HOOK_ROOT=${VIGILANCE_HOOK_ROOT:-$_cfg/vigilance/hooks}
+# Runtime state. XDG_RUNTIME_DIR survives suspend and hibernate but NOT a
+# reboot, which is exactly right: a boot means we are at the top of the ladder.
+RUN_DIR=${VIGILANCE_RUN_DIR:-${XDG_RUNTIME_DIR:-/tmp}/vigilance}
+DEPTH_FILE=$RUN_DIR/depth
+STATE_ROOT=$RUN_DIR/state
+
+LADDER='open lock sleep suspend'           # shallowest first
+
+# vigilant's OWN record. Built in and mechanism-free (it is a file), because
+# the whole charter is noticing when something silently did not happen, and a
+# record that depends on an integrator wiring it up would be the first thing
+# missing. stderr goes to the journal under a unit but NOWHERE under a
+# keybind, which is exactly when we most want the trail.
+LOG_FILE=${VIGILANCE_LOG:-${XDG_STATE_HOME:-$HOME/.local/state}/vigilance.log}
+
+_log() {   # message
+  mkdir -p "$(dirname "$LOG_FILE")" 2>/dev/null || true
+  printf '%s %s\n' "$(date '+%Y-%m-%dT%H:%M:%S')" "$*" >> "$LOG_FILE" \
+    2>/dev/null || true
+}
+
+log() { printf '%s: %s\n' "$PKG" "$*" >&2; _log "$*"; }
+
+# PROVENANCE travels in the ENVIRONMENT, never in argv: `vigilant go lock`
+# takes no arguments by contract, and depth stays the only authoritative
+# state. VIGILANCE_SOURCE says WHO asked (idle, logind, lid, manual, suspend),
+# which block hooks need and vigilant itself deliberately ignores.
+#
+# It is safety-critical that this stays hook policy. smart-lock debounced ONLY
+# the idle path and never suspend/manual/Session.Lock, because gating the
+# suspend path would sleep the box UNLOCKED. That distinction lives in the
+# hook, which is the only thing that knows what a source means.
+_blocked() {   # edge from -> 0 if an explicit block was raised
+  _bl=$(_hooks_for "$1" .block)
+  if [ -z "$_bl" ]; then return 1; fi
+  _hit=1
+  while IFS= read -r _bh; do
+    if [ -z "$_bh" ]; then continue; fi
+    _brc=0
+    _why=$(VIGILANCE_EDGE="$1" VIGILANCE_FROM="$2" \
+      "$_bh" "$1" "$2" 2>/dev/null) || _brc=$?
+    case "$_brc" in
+      10) log "BLOCKED $1 by $(basename "$_bh"): ${_why:-no reason given}"
+          _hit=0 ;;
+      0)  ;;
+      *)  log "block hook $(basename "$_bh") errored (rc=$_brc); ALLOWING" ;;
+    esac
+  done <<EOF
+$_bl
+EOF
+  return "$_hit"
+}
+
+# _alert <kind> <message>: something a HUMAN should know about. Logged always,
+# then handed to alert.d so the integrator decides how to surface it (a
+# desktop toast, an intervention flag, a bar indicator). A failing alerter can
+# never affect the outcome it is reporting on, so failures here are swallowed
+# after being logged: the machine's state must not depend on whether we
+# managed to complain about it.
+_alert() {   # kind message
+  _log "ALERT [$1] $2"
+  _al=$(_hooks_for alert)
+  if [ -z "$_al" ]; then return 0; fi
+  while IFS= read -r _ah; do
+    if [ -z "$_ah" ]; then continue; fi
+    VIGILANCE_ALERT_KIND="$1" VIGILANCE_ALERT_MSG="$2" \
+      "$_ah" "$1" "$2" >/dev/null 2>&1 \
+      || _log "  alert hook failed: $(basename "$_ah")"
+  done <<EOF
+$_al
+EOF
+}
+
+# The edge crossed by moving between ADJACENT rungs.
+#
+# Descending is named for the rung ENTERED, so a descent edge and its target
+# state share a name: `go sleep` crosses the `sleep` edge into the `sleep`
+# state, running sleep.d. One word, not two, and _edge_down is therefore just
+# the rung name.
+#
+# Ascending is named for the rung LEFT, because that is the distinction that
+# matters: leaving `sleep` the saved state is valid (wake, restore it), leaving
+# `suspend` it is stale (resume, re-assert instead). Those names cannot collide
+# with state names, which is why the ascent keeps its own three words.
+_edge_down() { _rung_at "$1"; }        # index of the rung being ENTERED
+_edge_up() {                           # index of the rung being LEFT
+  case "$1" in 3) echo resume ;; 2) echo wake ;; 1) echo unlock ;; esac
+}
+
+_is_descent() {   # edge
+  case "$1" in lock|sleep|suspend) return 0 ;; *) return 1 ;; esac
+}
+
+# Only an ASCENT edge unwinds in reverse. Anything else (a descent, and the
+# non-edge `alert` set) runs in plain ascending order.
+_is_ascent() {   # edge
+  case "$1" in unlock|wake|resume) return 0 ;; *) return 1 ;; esac
+}
+
+_depth_of() {   # rung -> integer, or non-zero if it is not a rung
+  _i=0
+  for _r in $LADDER; do
+    if [ "$_r" = "$1" ]; then echo "$_i"; return 0; fi
+    _i=$((_i + 1))
+  done
+  return 1
+}
+
+_rung_at() {   # integer -> rung
+  _i=0
+  for _r in $LADDER; do
+    if [ "$_i" -eq "$1" ]; then echo "$_r"; return 0; fi
+    _i=$((_i + 1))
+  done
+  return 1
+}
+
+# The depth file is "<rung> <epoch>": the rung, and WHEN it was entered.
+# The timestamp is what makes supervision possible at all -- without it there
+# is no deadline to compute for a `due` hook to be measured against. A legacy
+# file holding only a rung reads back with epoch 0, which simply means "no
+# deadline can be computed yet" rather than an error.
+_depth() {   # the current rung
+  if [ -r "$DEPTH_FILE" ]; then
+    cut -d' ' -f1 < "$DEPTH_FILE"
+  else
+    echo open
+  fi
+}
+
+_depth_at() {   # epoch the current rung was entered, or 0
+  # Guard on readability rather than redirecting stderr: a failed input
+  # redirect is reported by the SHELL before a later 2>/dev/null can take
+  # effect, so the error would leak to the terminal on a fresh run.
+  if [ ! -r "$DEPTH_FILE" ]; then echo 0; return 0; fi
+  _t=$(cut -d' ' -f2 < "$DEPTH_FILE" || true)
+  case "${_t:-}" in ''|*[!0-9]*) echo 0 ;; *) echo "$_t" ;; esac
+}
+
+_set_depth() {   # rung
+  printf '%s %s\n' "$1" "$(date +%s)" > "$DEPTH_FILE"
+}
+
+# --- hook enumeration -------------------------------------------------------
+# Descent runs ascending (10 -> 90); ascent runs descending (90 -> 10), so a
+# restore unwinds in the reverse order it wound down. Only executables count,
+# which is the same contract smart-lock's lock-hooks already use.
+_hooks_for() {   # edge [suffix]
+  _hd=$HOOK_ROOT/$1${2:-}.d
+  if [ ! -d "$_hd" ]; then return 0; fi
+  _hl=""
+  for _hh in "$_hd"/*; do
+    if [ -x "$_hh" ]; then _hl="$_hl$_hh
+"; fi
+  done
+  if [ -z "$_hl" ]; then return 0; fi
+  if _is_ascent "$1"; then printf '%s' "$_hl" | sort -r
+  else printf '%s' "$_hl" | sort; fi
+}
+
+# --- crossing an edge -------------------------------------------------------
+# Every hook gets the edge, the rung being left, and a state dir the runner
+# creates for it. That state dir is what deletes the copy-pasted save-file
+# logic panel-power reimplemented three times over.
+#
+# A failing hook is LOUD and does NOT abort the rest: one dark monitor must not
+# leave the keyboard lit. This is the direct fix for swaylock's `_exit(127)`,
+# which was silent BY DESIGN and hid a dead hook on two machines for days.
+#
+# The read loop is fed by a here-doc, NOT a pipe: a pipeline would run it in a
+# subshell and silently swallow the failure count, which is the same class of
+# bug this whole command exists to stop.
+_run_hooks() {   # edge from [suffix]
+  _edge=$1; _from=$2; _sfx=${3:-}
+  _list=$(_hooks_for "$_edge" "$_sfx")
+  if [ -z "$_list" ]; then return 0; fi
+  _fails=0
+  while IFS= read -r _h; do
+    if [ -z "$_h" ]; then continue; fi
+    _sd=$STATE_ROOT/$(basename "$_h")
+    mkdir -p "$_sd"
+    _hrc=0
+    VIGILANCE_EDGE="$_edge" VIGILANCE_FROM="$_from" \
+      VIGILANCE_SOURCE="${VIGILANCE_SOURCE:-}" \
+      VIGILANCE_STATE_DIR="$_sd" "$_h" "$_edge" "$_from" || _hrc=$?
+    if [ "$_hrc" -ne 0 ]; then
+      log "HOOK FAILED (rc=$_hrc): $_edge$_sfx $(basename "$_h")"
+      _fails=$((_fails + 1))
+      # An ACTUATOR or VERIFY failure means the machine may not be in the
+      # state we believe: a monitor that did not sleep, a check that did not
+      # confirm. That is worth a human's attention. A REPORT failure is not:
+      # nobody was told, but the machine is fine, and alerting on it would
+      # train the human to ignore alerts.
+      case "$_sfx" in
+        .report) ;;
+        *) _alert hook-failed \
+             "$_edge$_sfx hook $(basename "$_h") failed (rc=$_hrc)" ;;
+      esac
+    fi
+  done <<EOF
+$_list
+EOF
+  if [ "$_fails" -gt 0 ]; then return 1; fi
+  return 0
+}
+
+# go/force: traverse to a target rung, crossing EVERY edge in between.
+#
+# Declarative by design. The caller says where the machine should BE, not which
+# transition to perform, so no caller has to know the ladder's shape or
+# sequence its own steps. `force` differs only in that it does not trust the
+# recorded depth: it starts from the far end, so every hook needed to reach the
+# target runs. That is the drift-recovery path, for when reality and the depth
+# file have diverged.
+#
+# Depth is committed BEFORE the hooks run, and per step. A hook that fails must
+# not leave the recorded rung lying about where the machine is, because the
+# ascent reads it to decide restore-versus-re-assert.
+# `only` is the single-edge form: cross exactly the one edge that ENTERS the
+# target, skipping every rung in between. Direction comes from the current
+# depth (deeper target -> the descent edge, shallower -> the ascent edge), so
+# it stays symmetric and `only` can reach wake/resume as well as the descent
+# edges. Like `force` it ignores the ladder's no-skipping rule.
+#
+# It still COMMITS the depth. A hook that changed hardware without the record
+# following is precisely the desync that left a monitor dark for two days, so
+# there is no "run the hooks but pretend nothing happened" mode.
+cmd_go() {   # <state> [force|only]
+  _to=$1
+  _mode=${2:-}
+  _forced=
+  case "$_mode" in force) _forced=1 ;; esac
+  if ! _dto=$(_depth_of "$_to"); then
+    log "unknown state '$_to' (want: $LADDER)"
+    return 2
+  fi
+  mkdir -p "$RUN_DIR" "$STATE_ROOT"
+
+  if [ "$_mode" = only ]; then
+    _dfrom=$(_depth_of "$(_depth)") || _dfrom=0
+    if [ "$_dfrom" -eq "$_dto" ]; then
+      log "already at '$_to'; nothing to do"
+      return 0
+    fi
+    # One step, in the direction of the target, regardless of distance.
+    if [ "$_dfrom" -lt "$_dto" ]; then _edge=$(_edge_down "$_dto")
+    else _edge=$(_edge_up "$((_dto + 1))"); fi
+    _leaving=$(_depth)
+    if _blocked "$_edge" "$_leaving"; then
+      _log "refused $_edge: $_leaving (blocked)"
+      return 3
+    fi
+    _set_depth "$_to"
+    _log "cross $_edge: $_leaving -> $_to (only)"
+    _rc=0
+    _run_hooks "$_edge" "$_leaving" || _rc=1
+    _run_hooks "$_edge" "$_leaving" .report || true
+    return "$_rc"
+  fi
+
+  if [ -n "$_forced" ]; then
+    # Assume the far end, so every edge toward the target is crossed. For a
+    # MIDDLE rung this ascends into it (force sleep fires `resume`), which is
+    # the right edge for recovery: resume's whole job is to re-assert dark
+    # WITHOUT trusting saved state. The cost is that forcing into a middle rung
+    # can flicker (re-assert dark, then light up). Acceptable, because force is
+    # the rare drift-recovery path; the display keybind uses `go lock`, an
+    # ordinary ascent, and never flickers.
+    _dfrom=3
+    if [ "$_dto" -ge 3 ]; then _dfrom=0; fi
+  else
+    _dfrom=$(_depth_of "$(_depth)") || _dfrom=0
+  fi
+
+  if [ "$_dfrom" -eq "$_dto" ]; then
+    log "already at '$_to'; nothing to do"
+    return 0
+  fi
+
+  _rc=0
+  _i=$_dfrom
+  while [ "$_i" -ne "$_dto" ]; do
+    _leaving=$(_rung_at "$_i")
+    if [ "$_i" -lt "$_dto" ]; then
+      _i=$((_i + 1)); _edge=$(_edge_down "$_i")
+    else
+      _edge=$(_edge_up "$_i"); _i=$((_i - 1))
+    fi
+    # Ask before acting. A blocked edge must change NOTHING, so this runs
+    # before the depth is committed and before any actuator sees the edge.
+    if _blocked "$_edge" "$_leaving"; then
+      _log "refused $_edge: $_leaving (blocked)"
+      return 3
+    fi
+    _set_depth "$(_rung_at "$_i")"
+    _log "cross $_edge: $_leaving -> $(_rung_at "$_i")${_forced:+ (forced)}"
+    _run_hooks "$_edge" "$_leaving" || _rc=1
+    # Announce OUTWARD, after the actuators, so a reporter states what is now
+    # true rather than what was intended. A reporting failure is loud in the
+    # log but does NOT change the exit status: the contract's non-zero codes
+    # mean "the machine is not where you asked", and failing to tell logind is
+    # not that. A unit must not restart or alarm because a bar was busy.
+    _run_hooks "$_edge" "$_leaving" .report || true
+  done
+  return "$_rc"
+}
+
+cmd_status() {
+  _at=$(_depth_at)
+  if [ "$_at" -gt 0 ]; then _since="$(( $(date +%s) - _at ))s ago"
+  else _since="unknown"; fi
+  echo "depth: $(_depth)"
+  echo "since: $_since"
+  echo "hooks: $HOOK_ROOT"
+  echo "state: $RUN_DIR"
+}
+
+# An INSPECTABLE config is the antidote to silent misconfiguration, which is
+# the class every failure in this cycle belonged to. Every KIND is listed, so
+# a missing reporter or a mis-parked due hook is visible without guessing.
+KINDS=". .verify .report .due .block"
+cmd_hooks() {   # [edge]
+  for _e in ${1:-lock sleep suspend unlock wake resume}; do
+    echo "$_e:"
+    _any=0
+    for _k in $KINDS; do
+      case "$_k" in .) _sfx= ; _lbl= ;; *) _sfx=$_k; _lbl="[${_k#.}] " ;; esac
+      _l=$(_hooks_for "$_e" "$_sfx")
+      if [ -z "$_l" ]; then continue; fi
+      _any=1
+      printf '%s\n' "$_l" | while IFS= read -r _h; do
+        if [ -n "$_h" ]; then echo "  $_lbl$(basename "$_h") -> $_h"; fi
+      done
+    done
+    if [ "$_any" = 0 ]; then echo "  (none)"; fi
+  done
+}
+
+# verify: the REVERSE hooks. For every hook that acts, an optional paired hook
+# asserting it took effect. This is the SHARED ORACLE: the test suite and the
+# production watchdog call the same predicate, so they cannot drift apart about
+# what "correct" means. A verify hook written for one improves both.
+cmd_verify() {   # [edge]
+  mkdir -p "$RUN_DIR" "$STATE_ROOT"
+  _from=$(_depth)
+  _vrc=0
+  for _e in ${1:-lock sleep suspend unlock wake resume}; do
+    _run_hooks "$_e" "$_from" .verify || _vrc=1
+  done
+  return "$_vrc"
+}
+
+_U="usage: vigilant go <open|lock|sleep|suspend>
+                 | force <state> | only <state> | status
+                 | verify [edge] | hooks [edge] | check"
+_sub=${1:-}
+if [ "$#" -gt 0 ]; then shift; fi
+case "$_sub" in
+  go)
+    if [ "$#" -lt 1 ]; then
+      echo "vigilant: 'go' needs a state" >&2; echo "$_U" >&2; exit 2
+    fi
+    cmd_go "$1" ;;
+  force)
+    if [ "$#" -lt 1 ]; then
+      echo "vigilant: 'force' needs a state" >&2; echo "$_U" >&2; exit 2
+    fi
+    cmd_go "$1" force ;;
+  only)
+    if [ "$#" -lt 1 ]; then
+      echo "vigilant: 'only' needs a state" >&2; echo "$_U" >&2; exit 2
+    fi
+    cmd_go "$1" only ;;
+  status)  cmd_status ;;
+  verify)  cmd_verify "${1:-}" ;;
+  hooks)   cmd_hooks "${1:-}" ;;
+  check)   cmd_status ;;   # stage 4 replaces this with the marker contract
+  -h|--help|help) echo "$_U" ;;
+  *) echo "vigilant: unknown command '${_sub:-}'" >&2; echo "$_U" >&2; exit 2 ;;
+esac
