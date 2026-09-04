@@ -1,91 +1,128 @@
 .TH VIGILANCE 1 "" "vigilance" "User Commands"
 .SH NAME
-vigilance \- lock / screen-power / idle suite for a Wayland session
+vigilance \- edge framework for what a machine does when you step away
 .SH SYNOPSIS
-.B smart-lock
-.RB [ lock | unlock ]
+.B vigilant go
+.RB { open | lock | sleep | suspend }
 .br
-.B smart-trigger
-.RB { lock | listen }
+.B vigilant force
+.IR state ", " "vigilant only " state
 .br
-.B panel-power
-.RB { off | on }
+.B vigilant
+.RB { status | verify | hooks | check }
 .br
-.B swayidle-mgr ", " osd-mgr ", " idle-capture ", " lock-watch
+.B panel-power ", " swayidle-mgr ", " osd-mgr ", " idle-capture ", " lock-watch
 .SH DESCRIPTION
-vigilance is a suite of small, single-purpose tools for what a machine does when
-you step away and when you return: lock the screen, blank or power down the
-panel, and run your lock/unlock hooks (audio muting, etc.). There is no single
-.B vigilance
-command; each tool below is invoked by name, or driven by the systemd units in
-.IR systemd/ .
+vigilance is an edge framework. It owns a LADDER of states, the ordering and
+state discipline of the transitions between them, failure reporting, and
+verification. It owns no specific hardware and no specific compositor: those
+are plugins.
 .PP
-The security-critical paths are swayidle-INDEPENDENT by design. A single idle
-daemon that wedges must not be the lock guarantee, so locking is driven through
-.B smart-lock
-and
-.B smart-trigger
-from four triggers (idle timer, a manual keybind, suspend, and the logind
-Session.Lock signal), each independent of the others.
-.SH TOOLS
+The name is the charter. Two pillars: make sure all the things go dark when
+they should, and make sure the mechanism that is supposed to do it is actually
+working. The second is why vigilance SUPERVISES the stock tools rather than
+trusting them or patching them.
+.SH THE LADDER
+One dimension, how far the machine has withdrawn. Present tense throughout, so
+a state names a condition the machine is IN:
 .TP
-.B smart-lock
-The lock EXECUTOR: reads a per-display shape, draws a multi-output spanned lock,
-runs the lock/unlock hooks. Runs foreground so its unlock wait keeps the locker
-alive.
+.B open
+Fully here; unlocked and lit.
 .TP
-.B smart-trigger
-The robust LAUNCHER / LISTENER: runs the lock on suspend and on the logind
-Session.Lock signal, launching swaylock as a separate transient --user unit that
-survives the trigger's teardown.
+.B lock
+Session secured; the screen is still lit.
 .TP
-.B swayidle-mgr
-A thin single-instance idle-lock timer (timer-only; the security paths do not
-depend on it).
+.B sleep
+Peripherals down (DDC standby, backlights 0, LEDs off).
 .TP
-.B panel-power
-Real screen-off over DDC/CI (modeset-safe), plus the peripherals hook. Never
-toggles a connector.
-.TP
-.B osd-mgr
-Supervises the on-screen-display server so it self-heals a half-init.
-.TP
-.B idle-capture ", " lock-watch
-Opt-in diagnostics for tracing phantom-relock and idle behaviour.
+.B suspend
+Machine in S3 or hibernate.
+.PP
+.B go
+is declarative and traverses: say where the machine should BE and every edge in
+between is crossed.
+.B only
+crosses exactly one edge.
+.B force
+ignores the recorded depth, for when reality has drifted from the record.
+.PP
+.B "vigilant go suspend"
+does NOT suspend. It fires that edge's hooks, invoked BY the unit ordered
+Before=sleep.target. systemd stays the actuator; vigilant only crosses edges.
+.SH EDGES
+A descent edge shares its name with the state it enters
+.RB ( lock ", " sleep ", " suspend );
+the ascent needs its own words
+.RB ( unlock ", " wake ", " resume ).
+Ascent is not the descent reversed: leaving
+.B sleep
+the saved state is valid, so a hook restores it; leaving
+.B suspend
+USB has re-enumerated and the saved state is stale, so the hook re-asserts.
 .SH HOOKS
-.B smart-lock
-runs every executable in
-.IR ~/.config/lock-hooks/lock.d/
-on lock and
-.IR ~/.config/lock-hooks/unlock.d/
-on unlock, passing the event ("lock"/"unlock") as the first argument. This is
-the extension point: an integrator drops in its own hooks (audio muting, a
-presence beacon, ...); vigilance ships none.
+Six kinds, under
+.IR ~/.config/vigilance/hooks/ .
+vigilant hardcodes no mechanism in any of them.
+.TP
+.IB <edge> .d
+DO it: actuators that drive the hardware.
+.TP
+.IB <edge> .verify.d
+CHECK it: did the edge actually take effect.
+.TP
+.IB <edge> .report.d
+TELL: announce the change outward (logind's SetLockedHint, a bar).
+.TP
+.IB <edge> .due.d
+WHEN: when should this edge have fired? The timeout lives outside vigilant.
+.TP
+.IB <edge> .block.d
+WHY NOT: is something legitimately preventing it? Exit 10 blocks, anything
+else allows. Fails OPEN: a broken guard must never suppress a lock.
+.TP
+.I alert.d
+SHOUT: tell the human. Not per-edge; raised by vigilant itself.
+.PP
+Every hook receives the edge and the rung being left, plus
+.BR VIGILANCE_EDGE ,
+.BR VIGILANCE_FROM ,
+.B VIGILANCE_SOURCE
+(who asked) and
+.BR VIGILANCE_STATE_DIR .
+vigilance ships plugins under
+.I libexec/vigilance/
+but enables none: which ones run is the integrator's policy.
+.SH EXIT STATUS
+.TP
+.B 0
+Ok, including a no-op.
+.TP
+.B 1
+Crossed, but one or more hooks failed (degraded, but it moved).
+.TP
+.B 2
+Usage error.
+.TP
+.B 3
+Refused: a precondition was not met and nothing happened.
 .SH FILES
 .TP
-.I systemd/smart-trigger.service
-The --user Session.Lock listener (install it with
+.I systemd/vigilance-logind.service
+The --user Session.Lock listener (install with
 .BR "setup.sh service" ).
 .TP
 .I systemd/lock-on-sleep.service
-The SYSTEM suspend-lock unit (Before=sleep.target); needs root to place under
-.IR /etc/systemd/system .
+SYSTEM suspend-lock unit (Before=sleep.target); needs root.
 .TP
-.I ~/.config/shapes
-Optional per-display shape config (swaylock/wallpaper); absent, smart-lock uses
-a single-output lock.
+.I systemd/vigilance-resume.service
+SYSTEM resume unit (After=suspend.target); needs root.
+.TP
+.I ~/.local/state/vigilance.log
+vigilant's own record of every crossing, block and alert.
 .SH RUNTIME DEPENDENCIES
-.BR swaylock ", " swayidle ", " wlopm ", " ddcutil .
-Optional: a display-shape resolver and a wallpaper slicer for the spanned lock;
-each degrades gracefully when absent.
-.SH SETUP
-.B ./setup.sh install
-links the tools (and this page) into
-.IR ~/.local ;
-.B ./setup.sh service
-adds the --user listener;
-.B ./setup.sh check
-audits the install. See the README.
+.BR swaylock ", " swayidle ", " wlopm ", " ddcutil ,
+each used only by a plugin and each degrading gracefully when absent.
 .SH SEE ALSO
 .BR swaylock (1),
-.BR swayidle (1)
+.BR swayidle (1),
+.BR systemd.service (5)

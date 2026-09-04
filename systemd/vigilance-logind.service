@@ -1,0 +1,23 @@
+# Cross the lock edge on logind's Session.Lock (AC lid-close via
+# HandleLidSwitchExternalPower=lock, or `loginctl lock-session`).
+#
+# Replaces smart-trigger.service. systemd has D-Bus activation on NAME
+# requests, not on signals, so something must hold the subscription; but once
+# the lock's LIFETIME belongs to systemd rather than to the trigger, that
+# something is a five-line subscriber instead of a 150-line daemon.
+#
+# Restart=always because this is the Session.Lock responder: a listener that
+# dies must come back, not silently stop guarding. That silent-stop is exactly
+# how the idle timer sat dead for two days.
+[Unit]
+Description=vigilance: cross the lock edge on logind Session.Lock
+After=default.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/libexec/vigilance/triggers/logind-lock
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=default.target

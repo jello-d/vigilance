@@ -24,10 +24,18 @@
 set -eu
 
 # --- idle policy: single source of truth ------------------------------------
-LOCK_TIMEOUT=480          # seconds idle before the lock (the blank follows it,
-                          # inside swaylock's blank-after -- not a timer here)
+LOCK_TIMEOUT=480          # seconds idle before the lock
+BLANK_DELAY=120           # further seconds before the peripherals go dark
 BIN=$HOME/.local/bin
 LOCK_CMD=${LOCK_CMD:-$BIN/smart-lock}   # overridable so a test never locks
+# The peripherals now ride VIGILANT, not swaylock. The patched swaylock used
+# to fork $HOME/bin/panel-power on its own blank-after timer; that path went
+# stale when vigilance extracted panel-power to ~/.local/bin, the execl failed,
+# and `_exit(127)` swallowed it -- dead on two machines for weeks. The patch is
+# retired (docs/framework-refactor.md 10.1) and the blank edge is an ordinary
+# swayidle timer again, which the event log shows handled blank AND restore
+# while locked for months before the patch existed.
+VIGILANT_CMD=${VIGILANT_CMD:-$BIN/vigilant}
 
 # --- paths ------------------------------------------------------------------
 RUNDIR=${XDG_RUNTIME_DIR:-/tmp}/swayidle-mgr
@@ -96,6 +104,19 @@ _run() {
   # Opt-in, OFF by default -- normal behaviour is unchanged.
   [ -n "${SWAYIDLE_DEBUG:-}" ] && set -- "$@" -d
   set -- "$@" timeout "$LOCK_TIMEOUT" "$SELF event idle-lock"
+  # The blank edge, BLANK_DELAY after the lock. Two separate timers rather than
+  # one chained action: swayidle measures both from last input, so the blank
+  # fires at LOCK_TIMEOUT+BLANK_DELAY of continuous idleness and is skipped
+  # entirely if the user returns in between.
+  #
+  # `resume` fires on the next input and restores. It is deliberately `go
+  # lock`, not `go open`: coming back from dark must light the screen WITHOUT
+  # unlocking the session.
+  if [ -x "$VIGILANT_CMD" ]; then
+    set -- "$@" timeout "$((LOCK_TIMEOUT + BLANK_DELAY))" \
+      "$VIGILANT_CMD go sleep"
+    set -- "$@" resume "$VIGILANT_CMD go lock"
+  fi
   exec swayidle "$@"
 }
 

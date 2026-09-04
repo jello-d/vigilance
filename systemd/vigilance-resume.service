@@ -1,0 +1,24 @@
+# Re-assert the dark state after the machine comes back from S3.
+#
+# NEW: there was NO resume path at all before this. On resume the hardware may
+# have come back lit on its own, and a QMK keyboard has been re-enumerated over
+# USB and forgotten its state, so the saved values are STALE. `go sleep` from
+# `suspend` crosses the `resume` edge, and hooks branching on that edge
+# re-assert from config instead of restoring from a save file.
+#
+# After=suspend.target, so it runs on the way UP.
+[Unit]
+Description=vigilance: re-assert peripheral state after resume
+After=suspend.target hibernate.target hybrid-sleep.target
+
+[Service]
+Type=oneshot
+User=@USER@
+Environment=VIGILANCE_SOURCE=resume
+Environment=XDG_RUNTIME_DIR=/run/user/@UID@
+Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/@UID@/bus
+ExecStart=%h/.local/bin/vigilant go sleep
+TimeoutStartSec=25
+
+[Install]
+WantedBy=suspend.target hibernate.target hybrid-sleep.target
