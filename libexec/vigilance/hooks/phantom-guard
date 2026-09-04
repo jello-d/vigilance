@@ -1,0 +1,43 @@
+#!/bin/sh
+# phantom-guard - BLOCK hook: suppress swayidle's post-unlock re-fire.
+#
+# Wire into lock.block.d. Exit 10 to block, anything else to allow.
+#
+# THE BUG IT GUARDS: the compositor's idle timer is not reset by the input
+# that unlocks the screen (a wlroots idle-notify bug), so swayidle re-fires
+# idle-lock immediately after an unlock and the screen re-locks in a storm.
+#
+# SCOPED TO THE IDLE PATH, and this is a security constraint rather than a
+# nicety: suspend, lid and Session.Lock must NEVER be suppressed, because
+# gating those would let the box sleep or close UNLOCKED. Suppressing a lock
+# is a security failure; allowing a redundant one is merely noise. So anything
+# without VIGILANCE_SOURCE=idle is allowed unconditionally.
+#
+# It reads vigilant's OWN timestamped depth rather than keeping a private
+# stamp file, which is what smart-lock had to do. A legitimate idle lock
+# cannot occur within the idle timeout of an unlock, so an idle-sourced lock
+# arriving seconds after we entered `open` is by definition the re-fire.
+set -eu
+
+[ "${VIGILANCE_SOURCE:-}" = idle ] || exit 0     # never gate the other paths
+
+COOLDOWN=${VIGILANCE_PHANTOM_COOLDOWN:-10}
+RUN_DIR=${VIGILANCE_RUN_DIR:-${XDG_RUNTIME_DIR:-/tmp}/vigilance}
+DEPTH_FILE=$RUN_DIR/depth
+
+[ -r "$DEPTH_FILE" ] || exit 0
+_rung=$(cut -d' ' -f1 < "$DEPTH_FILE")
+_at=$(cut -d' ' -f2 < "$DEPTH_FILE")
+case "${_at:-}" in ''|*[!0-9]*) exit 0 ;; esac
+
+# Only meaningful when we are sitting at `open`: that is the window in which a
+# stale idle notification can arrive.
+[ "$_rung" = open ] || exit 0
+
+_since=$(( $(date +%s) - _at ))
+if [ "$_since" -lt "$COOLDOWN" ]; then
+  echo "idle-lock ${_since}s after unlock (cooldown ${COOLDOWN}s):" \
+    "swayidle re-fire"
+  exit 10
+fi
+exit 0

@@ -1,0 +1,40 @@
+#!/bin/sh
+# mute-leds - the mute and mic-mute indicator LEDs on the keyboard deck glow
+# even with the backlight off, so they need dimming too.
+#
+# SHIPPED BY VIGILANCE because the mechanism is standard: platform::mute and
+# platform::micmute are ordinary kernel LED class devices, and brightnessctl's
+# own udev rule already grants the `input` group rw on them. Earlier drafts put
+# this on the integrator's side on the belief that it needed a bespoke udev
+# rule; it does not. The only requirement is the login user being in `input`,
+# which is brightnessctl's standard requirement everywhere.
+#
+# Deliberately INDEPENDENT of whatever drives the mute STATE (a sync daemon,
+# or the kernel's snd_ctl_led). Blank-dimming is a separate concern that must
+# outlive any of them, so it lives here as a hook rather than as a command on
+# some daemon. A mute toggled while dark re-syncs on its next change.
+#
+# Each LED is saved and restored INDEPENDENTLY: mute and micmute are set from
+# different state, so collapsing them into one saved value would restore the
+# wrong one.
+set -eu
+
+_self=$(readlink -f "$0")
+. "$(dirname "$_self")/../hooklib.sh"
+
+hook_have_brightnessctl || exit 0
+
+LEDS='platform::mute platform::micmute'
+edge=${1:-${VIGILANCE_EDGE:-}}
+_intent=$(hook_intent "$edge")
+if [ "$_intent" = none ]; then exit 0; fi
+
+for _l in $LEDS; do
+  [ -e "/sys/class/leds/$_l/brightness" ] || continue
+  _save=${VIGILANCE_STATE_DIR:-/tmp}/$_l
+  case "$_intent" in
+    dark) hook_dark "$_save" --class=leds --device="$_l" ;;
+    lit)  hook_lit  "$_save" --class=leds --device="$_l" ;;
+  esac
+done
+exit 0

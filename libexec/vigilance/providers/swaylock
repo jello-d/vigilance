@@ -1,0 +1,61 @@
+#!/bin/sh
+# swaylock - LOCK PROVIDER, wired as a lock.d hook.
+#
+# Replaces bin/smart-lock. Everything that script hand-rolled to own the
+# lock's LIFETIME is now systemd's, verified against a real swaylock in
+# test/lock-span.t:
+#
+#   flock + pgrep idempotence  -> the unit name is the singleton
+#   marker file for "committed" -> `systemctl start` BLOCKS until commit
+#   `while pgrep; sleep 0.25`   -> systemd tracks the span
+#   unlock detection            -> ExecStopPost, which also fires on a CRASH
+#   a foreground process to hold the cgroup -> the unit IS the span
+#
+# GuessMainPID=no is load-bearing, and was found the hard way: swaylock forks
+# a password-backend child, so the cgroup holds two processes and systemd
+# cannot guess which is main (MainPID=0). Cgroup emptiness is the honest
+# liveness signal for a process that forks helpers; letting systemd guess
+# would have it track the wrong one.
+#
+# RETURNS AT COMMIT, not at unlock. That matters twice over: it is exactly the
+# semantics `Before=sleep.target` needs (the box cannot sleep until the lock is
+# up), and it releases the caller. smart-lock blocked until unlock, which
+# pinned swayidle for hours at a time (observed: 18:31 to 20:37 on one lock)
+# and stopped it firing any other timer.
+set -eu
+
+_self=$(readlink -f "$0")
+. "$(dirname "$_self")/../hooklib.sh"
+
+edge=${1:-${VIGILANCE_EDGE:-}}
+[ "$edge" = lock ] || exit 0        # only the lock edge brings a locker up
+
+UNIT=${VIGILANCE_LOCK_UNIT:-screen-lock.service}
+LOCKER=${VIGILANCE_LOCKER:-swaylock}
+
+command -v "$LOCKER" >/dev/null 2>&1 || {
+  echo "swaylock provider: '$LOCKER' not found" >&2; exit 1; }
+
+# Already up: nothing to do. The unit name makes this cheap and racy-safe in a
+# way flock never was, because systemd is the one arbitrating.
+if systemctl --user is-active --quiet "$UNIT" 2>/dev/null; then
+  exit 0
+fi
+systemctl --user reset-failed "$UNIT" >/dev/null 2>&1 || true
+
+# The argv is computed by a separate helper so THIS file knows nothing about
+# panel counts, wallpapers or indicator sizing. That knowledge is HWDP's and
+# leaves with it; an absent helper simply yields a plain lock.
+_args=
+if command -v vigilance-lock-argv >/dev/null 2>&1; then
+  _args=$(vigilance-lock-argv 2>/dev/null || true)
+fi
+
+# shellcheck disable=SC2086
+systemd-run --user --collect --unit="$UNIT" \
+  --property=Type=forking \
+  --property=GuessMainPID=no \
+  --property="ExecStopPost=$(command -v vigilant) go open" \
+  -- "$LOCKER" -f $_args >/dev/null 2>&1 \
+  || { echo "swaylock provider: could not start $UNIT" >&2; exit 1; }
+exit 0

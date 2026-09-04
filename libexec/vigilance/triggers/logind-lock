@@ -1,0 +1,28 @@
+#!/bin/sh
+# logind-lock - TRIGGER SOURCE: cross the lock edge on logind's Session.Lock.
+#
+# Replaces bin/smart-trigger's `listen` mode. systemd has D-Bus activation on
+# NAME requests, not on signals, so something must hold the subscription; but
+# that something is five lines, not a 150-line daemon, once the lock's
+# lifetime belongs to systemd rather than to the trigger.
+#
+# `Session.Lock ()` excludes `Session.Unlock ()` (a different string), so an
+# unlock can never be mistaken for a lock. gdbus MONITORS unprivileged;
+# dbus-monitor on the system bus is root-only.
+#
+# VIGILANCE_SOURCE is why this matters for correctness and not just tidiness:
+# it tells block hooks WHO asked, and the phantom guard must never suppress
+# this path or a lid-close would leave the screen unlocked.
+set -eu
+
+VIGILANT=${VIGILANT:-vigilant}
+command -v "$VIGILANT" >/dev/null 2>&1 || {
+  echo "logind-lock: vigilant not on PATH" >&2; exit 1; }
+
+exec gdbus monitor --system --dest org.freedesktop.login1 2>/dev/null \
+  | while IFS= read -r _line; do
+      case "$_line" in
+        *"Session.Lock ()"*)
+          VIGILANCE_SOURCE=logind "$VIGILANT" go lock || true ;;
+      esac
+    done

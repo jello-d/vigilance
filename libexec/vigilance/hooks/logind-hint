@@ -1,0 +1,69 @@
+#!/bin/sh
+# logind-hint - REPORT hook: tell logind the session's real locked state.
+#
+# Shipped by vigilance because the MECHANISM is standard (logind is not one
+# desktop's invention); whether it runs is the integrator's call. Wire it into
+# lock.report.d and unlock.report.d.
+#
+# WHY IT EXISTS: on this box `LockedHint` reads `no` even while the session is
+# genuinely locked, and nothing ever sets it. That is the standard interface
+# LYING, and everything that asks logind "is this session locked?" gets a
+# wrong answer. vigilant knows the truth because it crosses the edge, so it
+# should FEED the standard interface rather than invent a private one. Playing
+# nice with a stock mechanism means keeping its state honest.
+#
+# It is a REPORT hook, not an actuator: it changes no hardware and gates
+# nothing. If it fails, the machine is still in the right state and the
+# crossing still succeeds; the failure is loud in the log and deliberately
+# absent from vigilant's exit status.
+#
+# NOTE `SetLockedHint` is advisory. It does NOT lock or unlock anything, so a
+# wrong value here can never grant access; it can only mislead a bystander.
+set -eu
+
+_self=$(readlink -f "$0")
+. "$(dirname "$_self")/../hooklib.sh"
+
+edge=${1:-${VIGILANCE_EDGE:-}}
+case "$edge" in
+  lock)   _hint=true ;;
+  unlock) _hint=false ;;
+  *)      exit 0 ;;    # sleep/suspend do not change locked-ness
+esac
+
+command -v busctl >/dev/null 2>&1 || exit 0
+
+# WHICH session. XDG_SESSION_ID when the caller has one; otherwise ask logind
+# for this user's graphical session. Type=wayland/x11 plus a real seat is what
+# distinguishes it from an ssh session, of which there can be several (this
+# machine's peer had SIX for one user, two of them agent ssh sessions).
+# Stage 2's session probe replaces this fallback with the single shared
+# implementation; until then it is deliberately explicit about the criteria.
+_sid=${XDG_SESSION_ID:-}
+if [ -z "$_sid" ]; then
+  _sid=$(loginctl list-sessions --no-legend 2>/dev/null | awk -v u="$(id -un)" '
+    $3 == u && $4 != "" { print $1; exit }')
+fi
+if [ -z "$_sid" ]; then
+  echo "logind-hint: no session to report against" >&2
+  exit 1
+fi
+
+# Resolve the object path via GetSession rather than escaping the id by hand:
+# logind encodes "4" as "_34", and hand-rolling that escaping is a bug waiting
+# for a session id that is not a single digit.
+_path=$(busctl --no-pager call org.freedesktop.login1 /org/freedesktop/login1 \
+  org.freedesktop.login1.Manager GetSession s "$_sid" 2>/dev/null \
+  | awk '{gsub(/"/, "", $2); print $2}')
+if [ -z "$_path" ]; then
+  echo "logind-hint: could not resolve session '$_sid'" >&2
+  exit 1
+fi
+
+if busctl --no-pager call org.freedesktop.login1 "$_path" \
+   org.freedesktop.login1.Session SetLockedHint b "$_hint" >/dev/null 2>&1
+then
+  exit 0
+fi
+echo "logind-hint: SetLockedHint $_hint failed for session $_sid" >&2
+exit 1

@@ -1,0 +1,27 @@
+#!/bin/sh
+# panel-backlight - drop the built-in panel backlight to 0 while dark, and put
+# it back on the way up.
+#
+# WHY IT IS NEEDED even when the lock surface is painted black: black pixels
+# turn an OLED off, but on an LED-backlit panel they leave the backlight fully
+# lit, which saves nothing. Writing the backlight sysfs (via brightnessctl) is
+# NOT a connector/DPMS change, so there is no modeset, no flash, and no
+# phantom resume.
+#
+# A desktop with no backlight device simply has nothing to get: brightnessctl
+# fails, the save file is removed, and the hook exits 0.
+set -eu
+
+_self=$(readlink -f "$0")
+. "$(dirname "$_self")/../hooklib.sh"
+
+hook_have_brightnessctl || exit 0
+
+SAVE=${VIGILANCE_STATE_DIR:-/tmp}/level
+edge=${1:-${VIGILANCE_EDGE:-}}
+
+case "$(hook_intent "$edge")" in
+  dark) hook_dark "$SAVE" ;;
+  lit)  hook_lit  "$SAVE" ;;
+  *)    exit 0 ;;
+esac

@@ -1,0 +1,59 @@
+#!/bin/sh
+# ddc-monitor - real power-down of an external DDC/CI monitor, over MCCS VCP
+# D6. Shipped by vigilance because the MECHANISM is standard; whether it runs
+# is the integrator's call (symlink it into <edge>.d/).
+#
+# WHY DDC AND NOT DPMS: setvcp is an out-of-band I2C command to the monitor's
+# OWN scaler, not a compositor connector change, so it does NOT trigger the
+# wlroots re-modeset that destroys views on this Wayfire build. Connector
+# cycling (wlopm/DPMS) is the unsafe path here; DDC is not. This is also the
+# only way to genuinely power a panel down: painting the lock surface black
+# leaves a non-OLED backlight fully lit (a lit black screen, no real saving).
+#
+# WHY D6=02 AND NOT 03/04: 02 (Standby) is the widely supported DDC-ALIVE
+# power-down. It kills the backlight but keeps the DDC link up, so 01 can wake
+# it. 03 (Suspend) is not advertised by every monitor. 04 (Off) drops the link
+# into a state DDC cannot wake, needing a physical power button or a DP
+# replug, so it is never used from a hook.
+#
+# STATELESS by design: 02 and 01 are absolute, so a repeat is a no-op and
+# there is nothing to save. That also makes `resume` correct for free.
+set -eu
+
+_self=$(readlink -f "$0")
+. "$(dirname "$_self")/../hooklib.sh"
+
+edge=${1:-${VIGILANCE_EDGE:-}}
+case "$(hook_intent "$edge")" in
+  dark) _d6=02 ;;
+  lit)  _d6=01 ;;
+  *)    exit 0 ;;
+esac
+
+command -v ddcutil >/dev/null 2>&1 || exit 0
+
+# Map "i2c_bus" for every DDC/CI display. A laptop eDP appears in `ddcutil
+# detect` with a real bus and DRM connector but under an "Invalid display"
+# heading, because the internal panel is not DDC/CI controllable. Pairing it
+# anyway routed eDP hosts into this branch where setvcp always failed and the
+# screen never blanked, so ONLY displays inside a real "Display N" block
+# count. An eDP-only host yields an empty map and exits 0: nothing to drive.
+_map=$(ddcutil detect --brief 2>/dev/null | awk '
+  /^Invalid display/ { valid = 0 }
+  /^Display /        { valid = 1 }
+  /I2C bus:/         { if (valid) { b = $NF; sub(".*/i2c-", "", b); print b } }
+')
+[ -n "$_map" ] || exit 0
+
+_rc=0
+for _bus in $_map; do
+  if ! ddcutil --bus "$_bus" --noverify setvcp d6 "$_d6" >/dev/null 2>&1; then
+    echo "ddc-monitor: bus $_bus did not answer setvcp d6=$_d6" >&2
+    _rc=1
+  fi
+done
+
+# A non-zero exit is REPORTED, not swallowed. The runner names this hook and
+# carries on with the others: a monitor that will not sleep must not stop the
+# keyboard backlight from going out.
+exit "$_rc"

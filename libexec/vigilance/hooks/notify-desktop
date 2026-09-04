@@ -1,0 +1,32 @@
+#!/bin/sh
+# notify-desktop - ALERT hook: surface an alert as a desktop notification.
+#
+# Shipped by vigilance because the MECHANISM is standard (notify-send speaks
+# the freedesktop notification spec, not one desktop's private protocol);
+# whether it runs is the integrator's call. Wire it into alert.d.
+#
+# This is the GENERIC sink. An integrator with something better suited (a
+# persistent intervention flag, a status-bar indicator, a pager) ships its own
+# alert hook instead of or alongside this one. vigilant knows about none of
+# them.
+#
+# URGENCY is deliberately `critical` for the failure kinds: these alerts fire
+# when the machine may not be in the state vigilance believes it is, which is
+# precisely the condition that went unnoticed for weeks and cost a monitor its
+# backlight. A notification that auto-dismisses would reproduce the original
+# problem in a nicer typeface.
+set -eu
+
+kind=${1:-${VIGILANCE_ALERT_KIND:-unknown}}
+msg=${2:-${VIGILANCE_ALERT_MSG:-}}
+
+command -v notify-send >/dev/null 2>&1 || exit 0
+
+case "$kind" in
+  hook-failed|verify-failed|forced) _urgency=critical ;;
+  *)                                _urgency=normal ;;
+esac
+
+notify-send --app-name=vigilance --urgency="$_urgency" \
+  "vigilance: $kind" "$msg" >/dev/null 2>&1 || exit 1
+exit 0

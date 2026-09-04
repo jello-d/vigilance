@@ -1,0 +1,30 @@
+#!/bin/sh
+# kbd-backlight - the laptop's lit keys are a SEPARATE LED from the panel
+# backlight, so a black lock surface and a zero panel backlight still leave the
+# keyboard glowing in a dark room.
+#
+# The LED name is vendor specific (tpacpi::, asus::, dell::kbd_backlight), so
+# DISCOVER it rather than hardcode one. That discovery is what makes this a
+# generic hardware-class hook worth shipping: a box without such an LED finds
+# nothing and exits 0.
+set -eu
+
+_self=$(readlink -f "$0")
+. "$(dirname "$_self")/../hooklib.sh"
+
+hook_have_brightnessctl || exit 0
+
+_kbd=
+for _d in /sys/class/leds/*kbd_backlight*; do
+  if [ -e "$_d/brightness" ]; then _kbd=${_d##*/}; break; fi
+done
+[ -n "$_kbd" ] || exit 0
+
+SAVE=${VIGILANCE_STATE_DIR:-/tmp}/level
+edge=${1:-${VIGILANCE_EDGE:-}}
+
+case "$(hook_intent "$edge")" in
+  dark) hook_dark "$SAVE" --class=leds --device="$_kbd" ;;
+  lit)  hook_lit  "$SAVE" --class=leds --device="$_kbd" ;;
+  *)    exit 0 ;;
+esac
