@@ -15,9 +15,26 @@
 # this path or a lid-close would leave the screen unlocked.
 set -eu
 
-VIGILANT=${VIGILANT:-vigilant}
-command -v "$VIGILANT" >/dev/null 2>&1 || {
-  echo "logind-lock: vigilant not on PATH" >&2; exit 1; }
+# SELF-LOCATE vigilant; do NOT trust PATH. A systemd --user unit's PATH is
+# /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin and does NOT
+# include ~/.local/bin, so `command -v vigilant` fails and this exited 1 in a
+# restart loop the moment it was deployed. This plugin lives at
+# <prefix>/libexec/vigilance/triggers/, so vigilant is ../../../bin/vigilant
+# from its own resolved path.
+#
+# This is the same assumption that has now bitten four times in this stack
+# (swaylock's hardcoded helper path, the wayfire autostart, HOME under
+# cloud-init, and here). A service context is not a login shell.
+_self=$(readlink -f "$0")
+VIGILANT=${VIGILANT:-$(dirname "$_self")/../../../bin/vigilant}
+if [ ! -x "$VIGILANT" ]; then
+  VIGILANT=$(command -v vigilant 2>/dev/null || true)
+fi
+if [ -z "$VIGILANT" ] || [ ! -x "$VIGILANT" ]; then
+  echo "logind-lock: cannot locate vigilant (not beside libexec," \
+    "not on PATH)" >&2
+  exit 1
+fi
 
 exec gdbus monitor --system --dest org.freedesktop.login1 2>/dev/null \
   | while IFS= read -r _line; do

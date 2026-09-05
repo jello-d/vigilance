@@ -30,6 +30,20 @@ _self=$(readlink -f "$0")
 edge=${1:-${VIGILANCE_EDGE:-}}
 [ "$edge" = lock ] || exit 0        # only the lock edge brings a locker up
 
+# Self-locate vigilant for the ExecStopPost, for the same reason the logind
+# trigger does: the transient unit will not have ~/.local/bin on its PATH, so
+# `command -v` here would bake in an empty path and the unlock edge would
+# never be crossed.
+_vigilant=$(dirname "$_self")/../../../bin/vigilant
+if [ ! -x "$_vigilant" ]; then
+  _vigilant=$(command -v vigilant 2>/dev/null || true)
+fi
+if [ -z "$_vigilant" ] || [ ! -x "$_vigilant" ]; then
+  echo "swaylock provider: cannot locate vigilant for ExecStopPost" >&2
+  exit 1
+fi
+_vigilant=$(readlink -f "$_vigilant")
+
 UNIT=${VIGILANCE_LOCK_UNIT:-screen-lock.service}
 LOCKER=${VIGILANCE_LOCKER:-swaylock}
 
@@ -55,7 +69,7 @@ fi
 systemd-run --user --collect --unit="$UNIT" \
   --property=Type=forking \
   --property=GuessMainPID=no \
-  --property="ExecStopPost=$(command -v vigilant) go open" \
+  --property="ExecStopPost=$_vigilant go open" \
   -- "$LOCKER" -f $_args >/dev/null 2>&1 \
   || { echo "swaylock provider: could not start $UNIT" >&2; exit 1; }
 exit 0
