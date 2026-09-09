@@ -23,8 +23,17 @@ done
 SAVE=${VIGILANCE_STATE_DIR:-/tmp}/level
 edge=${1:-${VIGILANCE_EDGE:-}}
 
-case "$(hook_intent "$edge")" in
+_intent=$(hook_intent "$edge")
+if [ "$_intent" = none ]; then exit 0; fi
+
+# ONE plugin, two kinds: act drives the device, verify reads it back. Sharing
+# the file keeps the device discovery in one place.
+if [ "${VIGILANCE_KIND:-act}" = verify ]; then
+  hook_verify_level "$SAVE" "$_intent" --class=leds --device="$_kbd"
+  exit $?
+fi
+
+case "$_intent" in
   dark) hook_dark "$SAVE" --class=leds --device="$_kbd" ;;
   lit)  hook_lit  "$SAVE" --class=leds --device="$_kbd" ;;
-  *)    exit 0 ;;
 esac

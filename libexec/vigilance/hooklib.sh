@@ -59,6 +59,34 @@ hook_dark() {
   _bc "$@" set 0 || true
 }
 
+# hook_verify_level <save-file> <intent> [brightnessctl-selector...]
+# Assert the device MATCHES the intent, and say what it found when it does not.
+# "dark" is not exactly 0 on every device (some clamp to a floor), so compare
+# against a tenth of max rather than demanding zero -- a panel at 1/400 is off
+# for every practical purpose, and demanding 0 would cry wolf.
+hook_verify_level() {
+  _sf=$1; _want=$2; shift 2
+  _cur=$(brightnessctl "$@" get 2>/dev/null) || return 0   # no device: n/a
+  _max=$(brightnessctl "$@" max 2>/dev/null) || return 0
+  case "$_cur$_max" in *[!0-9]*|'') return 0 ;; esac
+  [ "$_max" -gt 0 ] || return 0
+  if [ "$_want" = dark ]; then
+    if [ "$_cur" -gt $((_max / 10)) ]; then
+      echo "expected dark, found $_cur/$_max" >&2
+      return 1
+    fi
+  else
+    # Lit is only assertable when we recorded what to restore to; without a
+    # save file nobody dimmed it and there is nothing to compare against.
+    [ -f "$_sf" ] || return 0
+    if [ "$_cur" -le $((_max / 10)) ]; then
+      echo "expected lit, found $_cur/$_max" >&2
+      return 1
+    fi
+  fi
+  return 0
+}
+
 # hook_lit <save-file> [brightnessctl-selector...]
 hook_lit() {
   _sf=$1; shift

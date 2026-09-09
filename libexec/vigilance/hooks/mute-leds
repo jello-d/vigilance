@@ -29,12 +29,18 @@ edge=${1:-${VIGILANCE_EDGE:-}}
 _intent=$(hook_intent "$edge")
 if [ "$_intent" = none ]; then exit 0; fi
 
+_rc=0
 for _l in $LEDS; do
   [ -e "/sys/class/leds/$_l/brightness" ] || continue
   _save=${VIGILANCE_STATE_DIR:-/tmp}/$_l
+  if [ "${VIGILANCE_KIND:-act}" = verify ]; then
+    hook_verify_level "$_save" "$_intent" --class=leds --device="$_l" \
+      || _rc=1
+    continue
+  fi
   case "$_intent" in
     dark) hook_dark "$_save" --class=leds --device="$_l" ;;
     lit)  hook_lit  "$_save" --class=leds --device="$_l" ;;
   esac
 done
-exit 0
+exit "$_rc"

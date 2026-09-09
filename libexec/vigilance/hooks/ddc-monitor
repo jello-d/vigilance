@@ -30,6 +30,13 @@ case "$(hook_intent "$edge")" in
   *)    exit 0 ;;
 esac
 
+# VERIFY reads VCP D6 back instead of writing it. This is precisely the check
+# that was run BY HAND to prove manifestor's monitor had been dark for two
+# days while everything else reported success -- so it is known to work and
+# known to be the one that matters.
+_verify=0
+if [ "${VIGILANCE_KIND:-act}" = verify ]; then _verify=1; fi
+
 command -v ddcutil >/dev/null 2>&1 || exit 0
 
 # Map "i2c_bus" for every DDC/CI display. A laptop eDP appears in `ddcutil
@@ -47,7 +54,20 @@ _map=$(ddcutil detect --brief 2>/dev/null | awk '
 
 _rc=0
 for _bus in $_map; do
-  if ! ddcutil --bus "$_bus" --noverify setvcp d6 "$_d6" >/dev/null 2>&1; then
+  if [ "$_verify" = 1 ]; then
+    # sl=0xNN is the current power mode; 01 on, 02 standby.
+    _got=$(ddcutil --bus "$_bus" getvcp d6 2>/dev/null \
+      | sed -n 's/.*sl=0x0\([0-9]\).*/0\1/p')
+    if [ -z "$_got" ]; then
+      # A monitor that will not answer is NOT a verify failure: it may be
+      # unplugged or powered off at the wall, which is not drift we caused.
+      # Saying so is honest; failing would cry wolf on an absent display.
+      echo "ddc-monitor: bus $_bus did not answer getvcp d6 (absent?)" >&2
+    elif [ "$_got" != "$_d6" ]; then
+      echo "ddc-monitor: bus $_bus is d6=$_got, expected $_d6" >&2
+      _rc=1
+    fi
+  elif ! ddcutil --bus "$_bus" --noverify setvcp d6 "$_d6" >/dev/null 2>&1; then
     echo "ddc-monitor: bus $_bus did not answer setvcp d6=$_d6" >&2
     _rc=1
   fi

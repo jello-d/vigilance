@@ -351,8 +351,13 @@ _run_hooks() {   # edge from [suffix]
     _sd=$STATE_ROOT/$(basename "$_h")
     mkdir -p "$_sd"
     _hrc=0
+    # VIGILANCE_KIND lets ONE plugin serve several kinds: ddc-monitor drives
+    # the monitor when act, and reads back VCP D6 when verify, sharing its bus
+    # discovery instead of duplicating it in a second file. Without this a hook
+    # cannot tell "do it" from "check it": the edge is `sleep` either way.
     VIGILANCE_EDGE="$_edge" VIGILANCE_FROM="$_from" \
       VIGILANCE_SOURCE="${VIGILANCE_SOURCE:-}" \
+      VIGILANCE_KIND="$(printf '%s' "${_sfx:-.act}" | tr -d .)" \
       VIGILANCE_STATE_DIR="$_sd" "$_h" "$_edge" "$_from" || _hrc=$?
     if [ "$_hrc" -ne 0 ]; then
       log "HOOK FAILED (rc=$_hrc): $_edge$_sfx $(basename "$_h")"
@@ -517,13 +522,33 @@ cmd_hooks() {   # [edge]
 # asserting it took effect. This is the SHARED ORACLE: the test suite and the
 # production watchdog call the same predicate, so they cannot drift apart about
 # what "correct" means. A verify hook written for one improves both.
+# THE SHARED ORACLE. Also the place a false green is most dangerous: an empty
+# verify tier used to return 0, so "verify clean" meant "nothing was asked" and
+# read exactly like "everything checked out". That is the failure this project
+# exists to catch, reproduced inside the thing built to catch it.
+#
+# So an empty tier reports n/a EXPLICITLY. Exit stays 0 (a box with no verify
+# hooks is not broken, and a timer must not alarm), but no caller can mistake
+# it for a pass.
 cmd_verify() {   # [edge]
   mkdir -p "$RUN_DIR" "$STATE_ROOT"
   _from=$(_depth)
   _vrc=0
+  _ran=0
   for _e in ${1:-lock sleep suspend unlock wake resume}; do
-    _run_hooks "$_e" "$_from" .verify || _vrc=1
+    if [ -n "$(_hooks_for "$_e" .verify)" ]; then
+      _ran=1
+      if _run_hooks "$_e" "$_from" .verify; then
+        echo "verify $_e: ok"
+      else
+        echo "verify $_e: FAIL"
+        _vrc=1
+      fi
+    fi
   done
+  if [ "$_ran" = 0 ]; then
+    echo "verify: n/a (no verify hooks installed; nothing was checked)"
+  fi
   return "$_vrc"
 }
 
