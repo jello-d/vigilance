@@ -1,0 +1,37 @@
+#!/bin/sh
+# journal - ALERT hook: record an alert where it can actually be found.
+#
+# Shipped by vigilance, and the ONLY alert sink it ships, because this is the
+# one that is load-bearing rather than convenient.
+#
+# WHY NOT JUST THE LOG: vigilant already writes its own log, but that log lives
+# under the running user's $XDG_STATE_HOME. In a GREETER session that is
+# /var/lib/greetd/.local/state/, where nobody will ever look. An alert raised
+# there would be recorded and still effectively silent, which is precisely the
+# failure this project exists to prevent.
+#
+# The journal is session-agnostic, always present, centrally readable
+# (journalctl -t vigilance), and rides the same trust root as everything else.
+#
+# A desktop toast is NOT shipped: it needs a notification daemon, is useless in
+# a greeter, and "which desktop, styled how" is policy. That belongs to the
+# integrator alongside its other user-facing choices.
+set -eu
+
+kind=${1:-${VIGILANCE_ALERT_KIND:-unknown}}
+msg=${2:-${VIGILANCE_ALERT_MSG:-}}
+
+case "$kind" in
+  hook-failed|verify-failed|forced) _pri=warning ;;
+  *)                                _pri=notice ;;
+esac
+
+if command -v systemd-cat >/dev/null 2>&1; then
+  printf '%s: %s\n' "$kind" "$msg" \
+    | systemd-cat -t vigilance -p "$_pri" 2>/dev/null && exit 0
+fi
+# logger is the fallback on a box without systemd-cat; same destination.
+if command -v logger >/dev/null 2>&1; then
+  logger -t vigilance -p "user.$_pri" "$kind: $msg" 2>/dev/null && exit 0
+fi
+exit 1

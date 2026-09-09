@@ -109,6 +109,27 @@ if [ -z "${HOME:-}" ]; then
 fi
 
 _cfg=${XDG_CONFIG_HOME:-$HOME/.config}
+
+# TWO SCOPES, because peripherals belong to the MACHINE and locking, audio and
+# notifications belong to a USER.
+#
+#   machine  /etc/vigilance/hooks      root-owned, EVERY session
+#   user     ~/.config/vigilance/hooks user-owned, no sudo ever
+#
+# This is what lets a greeter session work with no configuration of its own: it
+# simply has no user root, so it gets the machine hooks and nothing else. The
+# alternative (one shared tree) would need per-session filtering, which pushes
+# session-awareness into the mechanism, and a greeter cannot read an encrypted
+# user home anyway.
+#
+# ORDERING: machine is the LOWER LAYER, so it comes up first and goes down
+# last, exactly as systemd orders units. Dependencies point user -> machine and
+# never the reverse: a USB DAC powered down by a machine hook must be back
+# before a user hook tries to unmute it by name.
+#
+#   descent  user 10->90, then machine 10->90
+#   ascent   machine 90->10, then user 90->10
+MACHINE_HOOK_ROOT=${VIGILANCE_MACHINE_HOOKS:-/etc/vigilance/hooks}
 HOOK_ROOT=${VIGILANCE_HOOK_ROOT:-$_cfg/vigilance/hooks}
 # Runtime state. XDG_RUNTIME_DIR survives suspend and hibernate but NOT a
 # reboot, which is exactly right: a boot means we are at the top of the ladder.
@@ -232,11 +253,25 @@ _rung_at() {   # integer -> rung
 # is no deadline to compute for a `due` hook to be measured against. A legacy
 # file holding only a rung reads back with epoch 0, which simply means "no
 # deadline can be computed yet" rather than an error.
+# A session may BEGIN at a rung rather than at the top. A greeter IS the locked
+# state: there is no user session to protect, so it starts at `lock` and idles
+# down to `sleep` from there.
+#
+# This is an INITIALISATION, not a crossing: no hooks fire, because nothing was
+# traversed. Without it a greeter's `go sleep` would traverse open -> lock ->
+# sleep and fire lock.d, whose provider would try to start a lock screen on top
+# of a session that is already one.
 _depth() {   # the current rung
   if [ -r "$DEPTH_FILE" ]; then
     cut -d' ' -f1 < "$DEPTH_FILE"
   else
-    echo open
+    _init=${VIGILANCE_INITIAL_DEPTH:-open}
+    if _depth_of "$_init" >/dev/null 2>&1; then
+      echo "$_init"
+    else
+      log "ignoring bad VIGILANCE_INITIAL_DEPTH '$_init'; using 'open'"
+      echo open
+    fi
   fi
 }
 
@@ -257,8 +292,9 @@ _set_depth() {   # rung
 # Descent runs ascending (10 -> 90); ascent runs descending (90 -> 10), so a
 # restore unwinds in the reverse order it wound down. Only executables count,
 # which is the same contract smart-lock's lock-hooks already use.
-_hooks_for() {   # edge [suffix]
-  _hd=$HOOK_ROOT/$1${2:-}.d
+# _hooks_in <root> <edge> <suffix> <asc|desc>: one root, ordered.
+_hooks_in() {
+  _hd=$1/$2$3.d
   if [ ! -d "$_hd" ]; then return 0; fi
   _hl=""
   for _hh in "$_hd"/*; do
@@ -266,8 +302,31 @@ _hooks_for() {   # edge [suffix]
 "; fi
   done
   if [ -z "$_hl" ]; then return 0; fi
-  if _is_ascent "$1"; then printf '%s' "$_hl" | sort -r
-  else printf '%s' "$_hl" | sort; fi
+  # Sort on the BASENAME so the numeric prefix orders within the scope,
+  # independently of how long the root's path happens to be.
+  if [ "$4" = desc ]; then
+    printf '%s' "$_hl" | awk -F/ '{print $NF"\t"$0}' | sort -r | cut -f2-
+  else
+    printf '%s' "$_hl" | awk -F/ '{print $NF"\t"$0}' | sort | cut -f2-
+  fi
+}
+
+_hooks_for() {   # edge [suffix]
+  if _is_ascent "$1"; then
+    # Coming UP: the lower layer first, each scope unwinding its own order.
+    _hooks_in "$MACHINE_HOOK_ROOT" "$1" "${2:-}" desc
+    _hooks_in "$HOOK_ROOT" "$1" "${2:-}" desc
+  elif [ "$1" = alert ]; then
+    # Alerts are not a ladder edge. Machine first so the always-available
+    # journal sink records BEFORE any user sink that might be slow or absent:
+    # the record is the part that must not be lost.
+    _hooks_in "$MACHINE_HOOK_ROOT" "$1" "${2:-}" asc
+    _hooks_in "$HOOK_ROOT" "$1" "${2:-}" asc
+  else
+    # Going DOWN: tear down the high layer first, leave the machine for last.
+    _hooks_in "$HOOK_ROOT" "$1" "${2:-}" asc
+    _hooks_in "$MACHINE_HOOK_ROOT" "$1" "${2:-}" asc
+  fi
 }
 
 # --- crossing an edge -------------------------------------------------------
@@ -423,7 +482,8 @@ cmd_status() {
   else _since="unknown"; fi
   echo "depth: $(_depth)"
   echo "since: $_since"
-  echo "hooks: $HOOK_ROOT"
+  echo "hooks: $HOOK_ROOT (user)"
+  echo "       $MACHINE_HOOK_ROOT (machine)"
   echo "state: $RUN_DIR"
 }
 
@@ -441,7 +501,12 @@ cmd_hooks() {   # [edge]
       if [ -z "$_l" ]; then continue; fi
       _any=1
       printf '%s\n' "$_l" | while IFS= read -r _h; do
-        if [ -n "$_h" ]; then echo "  $_lbl$(basename "$_h") -> $_h"; fi
+        if [ -z "$_h" ]; then continue; fi
+        case "$_h" in
+          "$MACHINE_HOOK_ROOT"/*) _scope=machine ;;
+          *) _scope=user ;;
+        esac
+        echo "  $_lbl$(basename "$_h") [$_scope] -> $_h"
       done
     done
     if [ "$_any" = 0 ]; then echo "  (none)"; fi

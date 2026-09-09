@@ -35,6 +35,11 @@ scenario_init() {   # <name>
   # traffic. Same family as the brightnessctl leak in hooks.t: a test that
   # writes outside its temp dir is reaching into the running system.
   export VIGILANCE_LOG="$T/vigilant.log"
+  # Sandbox the MACHINE root too. Without this a real /etc/vigilance/hooks on
+  # the developer's box would leak into every scenario, which is the same
+  # class of reach-into-the-running-system the brightnessctl guard exists for.
+  export VIGILANCE_MACHINE_HOOKS="$T/machine-hooks"
+  mkdir -p "$VIGILANCE_MACHINE_HOOKS"
   RECORD=$T/record
   : > "$RECORD"
   mkdir -p "$VIGILANCE_HOOK_ROOT" "$VIGILANCE_RUN_DIR"
@@ -68,6 +73,19 @@ scenario_suspend() {
 # hook <edge> <name> [rc]: install a RECORDER hook. It appends the edge, the
 # rung being left, and its own name, so ordering and FROM are assertable
 # without any hardware. `rc` makes it fail, to drive the loud-failure path.
+# hook installs into the USER scope; mhook into the MACHINE scope. Both record
+# their scope so a scenario can assert the layering order.
+mhook() {   # <edge> <name> [rc]
+  _hd=$VIGILANCE_MACHINE_HOOKS/$1.d
+  mkdir -p "$_hd"
+  cat > "$_hd/$2" <<EOF
+#!/bin/sh
+printf '%s %s %s\n' "\$VIGILANCE_EDGE" "\$VIGILANCE_FROM" "M:$2" >> "$RECORD"
+exit ${3:-0}
+EOF
+  chmod +x "$_hd/$2"
+}
+
 hook() {   # <edge> <name> [rc]
   _hd=$VIGILANCE_HOOK_ROOT/$1.d
   mkdir -p "$_hd"
@@ -97,7 +115,10 @@ only() {   # <state>
 }
 
 expect_depth() {   # <rung>
-  _got=$("$VIGILANT" status | awk '/^depth:/ {print $2}')
+  # stderr goes to the capture file, as it does for go/force: `status` can warn
+  # (a bad VIGILANCE_INITIAL_DEPTH, say), and a scenario must be able to assert
+  # on that rather than have it leak to the terminal.
+  _got=$("$VIGILANT" status 2>>"$T/stderr" | awk '/^depth:/ {print $2}')
   [ "$_got" = "$1" ] || fail "depth: want '$1', got '$_got'"
 }
 
