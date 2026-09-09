@@ -43,4 +43,45 @@ for _t in "$HERE"/bin/*; do _n=$(basename "$_t")
 [ -e "$SHR/man/man1/vigilance.1" ] && fail "man page not removed"
 [ -e "$T/libexec/vigilance" ] && fail "libexec hooks link not removed"
 
-pass "install + check + uninstall"
+# --- COPY MODE: what a shared/system prefix needs ---------------------------
+# The default install SYMLINKS into the clone. That is unreadable from a system
+# prefix, because the clone lives under a home that is 0750 (and ~/.cache 0700),
+# so a greeter following /usr/local/bin/vigilant would get nothing. Copy mode
+# is what makes a system install real.
+CBIN=$T/cbin; CLIB=$T/clib
+crun() {
+  env PREFIX="$T/copy" XDG_BIN_HOME="$CBIN" XDG_DATA_HOME="$T/cshare" \
+    XDG_CONFIG_HOME="$CFG" NO_COLOR=1 VIGILANCE_INSTALL_COPY=1 \
+    sh "$HERE/setup.sh" "$@"
+}
+crun install >/dev/null 2>&1 || fail "copy install errored"
+
+[ -f "$CBIN/vigilant" ] || fail "copy mode did not place vigilant"
+[ -L "$CBIN/vigilant" ] \
+  && fail "copy mode left a SYMLINK; it must be a real file"
+[ -f "$T/copy/libexec/vigilance/hooks/ddc-monitor" ] \
+  || fail "copy mode did not copy the plugin tree"
+[ -L "$T/copy/libexec/vigilance" ] \
+  && fail "copy mode symlinked libexec; a system prefix cannot follow it"
+[ -x "$CBIN/vigilant" ] || fail "the copied vigilant is not executable"
+
+# Nothing under the copy may point back into the clone: that is the whole
+# point, since the clone sits in an unreadable home.
+_leak=$(find "$T/copy" -type l 2>/dev/null | while read -r _l; do
+          case "$(readlink -f "$_l" 2>/dev/null)" in
+            "$HERE"/*) echo "$_l" ;;
+          esac
+        done)
+[ -z "$_leak" ] || fail "copy install leaks a link back into the clone: $_leak"
+
+# Re-copying is idempotent (apply re-runs every time to avoid staleness), and
+# a nested tree would mean cp -a landed a directory INSIDE the old one.
+crun install >/dev/null 2>&1 || fail "second copy install errored"
+[ -e "$T/copy/libexec/vigilance/vigilance" ] \
+  && fail "re-copy nested the plugin tree inside itself"
+
+crun uninstall >/dev/null 2>&1 || fail "copy uninstall errored"
+[ -e "$CBIN/vigilant" ] && fail "copy uninstall left vigilant behind"
+[ -d "$T/copy/libexec/vigilance" ] && fail "copy uninstall left the tree behind"
+
+pass "install + check + uninstall + copy mode"

@@ -17,6 +17,17 @@
 #   ./setup.sh test        run the in-repo test suite (test/run)
 #   ./setup.sh version     the packaged version
 #
+# INSTALL MODE. By default `install` SYMLINKS into the clone, so an edit to the
+# checkout is live. Set VIGILANCE_INSTALL_COPY=1 to COPY instead, which is what
+# a shared/system prefix needs: the clone lives under a user's home (0750, and
+# ~/.cache is 0700), so symlinks from /usr/local into it are unreadable by any
+# other user -- a greeter following one gets nothing. More generally a system
+# binary must not depend on a user's home being present, mounted or unlocked.
+#
+# A copy can drift from the clone, so a copying install RE-COPIES every run.
+# It is idempotent and cheap; staleness is the failure mode to avoid, not
+# wasted bytes.
+#
 # POSIX sh, non-privileged. `install` is bin + man ONLY (the contract a
 # provisioner delegates to); the --user listener is a separate `service` verb,
 # so a host that wires systemd itself gets no duplicate unit. The
@@ -64,12 +75,23 @@ warn() { printf '  %s[WARN]%s %s\n' "$_Y" "$_O" "$1"; }
 _man_pages() { for _m in "$_root"/man/man*/*.[0-9]; do
   [ -e "$_m" ] && printf '%s\n' "$_m"; done; }
 
+# _place <src> <dst>: symlink, or copy when VIGILANCE_INSTALL_COPY=1.
+# --remove-destination on the copy so replacing a RUNNING binary cannot fail
+# with ETXTBSY: the old inode is unlinked and any live process keeps it.
+_place() {
+  if [ "${VIGILANCE_INSTALL_COPY:-0}" = 1 ]; then
+    cp -a --remove-destination "$1" "$2"
+  else
+    ln -sfn "$1" "$2"
+  fi
+}
+
 do_install() {
   mkdir -p "$_bin"
-  for _t in "$_root"/bin/*; do ln -sfn "$_t" "$_bin/$(basename "$_t")"; done
+  for _t in "$_root"/bin/*; do _place "$_t" "$_bin/$(basename "$_t")"; done
   _man_pages | while IFS= read -r _m; do
     _d=$_man/$(basename "$(dirname "$_m")")
-    mkdir -p "$_d"; ln -sfn "$_m" "$_d/$(basename "$_m")"; done
+    mkdir -p "$_d"; _place "$_m" "$_d/$(basename "$_m")"; done
   # libexec carries the shipped PLUGINS: hooks/ (peripheral actuators, alert
   # sinks, block guards), providers/ (how to bring a locker up) and triggers/
   # (what crosses an edge). All installed AVAILABLE but never WIRED: which
@@ -78,9 +100,20 @@ do_install() {
   # mistake mute-on-lock was moved out to avoid.
   if [ -d "$_root/libexec/$PKG" ]; then
     mkdir -p "$_lib"
-    ln -sfn "$_root/libexec/$PKG" "$_lib/$PKG"
+    if [ "${VIGILANCE_INSTALL_COPY:-0}" = 1 ]; then
+      # rm first: cp -a of a directory ONTO an existing one nests it rather
+      # than replacing it, which would leave a stale tree one level down.
+      rm -rf "$_lib/$PKG"
+      cp -a "$_root/libexec/$PKG" "$_lib/$PKG"
+    else
+      ln -sfn "$_root/libexec/$PKG" "$_lib/$PKG"
+    fi
   fi
-  echo "$PKG: linked the tools (+ man, hooks) into $PREFIX"
+  if [ "${VIGILANCE_INSTALL_COPY:-0}" = 1 ]; then
+    echo "$PKG: COPIED the tools (+ man, hooks) into $PREFIX"
+  else
+    echo "$PKG: linked the tools (+ man, hooks) into $PREFIX"
+  fi
 }
 
 do_service() {
@@ -93,16 +126,30 @@ do_service() {
   echo "  system (both are @USER@/@UID@-templated)."
 }
 
+# A COPY cannot be identified by readlink, so in copy mode remove by NAME: the
+# names come from this clone, so we only ever remove what we would install.
+_unplace() {   # <installed-path> <clone-source>
+  if [ "${VIGILANCE_INSTALL_COPY:-0}" = 1 ]; then
+    rm -f "$1"
+  else
+    [ "$(readlink "$1" 2>/dev/null)" = "$2" ] && rm -f "$1" || :
+  fi
+}
+
 do_uninstall() {
-  for _t in "$_root"/bin/*; do _l=$_bin/$(basename "$_t")
-    [ "$(readlink "$_l" 2>/dev/null)" = "$_t" ] && rm -f "$_l" || :; done
+  for _t in "$_root"/bin/*; do _place_l=$_bin/$(basename "$_t")
+    _unplace "$_place_l" "$_t"; done
   _man_pages | while IFS= read -r _m; do
     _l=$_man/$(basename "$(dirname "$_m")")/$(basename "$_m")
-    [ "$(readlink "$_l" 2>/dev/null)" = "$_m" ] && rm -f "$_l" || :; done
+    _unplace "$_l" "$_m"; done
   [ "$(readlink "$_usr/vigilance-logind.service" 2>/dev/null)" = "$_unit" ] \
     && rm -f "$_usr/vigilance-logind.service" || :
-  [ "$(readlink "$_lib/$PKG" 2>/dev/null)" = "$_root/libexec/$PKG" ] \
-    && rm -f "$_lib/$PKG" || :
+  if [ "${VIGILANCE_INSTALL_COPY:-0}" = 1 ]; then
+    rm -rf "$_lib/$PKG"
+  else
+    [ "$(readlink "$_lib/$PKG" 2>/dev/null)" = "$_root/libexec/$PKG" ] \
+      && rm -f "$_lib/$PKG" || :
+  fi
   echo "$PKG: removed the ~/.local symlinks (+ the --user listener)"
 }
 
