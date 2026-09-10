@@ -27,7 +27,18 @@ set -eu
 LOCK_TIMEOUT=480          # seconds idle before the lock
 BLANK_DELAY=120           # further seconds before the peripherals go dark
 BIN=$HOME/.local/bin
-LOCK_CMD=${LOCK_CMD:-$BIN/smart-lock}   # overridable so a test never locks
+# The idle lock goes through VIGILANT, not a locker directly: crossing the
+# `lock` edge is what fires lock.d (whose provider brings swaylock up), records
+# the depth, and lets the block hooks have a say. Pointing this at a locker
+# would lock the screen with the record never knowing.
+#
+# It said $BIN/smart-lock until now, which smart-lock's retirement deleted. The
+# 480s idle lock has therefore been silently failing: the screen still locked,
+# but only at 600s when the blank timer's `go sleep` traversed open -> lock ->
+# sleep and crossed the lock edge on its way past. Two minutes late, by
+# accident, via the wrong timer.
+# Overridable, so a test never locks a real screen.
+LOCK_CMD=${LOCK_CMD:-$BIN/vigilant go lock}
 # The peripherals now ride VIGILANT, not swaylock. The patched swaylock used
 # to fork $HOME/bin/panel-power on its own blank-after timer; that path went
 # stale when vigilance extracted panel-power to ~/.local/bin, the execl failed,
@@ -79,8 +90,15 @@ cmd_event() {
       case "$prev" in ''|*[!0-9]*) prev=0 ;; esac
       printf '%s\n' "$now" > "$STATE"
       log "idle-lock delta=$((now - prev))s"
-      export LOCK_SOURCE=idle   # tag the idle path (phantom guard)
-      exec "$LOCK_CMD"
+      # VIGILANCE_SOURCE is what lets the phantom guard scope itself to the
+      # idle path and never suppress a lid close or a suspend. Without it the
+      # guard is inert: it allows everything, because it only ever blocks
+      # `idle`. LOCK_SOURCE is kept for any old consumer.
+      export LOCK_SOURCE=idle VIGILANCE_SOURCE=idle
+      # Deliberately NOT quoted: LOCK_CMD carries arguments (`vigilant go
+      # lock`), and a test overrides it with its own command plus args.
+      # shellcheck disable=SC2086
+      exec $LOCK_CMD
       ;;
     *)
       echo "swayidle-mgr: unknown event '$kind'" >&2
