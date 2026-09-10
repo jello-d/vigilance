@@ -66,4 +66,36 @@ _got=$(cat "$T/kinds")
 sleep:verify" ] || { printf 'got: %s\n' "$_got" >&2
   fail "the same plugin was not told which kind it was invoked as"; }
 
+# --- verify defaults to the CURRENT rung, not every edge ---------------------
+# Checking every edge asserts mutually exclusive things at once: at `open` it
+# demanded the monitor be BOTH lit (unlock) and dark (sleep). On manifestor
+# that made a healthy awake machine report drift AND raise an alert, which is
+# the cry-wolf failure the alert design explicitly set out to avoid.
+: > "$RECORD"
+go open
+hook unlock.verify 10-lit
+hook sleep.verify  10-dark
+_out=$("$VIGILANT" verify 2>>"$T/stderr") || fail "verify failed at rung open"
+case "$_out" in
+  *"verify unlock: ok"*) ;;
+  *) printf 'got: %s\n' "$_out" >&2
+     fail "at rung open, verify did not check the unlock edge" ;;
+esac
+case "$_out" in
+  *sleep*) fail "at rung open, verify checked the SLEEP edge (a dark
+assertion on an awake machine)" ;;
+esac
+
+# ...and at a dark rung it checks that rung's assertion instead.
+go sleep
+_out=$("$VIGILANT" verify 2>>"$T/stderr") || fail "verify failed at rung sleep"
+case "$_out" in
+  *"verify sleep: ok"*) ;;
+  *) fail "at rung sleep, verify did not check the sleep edge" ;;
+esac
+
+# An explicit edge is still checkable, which is what a scenario needs.
+"$VIGILANT" verify unlock >/dev/null 2>>"$T/stderr" \
+  || fail "an explicitly named edge is no longer verifiable"
+
 pass

@@ -530,12 +530,30 @@ cmd_hooks() {   # [edge]
 # So an empty tier reports n/a EXPLICITLY. Exit stays 0 (a box with no verify
 # hooks is not broken, and a timer must not alarm), but no caller can mistake
 # it for a pass.
+# The edge whose intent describes a rung. Verifying is asking "does the
+# hardware match the rung we believe we are at", so the relevant assertion is
+# the one belonging to the state we are IN.
+#
+#   open -> unlock (lit)   lock -> lock (lit)
+#   sleep -> sleep (dark)  suspend -> suspend (dark)
+_verify_edge_for() {   # rung
+  case "$1" in
+    open) echo unlock ;;
+    *)    echo "$1" ;;
+  esac
+}
+
 cmd_verify() {   # [edge]
   mkdir -p "$RUN_DIR" "$STATE_ROOT"
   _from=$(_depth)
   _vrc=0
   _ran=0
-  for _e in ${1:-lock sleep suspend unlock wake resume}; do
+  # Default to the CURRENT rung, not every edge. Checking them all asserts
+  # mutually exclusive things at once: at `open` it demanded the monitor be
+  # BOTH lit (unlock) and dark (sleep), so a healthy awake machine reported
+  # drift and raised an alert. A verifier that cries wolf on a correct machine
+  # is worse than none, because it trains you to ignore the real one.
+  for _e in ${1:-$(_verify_edge_for "$_from")}; do
     if [ -n "$(_hooks_for "$_e" .verify)" ]; then
       _ran=1
       if _run_hooks "$_e" "$_from" .verify; then
