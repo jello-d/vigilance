@@ -341,6 +341,42 @@ _hooks_for() {   # edge [suffix]
 # The read loop is fed by a here-doc, NOT a pipe: a pipeline would run it in a
 # subshell and silently swallow the failure count, which is the same class of
 # bug this whole command exists to stop.
+# THE DARKNESS A RUNG IMPLIES, exported to every hook so nobody restates it.
+#
+# The mapping lives in hooklib.sh for the shipped plugins, but an INTEGRATOR
+# hook needs the identical table and getting it wrong is invisible. tackup's
+# kbd-rgb hand-rolled it, read `resume` as "coming back up, so light it", and
+# put a lit keyboard over a dark screen -- in the same pass as ddc-monitor,
+# which reads the real mapping and was powering the monitor down. Both hooks
+# "succeeded".
+#
+# So the runner states it once. A hook that honours VIGILANCE_INTENT cannot fall
+# through a stale `*)` case when the ladder grows a rung, and an integrator no
+# longer has to locate a libexec path it does not own just to ask "dark or lit?"
+_intent_of() {   # edge -> dark | lit | none
+  case "$1" in
+    sleep|suspend|resume) echo dark ;;
+    wake)                 echo lit ;;
+    lock|unlock)          echo lit ;;   # the rung is lit; only ACTING differs
+    *)                    echo none ;;
+  esac
+}
+
+# PATH FOR HOOKS, normalised because inheriting the caller's is a silent trap.
+#
+# vigilant runs from a keybind, a --user unit, a SYSTEM sleep unit and a greeter
+# launcher, and those have four different PATHs. The system manager's is
+# /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin -- no ~/.local/bin -- so a
+# hook calling a user-installed command BY NAME finds nothing and, if it does
+# not check, reports success. That is exactly how tackup's kbd-rgb no-opped on
+# the suspend path while logging a clean crossing.
+#
+# The user bindir goes FIRST because that is where an integrator's own tools
+# live, and the pkg installs vigilance's there too. A hook may still override
+# PATH for itself; this only guarantees a sane floor rather than a lottery.
+HOOK_PATH=${VIGILANCE_HOOK_PATH:-${XDG_BIN_HOME:-$HOME/.local/bin}:$HOME/bin:\
+/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin}
+
 _run_hooks() {   # edge from [suffix]
   _edge=$1; _from=$2; _sfx=${3:-}
   _list=$(_hooks_for "$_edge" "$_sfx")
@@ -358,6 +394,8 @@ _run_hooks() {   # edge from [suffix]
     VIGILANCE_EDGE="$_edge" VIGILANCE_FROM="$_from" \
       VIGILANCE_SOURCE="${VIGILANCE_SOURCE:-}" \
       VIGILANCE_KIND="$(printf '%s' "${_sfx:-.act}" | tr -d .)" \
+      VIGILANCE_INTENT="$(_intent_of "$_edge")" \
+      PATH="$HOOK_PATH" \
       VIGILANCE_STATE_DIR="$_sd" "$_h" "$_edge" "$_from" || _hrc=$?
     if [ "$_hrc" -ne 0 ]; then
       log "HOOK FAILED (rc=$_hrc): $_edge$_sfx $(basename "$_h")"
@@ -596,6 +634,7 @@ cmd_verify() {   # [edge]
 # brightnessctl blacked out a live screen twice. Production never sets these.
 SYS_BACKLIGHT=${VIGILANCE_SYS_BACKLIGHT:-/sys/class/backlight}
 SYS_DRM=${VIGILANCE_SYS_DRM:-/sys/class/drm}
+SYS_LEDS=${VIGILANCE_SYS_LEDS:-/sys/class/leds}
 
 RRC=0
 _r_ok()   { printf '  [OK]   %s\n' "$*"; }
@@ -716,6 +755,41 @@ cmd_report() {
   if pgrep -x swayidle >/dev/null 2>&1; then _r_ok "swayidle running (timer)"
   elif [ -z "$_sess" ]; then _r_info "swayidle n/a (no session to idle in)"
   else _r_bad "swayidle NOT running: nothing will lock on idle"; fi
+
+  # ACTUATOR WRITABILITY. hooklib DECLARES that the login user must be in the
+  # `input` group for brightnessctl to drive these nodes, and nothing checked
+  # it, so the requirement was a comment. On a real box the user was in none of
+  # input/video/i2c and every write was denied -- and hook_dark/hook_lit swallow
+  # brightnessctl failure by design (`|| true`), so vigilant logged clean
+  # crossings while the hardware never moved. Asserted-versus-actual drift, in
+  # the actuators this time rather than the record.
+  #
+  # Tests -w on the node rather than writing one: a report must change nothing,
+  # and a permission bit answers the question without touching the device. A
+  # node that does not EXIST is n/a, not drift -- a desktop has no panel
+  # backlight and no hook should care.
+  echo "-- actuators --"
+  _act_seen=0 _act_bad=0
+  for _n in "$SYS_BACKLIGHT"/*/brightness \
+            "$SYS_LEDS"/*kbd_backlight*/brightness \
+            "$SYS_LEDS"/platform::mute/brightness \
+            "$SYS_LEDS"/platform::micmute/brightness; do
+    [ -e "$_n" ] || continue
+    _act_seen=$((_act_seen + 1))
+    if [ ! -w "$_n" ]; then
+      _r_bad "NOT writable: $_n (hooks will silently no-op)"
+      _act_bad=$((_act_bad + 1))
+    fi
+  done
+  if [ "$_act_seen" = 0 ]; then
+    _r_info "no brightnessctl-backed devices on this host (nothing to drive)"
+  elif [ "$_act_bad" = 0 ]; then
+    _r_ok "$_act_seen actuator node(s) writable"
+  else
+    # The remedy, named, because "denied" without it sends you reading source.
+    _r_info "brightnessctl needs the login user in 'input' (and 'video' for"\
+" the backlight class); these hooks cannot report their own failure"
+  fi
 
   echo "-- wiring --"
   cmd_hooks 2>/dev/null | sed 's/^/  /'

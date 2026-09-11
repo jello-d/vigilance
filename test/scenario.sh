@@ -47,7 +47,9 @@ scenario_init() {   # <name>
   # hardware, let alone touch it.
   export VIGILANCE_SYS_BACKLIGHT="$T/sys/backlight"
   export VIGILANCE_SYS_DRM="$T/sys/drm"
-  mkdir -p "$VIGILANCE_SYS_BACKLIGHT" "$VIGILANCE_SYS_DRM"
+  export VIGILANCE_SYS_LEDS="$T/sys/leds"
+  mkdir -p "$VIGILANCE_SYS_BACKLIGHT" "$VIGILANCE_SYS_DRM" \
+    "$VIGILANCE_SYS_LEDS"
   RECORD=$T/record
   : > "$RECORD"
   mkdir -p "$VIGILANCE_HOOK_ROOT" "$VIGILANCE_RUN_DIR"

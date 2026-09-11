@@ -37,14 +37,30 @@
 # nothing checked. It is also the most valuable assertion in the suite:
 # "vigilance says this machine is open; is the screen actually on?" is exactly
 # the black-screen-no-recovery condition that twice needed a hard reboot.
+# TWO QUESTIONS, deliberately not merged. The runner exports VIGILANCE_INTENT,
+# the darkness the rung implies -- a fact about the LADDER. This adds the ACT
+# policy on top: whether a hook should drive the hardware toward it. They differ
+# only at lock/unlock, and merging them would put back the bug where unlocking
+# re-asserted a brightness the user had set by hand.
+#
+# The runner's value WINS when present, so the ladder's table is stated once.
+# The local copy is the standalone fallback (a hook run by hand, or by a test),
+# and test/intent.t asserts the two agree, because a fallback that can drift
+# silently is worse than no fallback.
 hook_intent() {   # edge -> dark | lit | none
+  _hi=${VIGILANCE_INTENT:-}
+  if [ -z "$_hi" ]; then
+    case "$1" in
+      sleep|suspend|resume) _hi=dark ;;
+      wake|lock|unlock)     _hi=lit ;;
+      *)                    _hi=none ;;
+    esac
+  fi
   case "$1" in
-    sleep|suspend|resume) echo dark ;;
-    wake)                 echo lit ;;
     lock|unlock)
-      if [ "${VIGILANCE_KIND:-act}" = verify ]; then echo lit
+      if [ "${VIGILANCE_KIND:-act}" = verify ]; then echo "$_hi"
       else echo none; fi ;;
-    *)                    echo none ;;
+    *) echo "$_hi" ;;
   esac
 }
 
