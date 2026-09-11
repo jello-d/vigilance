@@ -646,7 +646,27 @@ _r_info() { printf '  [--]   %s\n' "$*"; }
 # session is Class=user too, and a box with five of them has no display at all;
 # reporting "swayidle NOT running" there is crying wolf, which trains you to
 # ignore the line that matters. Session-scoped checks say n/a when absent.
+# IS A LOCKER UP? Overridable for the same reason as the sysfs roots: without
+# it a scenario's verdict depends on whether the DEVELOPER's screen happens to
+# be locked while the suite runs. That is not a hypothetical -- it failed here
+# exactly that way, reading a real swaylock from inside a sandbox.
+_r_locker_up() {
+  if [ -n "${VIGILANCE_LOCKER_UP+x}" ]; then
+    [ "$VIGILANCE_LOCKER_UP" = 1 ]
+    return $?
+  fi
+  pgrep -x "${VIGILANCE_LOCKER:-swaylock}" >/dev/null 2>&1
+}
+
 _r_session() {
+  # Overridable so a scenario can exercise BOTH the session and no-session
+  # paths. They behave differently (a fresh session makes the `open` default a
+  # real claim; no session makes it a fiction), and without this the test would
+  # assert whatever the developer's box happens to be doing -- the same reach
+  # into the running system the sysfs roots are overridable to avoid.
+  if [ -n "${VIGILANCE_SESSION+x}" ]; then printf '%s' "$VIGILANCE_SESSION"
+    return 0
+  fi
   loginctl list-sessions --no-legend 2>/dev/null | awk '{print $1}' \
     | while read -r _s; do
         [ -n "$_s" ] || continue
@@ -669,11 +689,34 @@ cmd_report() {
   else _r_warn "NO graphical session; session-scoped checks report n/a"; fi
 
   echo "-- recorded state --"
+  # A DEFAULT IS NOT ALWAYS A CLAIM, and treating it as one cries wolf.
+  #
+  # _depth() answers `open` when no depth file exists. With a live session that
+  # is a fair claim -- a fresh login genuinely IS open, and the runtime dir is
+  # cleared on logout, so a just-logged-in box legitimately has no record yet.
+  # With NO session it is a fiction.
+  #
+  # Caught on a real machine: nobody logged in, the greeter (a different user,
+  # with its own runtime dir and its own depth file) had correctly put the
+  # monitor into DDC standby, and this user had no record at all. Report took
+  # the default `open`, asserted the screen must therefore be lit, and declared
+  # FAIL over a machine doing exactly the right thing.
+  #
+  # So the claim is real when there is a record OR a session to which the
+  # default applies. Otherwise there is nothing of ours to check.
   _at=$(_depth_at)
-  if [ "$_at" -gt 0 ]; then _ago="$(( $(date +%s) - _at ))s ago"
-  else _ago=unknown; fi
   _rung=$(_depth)
-  _r_info "depth=$_rung ($_ago)"
+  _have_record=
+  if [ "$_at" -gt 0 ]; then
+    _r_info "depth=$_rung ($(( $(date +%s) - _at ))s ago)"
+    _have_record=1
+  elif [ -n "$_sess" ]; then
+    _r_info "depth=$_rung (no record yet; a fresh session starts here)"
+    _have_record=1
+  else
+    _r_info "depth: NO RECORD and no session of ours; asserting nothing about"\
+" hardware another session may own"
+  fi
   # OUTSTANDING SAVES are the sharpest signal here. A hook saves the level it
   # is about to dim FROM and deletes the file once restored, so one still
   # present at a LIT rung means a descent dimmed something the ascent never put
@@ -708,6 +751,12 @@ cmd_report() {
   # the hook. Reimplementing ddcutil here is how the same fact ends up in two
   # places that can disagree.
   echo "-- coherence --"
+  if [ -z "$_have_record" ]; then
+    # Nothing to be coherent WITH. Both halves of the comparison must be real:
+    # without a record there is only the hardware, and hardware alone is not
+    # drift. Checking anyway is how a greeter-dimmed monitor read as a fault.
+    _r_info "n/a: no depth record to compare the hardware against"
+  else
   case "$_rung" in
     sleep|suspend)
       _lit=
@@ -722,25 +771,34 @@ cmd_report() {
         _r_bad "depth says '$_rung' but a backlight is still lit"
       else _r_ok "depth '$_rung' matches dark hardware"; fi ;;
     open)
-      if pgrep -x "${VIGILANCE_LOCKER:-swaylock}" >/dev/null 2>&1; then
+      if _r_locker_up; then
         _r_bad "depth says 'open' but a locker is UP (an edge was missed)"
       else _r_ok "depth 'open' matches an unlocked session"; fi ;;
     lock)
-      if pgrep -x "${VIGILANCE_LOCKER:-swaylock}" >/dev/null 2>&1; then
+      if _r_locker_up; then
         _r_ok "depth 'lock' matches a live locker"
       else _r_bad "depth says 'lock' but no locker is running"; fi ;;
-    *) _r_warn "no depth recorded yet (no edge has been crossed)" ;;
+    *) _r_warn "unknown rung '$_rung'" ;;
   esac
+  fi
 
+  # VERIFY, for the same reason, only when there is a claim to verify. `verify`
+  # asks the hooks to assert the CURRENT rung against the hardware, and with no
+  # record the "current rung" is a default rather than something we believe.
+  #
   # Capture the OUTPUT, not just the status: an empty tier exits 0 and used to
   # read here as "clean" when nothing had been asked. A green light meaning
   # "nobody checked" is worse than no light.
-  _vout=$(cmd_verify 2>&1) && _vrc2=0 || _vrc2=1
-  case "$_vout" in
-    *"n/a"*) _r_warn "$_vout" ;;
-    *) if [ "$_vrc2" = 0 ]; then _r_ok "${_vout:-verify clean}"
-       else _r_bad "verify reports drift: $_vout"; fi ;;
-  esac
+  if [ -z "$_have_record" ]; then
+    _r_info "verify n/a: nothing was asserted, so there is nothing to check"
+  else
+    _vout=$(cmd_verify 2>&1) && _vrc2=0 || _vrc2=1
+    case "$_vout" in
+      *"n/a"*) _r_warn "$_vout" ;;
+      *) if [ "$_vrc2" = 0 ]; then _r_ok "${_vout:-verify clean}"
+         else _r_bad "verify reports drift: $_vout"; fi ;;
+    esac
+  fi
 
   echo "-- machinery --"
   if systemctl --user is-active --quiet vigilance-logind.service 2>/dev/null

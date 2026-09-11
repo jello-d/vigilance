@@ -164,4 +164,49 @@ case "$_out" in
      fail "an absent actuator was not reported as n/a" ;;
 esac
 
+# --- a DEFAULT depth is only a claim when a session owns it -----------------
+# Found on a real machine, and it is the cry-wolf failure this tier keeps having
+# to unlearn. Nobody was logged in; the GREETER -- another user, with its own
+# runtime dir and its own depth file -- had correctly put the monitor into DDC
+# standby. This user had no depth record at all, so _depth() returned its `open`
+# default, report asserted the screen must therefore be lit, and reported FAIL
+# over a machine doing exactly the right thing.
+#
+# With a session the default IS fair: a fresh login genuinely starts at `open`,
+# and the runtime dir is cleared on logout, so a just-logged-in box legitimately
+# has no record yet. Both paths are pinned, because they differ.
+rm -rf "$VIGILANCE_RUN_DIR/depth" "$VIGILANCE_RUN_DIR/state"
+
+# No session, no record: assert NOTHING. Another session may own the hardware.
+_out=$(VIGILANCE_SESSION= "$VIGILANT" report 2>>"$T/stderr") \
+  || fail "report FAILED with no session and no record; with no claim to check
+it cannot have found drift"
+case "$_out" in
+  *"NO RECORD and no session"*) ;;
+  *) printf '%s\n' "$_out" >&2
+     fail "report did not say it was asserting nothing" ;;
+esac
+case "$_out" in
+  *"n/a: no depth record"*) ;;
+  *) fail "coherence ran anyway with nothing to compare against" ;;
+esac
+case "$_out" in
+  *"verify n/a: nothing was asserted"*) ;;
+  *) fail "verify ran anyway with nothing asserted" ;;
+esac
+
+# A session and no record: the default applies, so the checks DO run. Losing
+# that would trade a false alarm for a blind spot on every fresh login.
+_out=$(VIGILANCE_SESSION=7 "$VIGILANT" report 2>>"$T/stderr") \
+  || fail "report failed on a fresh session with no record yet"
+case "$_out" in
+  *"no record yet; a fresh session starts here"*) ;;
+  *) printf '%s\n' "$_out" >&2
+     fail "a fresh session's default depth was not treated as a claim" ;;
+esac
+case "$_out" in
+  *"n/a: no depth record"*)
+     fail "coherence went n/a on a live session; the default applies there" ;;
+esac
+
 pass

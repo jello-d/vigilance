@@ -48,6 +48,11 @@ scenario_init() {   # <name>
   export VIGILANCE_SYS_BACKLIGHT="$T/sys/backlight"
   export VIGILANCE_SYS_DRM="$T/sys/drm"
   export VIGILANCE_SYS_LEDS="$T/sys/leds"
+  # And the LOCKER probe. Without this a scenario's verdict depends on whether
+  # the DEVELOPER's screen is locked while the suite runs -- which failed here
+  # exactly that way, reading a real swaylock from inside a sandbox. Default to
+  # "no locker"; a scenario that cares sets it per call.
+  export VIGILANCE_LOCKER_UP=0
   mkdir -p "$VIGILANCE_SYS_BACKLIGHT" "$VIGILANCE_SYS_DRM" \
     "$VIGILANCE_SYS_LEDS"
   RECORD=$T/record
