@@ -565,7 +565,12 @@ cmd_verify() {   # [edge]
     fi
   done
   if [ "$_ran" = 0 ]; then
-    echo "verify: n/a (no verify hooks installed; nothing was checked)"
+    # NAME the edge. "no verify hooks installed" sent vigilance-report to a
+    # flat [FAIL] on a machine that had three of them wired -- they were just
+    # on other edges than the one this rung asks about. An honest n/a has to
+    # say WHICH question went unanswered, or the next layer up mis-reports it.
+    echo "verify: n/a (no verify hooks for edge"\
+"'${1:-$(_verify_edge_for "$_from")}'; nothing was checked)"
   fi
   return "$_vrc"
 }

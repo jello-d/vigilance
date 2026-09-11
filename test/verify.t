@@ -98,4 +98,38 @@ esac
 "$VIGILANT" verify unlock >/dev/null 2>>"$T/stderr" \
   || fail "an explicitly named edge is no longer verifiable"
 
+# --- the n/a message must NAME the edge -------------------------------------
+# "no verify hooks installed" is a claim about the whole tier, and it was wrong:
+# a box with sleep and wake verifiers sitting at rung `open` got it, and the
+# report above turned that into [FAIL] NO verify hooks installed. Three were
+# installed. The unanswered question has to identify itself.
+: > "$RECORD"
+go open
+rm -rf "$VIGILANCE_HOOK_ROOT/unlock.verify.d"
+_out=$("$VIGILANT" verify 2>>"$T/stderr")
+case "$_out" in
+  *"n/a"*unlock*) ;;
+  *) printf 'got: %s\n' "$_out" >&2
+     fail "an n/a verify did not name the edge it could not check" ;;
+esac
+
+# --- hook_intent is KIND-AWARE on the lit edges ------------------------------
+# lock and unlock must not ACT on brightness (locking leaves the screen on, and
+# wake already re-lit it; re-asserting would stomp a level set by hand), but the
+# lit assertion at those rungs is real and is the blackout check. One edge, two
+# answers, decided by VIGILANCE_KIND -- so pin both directions.
+. "$(dirname "$0")/../libexec/vigilance/hooklib.sh"
+for _e in lock unlock; do
+  _a=$(VIGILANCE_KIND=act    hook_intent "$_e")
+  _v=$(VIGILANCE_KIND=verify hook_intent "$_e")
+  [ "$_a" = none ] || fail "$_e ACTS on brightness ($_a); it must not"
+  [ "$_v" = lit ]  || fail "$_e does not VERIFY lit ($_v); the rung is lit"
+done
+# And the edges that act must not have been disturbed by that change.
+for _pair in "sleep dark" "suspend dark" "resume dark" "wake lit"; do
+  set -- $_pair
+  _g=$(VIGILANCE_KIND=act hook_intent "$1")
+  [ "$_g" = "$2" ] || fail "intent($1) is now '$_g', expected '$2'"
+done
+
 pass

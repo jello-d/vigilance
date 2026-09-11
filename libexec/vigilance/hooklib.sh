@@ -23,10 +23,27 @@
 # hardware may well have come back lit on its own. That is the "re-assert
 # rather than restore" case, and it is why hooks branch on the EDGE, not on
 # whether the ladder is moving up or down.
+#
+# `lock` and `unlock` are the edges whose intent DIFFERS BY KIND, and the
+# asymmetry is the point. Both ENTER a lit rung, so that is what verify must
+# assert. But neither may ACT on brightness: descending to `lock` leaves the
+# screen on by definition, `wake` already re-lit the hardware on the way up,
+# and an edge that re-asserted a level here would overwrite one the user had
+# set by hand.
+#
+# Wiring them for verify is what closes the everyday hole. `vigilant verify`
+# checks the CURRENT rung, and the current rung is `open` almost all the time,
+# so with no verifier there the normal state of the machine was the one state
+# nothing checked. It is also the most valuable assertion in the suite:
+# "vigilance says this machine is open; is the screen actually on?" is exactly
+# the black-screen-no-recovery condition that twice needed a hard reboot.
 hook_intent() {   # edge -> dark | lit | none
   case "$1" in
     sleep|suspend|resume) echo dark ;;
     wake)                 echo lit ;;
+    lock|unlock)
+      if [ "${VIGILANCE_KIND:-act}" = verify ]; then echo lit
+      else echo none; fi ;;
     *)                    echo none ;;
   esac
 }
