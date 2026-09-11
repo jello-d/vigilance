@@ -78,9 +78,21 @@ _man_pages() { for _m in "$_root"/man/man*/*.[0-9]; do
 # _place <src> <dst>: symlink, or copy when VIGILANCE_INSTALL_COPY=1.
 # --remove-destination on the copy so replacing a RUNNING binary cannot fail
 # with ETXTBSY: the old inode is unlinked and any live process keeps it.
+#
+# THE CHOWN IS NOT OPTIONAL. `cp -a` implies --preserve=all, which carries the
+# SOURCE's ownership across even when the copy runs as root. The clone this
+# installs from lives in a user's home, so a root install of copy mode produced
+# /usr/local/bin/vigilant owned by the LOGIN USER: a binary the greeter session
+# executes that the unprivileged account can rewrite at will. Found on a real
+# box, where /usr/local/bin itself had also drifted to user ownership.
+#
+# So when root is installing, root owns the result. Root is the only identity
+# that could be placing files in a system prefix, and preserving a user's
+# ownership there is never what was meant.
 _place() {
   if [ "${VIGILANCE_INSTALL_COPY:-0}" = 1 ]; then
     cp -a --remove-destination "$1" "$2"
+    if [ "$(id -u)" = 0 ]; then chown -R root:root "$2"; fi
   else
     ln -sfn "$1" "$2"
   fi
