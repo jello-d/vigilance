@@ -1,0 +1,65 @@
+# 99-vigilance.rules - device access for vigilance's peripheral hooks.
+#
+# Grants the `vigilant` group write on EXACTLY the nodes vigilance drives, so
+# no vigilance user ever needs to join `input`.
+#
+# WHY NOT JUST USE `input`. brightnessctl ships:
+#
+#   ACTION=="add", SUBSYSTEM=="leds", RUN+="bright-helper input g+w \
+#     /sys/class/leds/%k/brightness"
+#
+# so writing any LED means joining `input`. But that group is OVERLOADED -- it
+# guards two unrelated capabilities on the same name:
+#
+#   /dev/input/event*             root:input crw-rw----   raw event READ
+#   /sys/class/leds/*/brightness  root:input -rw-rw-r--   LED write
+#
+# Joining it to dim a keyboard backlight therefore also grants the ability to
+# read every keystroke on the machine. That is an unacceptable price for an
+# LED, and it is a price every consumer of this framework would have to pay.
+#
+# NARROW BY NODE, NOT BY CLASS. Only the specific LEDs the shipped hooks touch
+# are re-grouped; `input3::capslock` and friends keep group `input` and are left
+# entirely alone. Writing a brightness attribute confers no ability to read
+# input events, so this grant is strictly smaller than `input` membership.
+#
+# sysfs cannot carry a POSIX ACL, so chgrp is the only mechanism available --
+# the same one brightnessctl uses. Ordered 99 so it lands after the distro
+# rules it is deliberately overriding for these few nodes.
+
+# The panel backlight (panel-backlight). Distro default is group `video`, which
+# also guards /dev/dri; `vigilant` keeps the grant to just this.
+ACTION=="add", SUBSYSTEM=="backlight", \
+  RUN+="/bin/chgrp vigilant /sys/class/backlight/%k/brightness", \
+  RUN+="/bin/chmod g+w /sys/class/backlight/%k/brightness"
+
+# The keyboard backlight (kbd-backlight). Vendor-prefixed, hence the glob:
+# tpacpi::, asus::, dell:: all appear in the wild.
+ACTION=="add", SUBSYSTEM=="leds", KERNEL=="*kbd_backlight", \
+  RUN+="/bin/chgrp vigilant /sys/class/leds/%k/brightness", \
+  RUN+="/bin/chmod g+w /sys/class/leds/%k/brightness"
+
+# The mute / mic-mute indicator LEDs (mute-leds). Named exactly, not globbed:
+# these two are the only LEDs on the deck that stay lit with the backlight off.
+ACTION=="add", SUBSYSTEM=="leds", KERNEL=="platform::mute", \
+  RUN+="/bin/chgrp vigilant /sys/class/leds/%k/brightness", \
+  RUN+="/bin/chmod g+w /sys/class/leds/%k/brightness"
+ACTION=="add", SUBSYSTEM=="leds", KERNEL=="platform::micmute", \
+  RUN+="/bin/chgrp vigilant /sys/class/leds/%k/brightness", \
+  RUN+="/bin/chmod g+w /sys/class/leds/%k/brightness"
+
+# DDC/CI over I2C (ddc-monitor).
+#
+# ddcutil's own rule tags these TAG+="uaccess", which grants the ACTIVE SEAT's
+# user -- and that is not who runs them. lock-on-sleep.service and
+# vigilance-resume.service are User=<desktop user>, but before a graphical login
+# the seat belongs to the greeter, so the ACL reads `user:_greetd:rw-` with no
+# entry for the desktop user, and a suspend from the greeter could not put the
+# monitor to sleep. Measured on a real box, on all 8 buses.
+#
+# A GROUP grant is SEAT-INDEPENDENT, which is exactly what a system unit needs.
+# It is additive: the uaccess ACL still applies for the logged-in case.
+# ATTRS{class}=="0x03*" restricts this to display controllers, so SMBus and
+# sensor buses keep their default permissions.
+SUBSYSTEM=="i2c-dev", KERNEL=="i2c-[0-9]*", ATTRS{class}=="0x03*", \
+  GROUP="vigilant", MODE="0660"

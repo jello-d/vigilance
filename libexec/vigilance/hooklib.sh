@@ -66,10 +66,21 @@ hook_intent() {   # edge -> dark | lit | none
 
 # --- brightnessctl-backed save/restore --------------------------------------
 # Every LED and backlight here is written through brightnessctl, never raw
-# sysfs. brightnessctl ships its own udev rule granting the `input` group
-# rw on /sys/class/leds/*/brightness and the backlight nodes, so a hook needs
-# no sudo and no integrator-specific rule: only that the login user is in
-# `input`, which is brightnessctl's standard requirement everywhere.
+# sysfs. Access comes from udev/99-vigilance.rules, which grants the `vigilant`
+# GROUP write on exactly the nodes these hooks drive.
+#
+# THIS USED TO SAY "just put the login user in `input`", brightnessctl's own
+# requirement, and it was wrong to ask for. `input` is overloaded: the same
+# group guards /dev/input/event* (root:input crw-rw----, i.e. READ EVERY
+# KEYSTROKE) and the LED brightness attributes. Joining it to dim a keyboard
+# backlight buys a keylogging capability, and every consumer of this framework
+# would have paid that price.
+#
+# It was also never CHECKED, only documented -- so on a box where the user held
+# none of those groups, brightnessctl was denied on every call while hook_dark
+# and hook_lit swallowed the failure (`|| true`) and vigilant logged clean
+# crossings over hardware that never moved. `vigilant report` now probes the
+# nodes for writability, because a requirement nothing verifies is a comment.
 #
 # SAVE ONCE is load-bearing. A hook wired into BOTH sleep.d and suspend.d runs
 # twice on a lock -> sleep -> suspend descent, and `resume` re-asserts dark a

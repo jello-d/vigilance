@@ -757,7 +757,7 @@ cmd_report() {
   else _r_bad "swayidle NOT running: nothing will lock on idle"; fi
 
   # ACTUATOR WRITABILITY. hooklib DECLARES that the login user must be in the
-  # `input` group for brightnessctl to drive these nodes, and nothing checked
+  # `vigilant` group for brightnessctl to drive these nodes, and nothing checked
   # it, so the requirement was a comment. On a real box the user was in none of
   # input/video/i2c and every write was denied -- and hook_dark/hook_lit swallow
   # brightnessctl failure by design (`|| true`), so vigilant logged clean
@@ -787,8 +787,8 @@ cmd_report() {
     _r_ok "$_act_seen actuator node(s) writable"
   else
     # The remedy, named, because "denied" without it sends you reading source.
-    _r_info "brightnessctl needs the login user in 'input' (and 'video' for"\
-" the backlight class); these hooks cannot report their own failure"
+    _r_info "grant via udev/99-vigilance.rules + the 'vigilant' group; do NOT"\
+" use 'input', which also grants raw keystroke read"
   fi
 
   echo "-- wiring --"

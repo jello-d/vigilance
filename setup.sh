@@ -34,6 +34,14 @@
 # The SYSTEM units (systemd/lock-on-sleep.service, vigilance-resume.service)
 # need root; place them under /etc/systemd/system yourself (or let a host do
 # it). They are @USER@/@UID@-templated.
+#
+# udev/99-vigilance.rules is the same shape: root-only, so a host places it,
+# and it grants the `vigilant` group write on exactly the nodes the peripheral
+# hooks drive. WITHOUT IT those hooks silently no-op, because brightnessctl is
+# denied and hook_dark/hook_lit swallow the failure by design. The group must
+# exist and the users that run vigilance must be in it -- including the greeter
+# user, if greeter coverage is on. Deliberately NOT `input`: that group also
+# grants raw read on /dev/input/event*, i.e. every keystroke.
 set -eu
 
 PKG=vigilance
@@ -136,6 +144,9 @@ do_service() {
   echo "$PKG: the SYSTEM units need root -- place lock-on-sleep.service and"
   echo "  vigilance-resume.service from $_root/systemd under /etc/systemd/"
   echo "  system (both are @USER@/@UID@-templated)."
+  echo "  Also root-only: $_root/udev/99-vigilance.rules under /etc/udev/"
+  echo "  rules.d, plus a 'vigilant' group holding every user that runs"
+  echo "  vigilance. Without it the peripheral hooks silently no-op."
 }
 
 # A COPY cannot be identified by readlink, so in copy mode remove by NAME: the

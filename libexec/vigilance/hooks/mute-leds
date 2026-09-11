@@ -3,11 +3,13 @@
 # even with the backlight off, so they need dimming too.
 #
 # SHIPPED BY VIGILANCE because the mechanism is standard: platform::mute and
-# platform::micmute are ordinary kernel LED class devices, and brightnessctl's
-# own udev rule already grants the `input` group rw on them. Earlier drafts put
-# this on the integrator's side on the belief that it needed a bespoke udev
-# rule; it does not. The only requirement is the login user being in `input`,
-# which is brightnessctl's standard requirement everywhere.
+# platform::micmute are ordinary kernel LED class devices.
+#
+# They DO need a rule, just not a bespoke one per integrator: udev/
+# 99-vigilance.rules names these two LEDs exactly and grants the `vigilant`
+# group write. Relying on brightnessctl's own rule instead would mean joining
+# `input`, which also grants raw read on /dev/input/event* -- a keylogging
+# capability in exchange for dimming an indicator LED.
 #
 # Deliberately INDEPENDENT of whatever drives the mute STATE (a sync daemon,
 # or the kernel's snd_ctl_led). Blank-dimming is a separate concern that must
