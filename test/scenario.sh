@@ -40,6 +40,14 @@ scenario_init() {   # <name>
   # class of reach-into-the-running-system the brightnessctl guard exists for.
   export VIGILANCE_MACHINE_HOOKS="$T/machine-hooks"
   mkdir -p "$VIGILANCE_MACHINE_HOOKS"
+  # Sandbox the SYSFS roots `report` reads. Otherwise a scenario asserts on
+  # whatever the developer's laptop is doing: report at rung `sleep` read the
+  # real backlight, found it lit, and failed a correct test. Same family as the
+  # brightnessctl leak -- a test must not depend on the running system's
+  # hardware, let alone touch it.
+  export VIGILANCE_SYS_BACKLIGHT="$T/sys/backlight"
+  export VIGILANCE_SYS_DRM="$T/sys/drm"
+  mkdir -p "$VIGILANCE_SYS_BACKLIGHT" "$VIGILANCE_SYS_DRM"
   RECORD=$T/record
   : > "$RECORD"
   mkdir -p "$VIGILANCE_HOOK_ROOT" "$VIGILANCE_RUN_DIR"

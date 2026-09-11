@@ -1,0 +1,52 @@
+#!/bin/sh
+# dpms - re-assert the compositor's outputs ON, and NEVER turn them off.
+#
+# ASYMMETRIC BY HARDWARE NECESSITY, and the asymmetry IS the safety rule. On
+# this Wayfire/wlroots build, turning an output off is a connector change that
+# re-modesets and can DESTROY VIEWS. `wlopm --on` is the safe half. panel-power
+# never called wlopm at all for exactly this reason, naming it only as the thing
+# to avoid; that knowledge would have died with it, so it lives here now.
+#
+#   lit   -> wlopm --on '*'
+#   dark  -> NOTHING. Darkness belongs to the backlight and DDC hooks, which
+#            reach it without a modeset.
+#
+# WHY WIRE IT AT ALL when nothing here ever turns an output off: precisely
+# because nothing does. If an output IS off, something outside vigilance did it
+# (the compositor's own idle, a kernel DPMS, a wedge), and this is the cheap
+# idempotent re-assert that brings it back. One no-op call on a healthy ascent;
+# the recovery that matters on a broken one.
+set -eu
+
+_self=$(readlink -f "$0")
+. "$(dirname "$_self")/../hooklib.sh"
+
+edge=${1:-${VIGILANCE_EDGE:-}}
+[ "$(hook_intent "$edge")" = lit ] || exit 0
+
+command -v wlopm >/dev/null 2>&1 || exit 0
+
+# NO REACHABLE COMPOSITOR IS n/a, NOT FAILURE. These hooks also run in machine
+# scope, where the greeter's session may not be ours to talk to, and a hook that
+# failed there would raise an alert on every greeter edge. Same discipline as
+# ddc-monitor: a device that will not answer is absent, not drift. A plain
+# `wlopm` lists outputs and is the cheapest probe for "can we talk at all".
+_state=$(wlopm 2>/dev/null) || exit 0
+[ -n "$_state" ] || exit 0
+
+# VERIFY reads the listing back instead of writing. Output lines are
+# "<name> on" / "<name> off", so any `off` at a lit rung is the drift.
+if [ "${VIGILANCE_KIND:-act}" = verify ]; then
+  _off=$(printf '%s\n' "$_state" | awk '$NF == "off" { print $1 }')
+  if [ -n "$_off" ]; then
+    echo "dpms: expected all outputs on, found off:" $_off >&2
+    exit 1
+  fi
+  exit 0
+fi
+
+if ! wlopm --on '*' >/dev/null 2>&1; then
+  echo "dpms: wlopm --on failed while the compositor was reachable" >&2
+  exit 1
+fi
+exit 0

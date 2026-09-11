@@ -569,15 +569,220 @@ cmd_verify() {   # [edge]
     # flat [FAIL] on a machine that had three of them wired -- they were just
     # on other edges than the one this rung asks about. An honest n/a has to
     # say WHICH question went unanswered, or the next layer up mis-reports it.
-    echo "verify: n/a (no verify hooks for edge"\
+    echo "verify: n/a (no verify hooks for edge" \
 "'${1:-$(_verify_edge_for "$_from")}'; nothing was checked)"
   fi
   return "$_vrc"
 }
 
+# --- report: does reality match what we believe? ----------------------------
+# A DIFFERENT QUESTION from an integrator's `check`, and both are needed. check
+# asks "is the wiring canonical" (declared config vs installed config); this
+# asks "is the machine doing what the record says" (recorded state vs the
+# hardware). Every bug in this project has lived in the second gap, and it is
+# the one nobody can see on a headless box.
+#
+# Absorbed from tackup's vigilance-report, because none of it was tackup's: the
+# depth file, the hooks, the units and the ladder are all vigilance's own, and
+# a host had been reimplementing knowledge of them from outside.
+#
+# The marker vocabulary is setup.sh's contract, unchanged: plain [OK]/[FAIL]/
+# [WARN]/[--] that an integrator styles.
+#
+# The sysfs roots are OVERRIDABLE for one reason: otherwise report is untestable
+# without the developer's own hardware answering. A scenario that reads
+# /sys/class/backlight asserts on whatever the laptop happens to be doing, and
+# this suite already learned where that leads -- a test that reached the real
+# brightnessctl blacked out a live screen twice. Production never sets these.
+SYS_BACKLIGHT=${VIGILANCE_SYS_BACKLIGHT:-/sys/class/backlight}
+SYS_DRM=${VIGILANCE_SYS_DRM:-/sys/class/drm}
+
+RRC=0
+_r_ok()   { printf '  [OK]   %s\n' "$*"; }
+_r_bad()  { printf '  [FAIL] %s\n' "$*"; RRC=1; }
+_r_warn() { printf '  [WARN] %s\n' "$*"; }
+_r_info() { printf '  [--]   %s\n' "$*"; }
+
+# The graphical session, by logind's criteria rather than a pgrep. An ssh
+# session is Class=user too, and a box with five of them has no display at all;
+# reporting "swayidle NOT running" there is crying wolf, which trains you to
+# ignore the line that matters. Session-scoped checks say n/a when absent.
+_r_session() {
+  loginctl list-sessions --no-legend 2>/dev/null | awk '{print $1}' \
+    | while read -r _s; do
+        [ -n "$_s" ] || continue
+        eval "$(loginctl show-session "$_s" \
+          -p Type -p Class -p State -p Seat 2>/dev/null)"
+        case "${Type:-}:${Class:-}:${State:-}" in
+          wayland:user:active|x11:user:active)
+            [ -n "${Seat:-}" ] && { echo "$_s"; break; } ;;
+        esac
+      done
+}
+
+cmd_report() {
+  RRC=0
+  echo "== vigilance: $(hostname -s 2>/dev/null) $(date '+%Y-%m-%d %H:%M:%S')"
+
+  echo "-- session --"
+  _sess=$(_r_session)
+  if [ -n "$_sess" ]; then _r_ok "graphical session $_sess active"
+  else _r_warn "NO graphical session; session-scoped checks report n/a"; fi
+
+  echo "-- recorded state --"
+  _at=$(_depth_at)
+  if [ "$_at" -gt 0 ]; then _ago="$(( $(date +%s) - _at ))s ago"
+  else _ago=unknown; fi
+  _rung=$(_depth)
+  _r_info "depth=$_rung ($_ago)"
+  # OUTSTANDING SAVES are the sharpest signal here. A hook saves the level it
+  # is about to dim FROM and deletes the file once restored, so one still
+  # present at a LIT rung means a descent dimmed something the ascent never put
+  # back: "the screen is dark and nothing will bring it back", on disk.
+  _saves=
+  for _f in "$STATE_ROOT"/*/*; do
+    [ -f "$_f" ] || continue
+    _saves="$_saves $(basename "$(dirname "$_f")")/$(basename "$_f")"
+  done
+  case "$_rung:$_saves" in
+    *:  ) ;;
+    open:*|lock:*) _r_bad "saved levels outstanding at a lit rung:$_saves" ;;
+    *) _r_info "saved levels held (expected while dark):$_saves" ;;
+  esac
+
+  echo "-- hardware --"
+  for _b in "$SYS_BACKLIGHT"/*; do
+    [ -d "$_b" ] || continue
+    _r_info "$(basename "$_b"): actual=$(cat "$_b/actual_brightness" \
+2>/dev/null)/$(cat "$_b/max_brightness" 2>/dev/null)" \
+"bl_power=$(cat "$_b/bl_power" 2>/dev/null)"
+  done
+  for _c in "$SYS_DRM"/card*-*; do
+    [ -d "$_c" ] || continue
+    [ "$(cat "$_c/status" 2>/dev/null)" = connected ] || continue
+    _r_info "$(basename "$_c"): dpms=$(cat "$_c/dpms" 2>/dev/null)" \
+"enabled=$(cat "$_c/enabled" 2>/dev/null)"
+  done
+
+  # COHERENCE. Deliberately NOT a second DDC implementation: the monitor's real
+  # power state is ddc-monitor's question, and `verify` below asks it through
+  # the hook. Reimplementing ddcutil here is how the same fact ends up in two
+  # places that can disagree.
+  echo "-- coherence --"
+  case "$_rung" in
+    sleep|suspend)
+      _lit=
+      for _b in "$SYS_BACKLIGHT"/*; do
+        [ -d "$_b" ] || continue
+        _a=$(cat "$_b/actual_brightness" 2>/dev/null || echo 0)
+        _m=$(cat "$_b/max_brightness" 2>/dev/null || echo 0)
+        case "$_a$_m" in *[!0-9]*|'') continue ;; esac
+        [ "$_m" -gt 1 ] && [ "$_a" -gt $((_m / 10)) ] && _lit=1
+      done
+      if [ -n "$_lit" ]; then
+        _r_bad "depth says '$_rung' but a backlight is still lit"
+      else _r_ok "depth '$_rung' matches dark hardware"; fi ;;
+    open)
+      if pgrep -x "${VIGILANCE_LOCKER:-swaylock}" >/dev/null 2>&1; then
+        _r_bad "depth says 'open' but a locker is UP (an edge was missed)"
+      else _r_ok "depth 'open' matches an unlocked session"; fi ;;
+    lock)
+      if pgrep -x "${VIGILANCE_LOCKER:-swaylock}" >/dev/null 2>&1; then
+        _r_ok "depth 'lock' matches a live locker"
+      else _r_bad "depth says 'lock' but no locker is running"; fi ;;
+    *) _r_warn "no depth recorded yet (no edge has been crossed)" ;;
+  esac
+
+  # Capture the OUTPUT, not just the status: an empty tier exits 0 and used to
+  # read here as "clean" when nothing had been asked. A green light meaning
+  # "nobody checked" is worse than no light.
+  _vout=$(cmd_verify 2>&1) && _vrc2=0 || _vrc2=1
+  case "$_vout" in
+    *"n/a"*) _r_warn "$_vout" ;;
+    *) if [ "$_vrc2" = 0 ]; then _r_ok "${_vout:-verify clean}"
+       else _r_bad "verify reports drift: $_vout"; fi ;;
+  esac
+
+  echo "-- machinery --"
+  if systemctl --user is-active --quiet vigilance-logind.service 2>/dev/null
+  then _r_ok "vigilance-logind.service active"
+  elif [ -z "$_sess" ]; then _r_info "vigilance-logind n/a (no session)"
+  else _r_bad "vigilance-logind.service NOT active (Session.Lock is deaf)"; fi
+  for _u in lock-on-sleep.service vigilance-resume.service; do
+    if systemctl is-enabled --quiet "$_u" 2>/dev/null; then
+      _r_ok "$_u enabled"
+    else _r_bad "$_u NOT enabled"; fi
+  done
+  if pgrep -x swayidle >/dev/null 2>&1; then _r_ok "swayidle running (timer)"
+  elif [ -z "$_sess" ]; then _r_info "swayidle n/a (no session to idle in)"
+  else _r_bad "swayidle NOT running: nothing will lock on idle"; fi
+
+  echo "-- wiring --"
+  cmd_hooks 2>/dev/null | sed 's/^/  /'
+
+  echo "-- recent edges --"
+  tail -12 "$LOG_FILE" 2>/dev/null | sed 's/^/  /' || echo "  (no log yet)"
+  return "$RRC"
+}
+
+# --- rescue: one key, when the screen is gone and you cannot see to type -----
+# Bound to a bare unmodified key by the integrator, so it must be pressable
+# BLIND. Two jobs in this order, and the order is the point: RECORD first, then
+# recover. The fault is intermittent and never happens while instrumented, so
+# the button IS the instrument; recovering first would burn the only evidence
+# we get.
+#
+# It records by calling cmd_report, not by gathering its own facts. Those two
+# drifting apart is exactly the failure this project is about, and the rescue
+# log is worthless if it does not hold what `report` would have shown.
+#
+# IT ACTUATES NOTHING ITSELF. Recovery is `force open`, which crosses every
+# ascent edge and runs the hooks; anything it should drive belongs in a hook,
+# where it is one implementation instead of two. The direct wlopm/DDC/kbd
+# fallbacks this replaced had drifted into duplicates of the hooks they shadow,
+# and its swaylock signal had become a lock-killer on a stock binary.
+cmd_rescue() {
+  _rl=${VIGILANCE_RESCUE_LOG:-$(dirname "$LOG_FILE")/vigilance-rescue.log}
+  mkdir -p "$(dirname "$_rl")" 2>/dev/null || true
+  {
+    echo ""
+    echo "=========================================================="
+    echo "=== vigilant rescue $(date '+%Y-%m-%d %H:%M:%S')"
+    echo "uptime: $(uptime -p 2>/dev/null)"
+    echo "boot:   $(cat /proc/sys/kernel/random/boot_id 2>/dev/null)"
+    cmd_report || true
+    # Rescue-only, because it is too heavy for a routine report and only
+    # matters when something is actually wrong.
+    echo "-- compositor --"
+    timeout 5 wlopm 2>&1 | sed 's/^/  /'
+    timeout 5 wlr-randr 2>&1 | sed -n '1,20p;s/^/  /'
+    echo "-- journal, last 3 min --"
+    timeout 5 journalctl --since "-3 min" --no-pager 2>/dev/null \
+      | grep -iE "drm|i915|xe |wayfire|swaylock|backlight|dpms|connector" \
+      | tail -25 | sed 's/^/  /'
+  } >> "$_rl" 2>&1
+
+  _log "RESCUE pressed; evidence in $_rl"
+  _rrc=0
+  cmd_go open force || _rrc=$?
+  {
+    echo "-- after recovery (rc=$_rrc) --"
+    cmd_report || true
+    echo "=== end ==="
+  } >> "$_rl" 2>&1
+
+  # A human pressing the panic key IS an intervention, whether or not the
+  # recovery worked. Raise it through the alert tier rather than calling any
+  # one host's notifier: that is what the tier is for, and it is how this stops
+  # hardcoding an integrator's tooling.
+  _alert rescue "screen rescue pressed; evidence in $_rl"
+  echo "vigilant: rescue done (rc=$_rrc); evidence in $_rl" >&2
+  return "$_rrc"
+}
+
 _U="usage: vigilant go <open|lock|sleep|suspend>
                  | force <state> | only <state> | status
-                 | verify [edge] | hooks [edge] | check"
+                 | verify [edge] | hooks [edge] | report | rescue | check"
 _sub=${1:-}
 if [ "$#" -gt 0 ]; then shift; fi
 case "$_sub" in
@@ -599,6 +804,8 @@ case "$_sub" in
   status)  cmd_status ;;
   verify)  cmd_verify "${1:-}" ;;
   hooks)   cmd_hooks "${1:-}" ;;
+  report)  cmd_report ;;
+  rescue)  cmd_rescue ;;
   check)   cmd_status ;;   # stage 4 replaces this with the marker contract
   -h|--help|help) echo "$_U" ;;
   *) echo "vigilant: unknown command '${_sub:-}'" >&2; echo "$_U" >&2; exit 2 ;;
