@@ -43,7 +43,7 @@ needs root; place `systemd/lock-on-sleep.service` under `/etc/systemd/system`
 ## Dependencies
 
 `swaylock`, `swayidle`, `wlopm`, `ddcutil` (spanning/DDC degrade gracefully if
-absent). Multi-output spanned locks also use `kanshi-autoscale` (the display
+absent). Multi-output spanned locks also use `hwdp` (the display
 "shape") and `wallpaper-slicer` when present.
 
 POSIX shell (a couple of tools use bash arrays); no daemon of its own.
