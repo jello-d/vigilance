@@ -1,14 +1,32 @@
-# Re-assert the dark state after the machine comes back from S3.
+# Come back to `lock` after the machine returns from S3: lit, and still secured.
 #
-# NEW: there was NO resume path at all before this. On resume the hardware may
-# have come back lit on its own, and a QMK keyboard has been re-enumerated over
-# USB and forgotten its state, so the saved values are STALE. `go sleep` from
-# `suspend` crosses the `resume` edge, and hooks branching on that edge
-# re-assert from config instead of restoring from a save file.
+# There was NO resume path at all before this. On resume the hardware may have
+# come back lit on its own, and a QMK keyboard has been re-enumerated over USB
+# and forgotten its state, so the saved values are STALE. `go lock` from
+# `suspend` crosses `resume` (whose hooks re-assert from CONFIG rather than
+# restoring a stale save file) and then `wake` (which lights things up). The
+# brief dark-then-lit is the point: the peripherals are put in a known state
+# before being brought back.
+#
+# IT USED TO SAY `go sleep`, AND THAT WAS WRONG. The premise -- "after S3 you
+# are at rung `sleep` until input" -- assumes nobody is there. When a human
+# woke the machine, or when the suspend was spurious, it darkened the screen on
+# an ACTIVE user. Observed: a 2-second s2idle entry/exit, after which this unit
+# re-asserted dark and the screen stayed off for 32 seconds.
+#
+# The second half is what made it bad rather than merely odd: NOTHING WAS ARMED
+# TO ASCEND. The only trigger that crosses `wake` is swayidle's `resume` action,
+# and swayidle fires that only after one of ITS OWN timeouts. Reaching `sleep`
+# by this unit instead means swayidle does not know the machine is dark, so
+# input produces nothing and recovery needs a keybind.
+#
+# `lock` is safe in both directions: woken deliberately, you get your screen;
+# woken spuriously with nobody there, the idle timer dims it again. There is no
+# use case for resuming from suspend into `sleep`.
 #
 # After=suspend.target, so it runs on the way UP.
 [Unit]
-Description=vigilance: re-assert peripheral state after resume
+Description=vigilance: re-assert peripherals and return to lock after resume
 After=suspend.target hibernate.target hybrid-sleep.target
 
 [Service]
@@ -23,7 +41,7 @@ User=@USER@
 Environment=VIGILANCE_SOURCE=resume
 Environment=XDG_RUNTIME_DIR=/run/user/@UID@
 Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/@UID@/bus
-ExecStart=@HOME@/.local/bin/vigilant go sleep
+ExecStart=@HOME@/.local/bin/vigilant go lock
 TimeoutStartSec=25
 
 [Install]

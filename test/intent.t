@@ -92,4 +92,45 @@ case ":$_p:" in
   *) fail "a hook's PATH lost the system directories" ;;
 esac
 
+# --- the RESUME UNIT must come back to `lock`, never to `sleep` -------------
+# Its ExecStart used to be `go sleep`, on the premise that after S3 you are at
+# rung `sleep` until input. That assumes nobody is there. When a human woke the
+# machine -- or when the suspend was spurious -- it darkened the screen on an
+# ACTIVE user. Observed live: a 2-second s2idle entry/exit, after which the unit
+# re-asserted dark and the screen stayed off for 32 seconds.
+#
+# What made that bad rather than merely odd is that NOTHING WAS ARMED TO ASCEND.
+# The only trigger crossing `wake` is swayidle's `resume` action, and swayidle
+# fires it only after one of ITS OWN timeouts. Reaching `sleep` via the unit
+# means swayidle does not know the machine is dark, so input produces nothing.
+#
+# Asserted on the SHIPPED unit, because this is the file that decides it.
+_ru=$HERE/systemd/vigilance-resume.service
+_rx=$(awk -F= '/^ExecStart=/{print $2; exit}' "$_ru")
+case "$_rx" in
+  *"go lock") ;;
+  *"go sleep") fail "the resume unit still does \`go sleep\`: it will darken the
+screen on a user who just woke the machine, with no armed way back" ;;
+  *) fail "unexpected resume ExecStart: $_rx" ;;
+esac
+
+# And the traversal it implies must re-assert DARK before lighting up: `resume`
+# fixes a stale QMK/USB state from config, THEN `wake` brings it back.
+for _e in resume wake; do
+  mkdir -p "$VIGILANCE_HOOK_ROOT/$_e.d"
+  cat > "$VIGILANCE_HOOK_ROOT/$_e.d/10-order" <<EOF
+#!/bin/sh
+printf '%s=%s\n' "\$VIGILANCE_EDGE" "\$VIGILANCE_INTENT" >> "$T/order"
+EOF
+  chmod +x "$VIGILANCE_HOOK_ROOT/$_e.d/10-order"
+done
+: > "$T/order"
+printf 'suspend %s\n' "$(date +%s)" > "$VIGILANCE_RUN_DIR/depth"
+go lock
+_got=$(cat "$T/order")
+[ "$_got" = "resume=dark
+wake=lit" ] || { printf 'got: %s\n' "$_got" >&2
+  fail "resume -> lock did not re-assert dark before lighting up"; }
+expect_depth lock
+
 pass
