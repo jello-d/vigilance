@@ -1,0 +1,25 @@
+# FORENSICS: did every external event produce the edge it should have?
+#
+# The third question, and the only one that catches a trigger or handler which
+# silently stopped firing. `verify` asks whether the hardware matches NOW;
+# `due` asks whether an edge is overdue; neither can see an event that already
+# happened and produced nothing.
+#
+# The case it was built for: logind slept the machine, lock-on-sleep.service was
+# asked to lock it first, the unit died 203/EXEC on a bad ExecStart, and systemd
+# reached sleep.target and slept anyway -- a failed Before= oneshot does not
+# block the transition. Afterwards nothing was in a wrong state and nothing was
+# pending, so only history showed it. It had been happening on EVERY sleep for a
+# whole refactor while the unit reported `enabled` and `canonical`.
+#
+# A FAILED UNIT HERE IS THE SIGNAL. `vigilant audit` exits non-zero when an
+# event produced no edge, so the unit goes red and stays visible in
+# `systemctl --user status` long after the alert has scrolled past. Do not
+# paper that over with SuccessExitStatus.
+[Unit]
+Description=vigilance: reconcile past events against the edges they should have
+After=default.target
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/vigilant audit

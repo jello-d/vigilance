@@ -19,6 +19,7 @@
 #   vigilant rescue           record everything, then recover
 #   vigilant due [edge]       when SHOULD this edge have fired?
 #   vigilant enforce          the supervision loop, for a timer
+#   vigilant audit            did past events produce the edges they should?
 #   vigilant check            wiring audit
 #
 # THE LADDER, one dimension: how far the machine has WITHDRAWN. Present tense
@@ -543,7 +544,7 @@ cmd_status() {
 # An INSPECTABLE config is the antidote to silent misconfiguration, which is
 # the class every failure in this cycle belonged to. Every KIND is listed, so
 # a missing reporter or a mis-parked due hook is visible without guessing.
-KINDS=". .verify .report .due .block"
+KINDS=". .verify .report .due .block .audit"
 cmd_hooks() {   # [edge]
   for _e in ${1:-lock sleep suspend unlock wake resume}; do
     echo "$_e:"
@@ -1051,10 +1052,110 @@ cmd_enforce() {
   esac
 }
 
+# --- audit: did every external event actually produce its edge? --------------
+# THE THIRD QUESTION, and the one that found the bug this tier was built for.
+#
+#   verify   does the hardware match what we believe, NOW?
+#   due      is an edge pending and overdue?
+#   audit    did an event that ALREADY HAPPENED produce the edge it should have?
+#
+# Neither of the first two can see the failure that prompted this: logind slept
+# the machine, lock-on-sleep.service was asked to lock it first, the unit
+# 203/EXEC'd on a bad ExecStart, and systemd reached sleep.target and slept
+# anyway. Nothing was in a wrong state afterwards, and nothing was pending --
+# an EVENT simply produced no EDGE, and only history shows that.
+#
+# It went unnoticed for a whole refactor because the unit was `enabled` and
+# `canonical`, both of which we checked, and neither of which says the binary it
+# names exists. Forensics is the only tier that would have caught it.
+#
+# CONTRACT: an audit.d hook reads ONE event source and prints zero or more
+#
+#     <epoch> <edge> [note]
+#
+# meaning "at <epoch> something happened that should have produced <edge>".
+# vigilant owns the reconciliation, so a hook never has to parse the edge log --
+# the same split as `due`, where the hook reports a deadline and vigilant does
+# the arithmetic. Mechanism knowledge (journalctl, logind, a timer) stays in the
+# plugin; vigilance's own record stays vigilance's to read.
+AUDIT_WINDOW=${VIGILANCE_AUDIT_WINDOW:-120}
+
+# Did the log record <edge> within the window around <epoch>?
+#
+# ISO-8601 sorts lexicographically, so the window becomes a string comparison
+# and this needs neither `date` per log line nor awk's mktime (absent from
+# mawk). `already at '<rung>'` counts as satisfied: a descent edge shares its
+# name with the rung it enters, and being there already is the edge's purpose
+# achieved, not a miss.
+_log_has_edge() {   # epoch edge
+  [ -r "$LOG_FILE" ] || return 1
+  _lo=$(date -d "@$(( $1 - AUDIT_WINDOW ))" '+%Y-%m-%dT%H:%M:%S' 2>/dev/null) \
+    || return 1
+  _hi=$(date -d "@$(( $1 + AUDIT_WINDOW ))" '+%Y-%m-%dT%H:%M:%S' 2>/dev/null) \
+    || return 1
+  awk -v lo="$_lo" -v hi="$_hi" -v e="$2" '
+    $1 >= lo && $1 <= hi {
+      if ($0 ~ ("cross " e ":")) { found = 1 }
+      if ($0 ~ ("already at ." e ".")) { found = 1 }
+    }
+    END { exit(found ? 0 : 1) }' "$LOG_FILE"
+}
+
+cmd_audit() {
+  _al=$(_hooks_for audit)
+  if [ -z "$_al" ]; then
+    echo "audit: n/a (no audit hooks installed; no event source is reconciled)"
+    return 0
+  fi
+  _checked=0 _missed=0
+  while IFS= read -r _ah; do
+    if [ -z "$_ah" ]; then continue; fi
+    _sd=$STATE_ROOT/$(basename "$_ah")
+    mkdir -p "$_sd" 2>/dev/null || true
+    _out=$(VIGILANCE_KIND=audit VIGILANCE_STATE_DIR="$_sd" \
+      PATH="$HOOK_PATH" "$_ah" 2>/dev/null) || continue
+    while IFS= read -r _ev; do
+      if [ -z "$_ev" ]; then continue; fi
+      _when=$(printf '%s' "$_ev" | awk '{print $1}')
+      _edge=$(printf '%s' "$_ev" | awk '{print $2}')
+      _note=$(printf '%s' "$_ev" | cut -d' ' -f3-)
+      case "$_when" in ''|*[!0-9]*) continue ;; esac
+      [ -n "$_edge" ] || continue
+      _checked=$((_checked + 1))
+      if _log_has_edge "$_when" "$_edge"; then
+        echo "audit ok: $_edge at $(date -d "@$_when" '+%F %T') ${_note:-}"
+      else
+        _missed=$((_missed + 1))
+        echo "audit MISS: $_edge expected at"\
+" $(date -d "@$_when" '+%F %T') but no edge was crossed ${_note:-}"
+      fi
+    done <<EOF2
+$_out
+EOF2
+  done <<EOF
+$_al
+EOF
+  if [ "$_checked" = 0 ]; then
+    echo "audit: no events found in range (nothing to reconcile)"
+    return 0
+  fi
+  if [ "$_missed" -gt 0 ]; then
+    # An event that produced no edge means a TRIGGER or HANDLER did not fire.
+    # That is exactly what the human needs told, and it is historical, so the
+    # alert is the only thing that will reach them.
+    _alert audit-miss "$_missed of $_checked external event(s) produced no"\
+" edge; a trigger or handler is not firing"
+    _log "AUDIT: $_missed of $_checked events produced no edge"
+    return 1
+  fi
+  echo "audit: $_checked event(s) all produced their edge"
+  return 0
+}
+
 _U="usage: vigilant go <open|lock|sleep|suspend>
                  | force <state> | only <state> | status
                  | verify [edge] | hooks [edge] | report | rescue
-                 | due [edge] | enforce | check"
+                 | due [edge] | enforce | audit | check"
 _sub=${1:-}
 if [ "$#" -gt 0 ]; then shift; fi
 case "$_sub" in
@@ -1080,6 +1181,7 @@ case "$_sub" in
   rescue)  cmd_rescue ;;
   due)     cmd_due "${1:-}" ;;
   enforce) cmd_enforce ;;
+  audit)   cmd_audit ;;
   check)   cmd_status ;;   # stage 4 replaces this with the marker contract
   -h|--help|help) echo "$_U" ;;
   *) echo "vigilant: unknown command '${_sub:-}'" >&2; echo "$_U" >&2; exit 2 ;;

@@ -1,0 +1,50 @@
+#!/bin/sh
+# logind-sleep-audit - did every real sleep produce the edges it should have?
+#
+# An `audit` hook reads ONE event source and prints, per event,
+#
+#     <epoch> <edge> [note]
+#
+# meaning "at <epoch> something happened that should have produced <edge>".
+# vigilant does the reconciliation against its own log; this only has to know
+# how to read logind.
+#
+# WHY THIS EXISTS, concretely. On 2026-09-12 the battery hit critical, UPower
+# hybrid-slept the machine, and lock-on-sleep.service was asked to lock it
+# first. The unit died 203/EXEC on a bad ExecStart, and systemd reached
+# sleep.target and slept anyway, because a failed Before= oneshot does NOT block
+# the transition. Afterwards nothing was in a wrong state and nothing was
+# pending, so neither `verify` nor `due` could see it. The machine had slept
+# unlocked and the only trace was history.
+#
+# It had been doing that on EVERY sleep for the whole refactor, while the unit
+# reported `enabled` and `canonical` -- both true of a unit naming a binary that
+# does not exist.
+#
+# THE TWO EDGES A SLEEP IMPLIES, and they are not `suspend`:
+#
+#   before sleeping   `lock`   lock-on-sleep.service, Before=sleep.target
+#   after resuming    `sleep`  vigilance-resume.service, After=suspend.target
+#
+# The units cross those, not `suspend`, so that is what is asserted. Getting
+# this wrong would make the audit cry wolf on a perfectly handled sleep.
+set -eu
+
+SINCE=${VIGILANCE_AUDIT_SINCE:--1 day}
+
+command -v journalctl >/dev/null 2>&1 || exit 0
+
+# logind announces both directions. "Reached target sleep.target" is the point
+# of no return on the way down; the resume line is systemd-sleep returning.
+# -o short-unix gives an epoch directly, so nothing here has to parse a date.
+journalctl --since "$SINCE" -o short-unix --no-pager 2>/dev/null | awk '
+  # Going down: the lock should already have happened.
+  /Reached target sleep\.target/ {
+    printf "%d lock went to sleep\n", $1
+  }
+  # Coming back: peripherals should be re-asserted dark at the sleep rung.
+  /System returned from sleep operation/ {
+    printf "%d sleep resumed from sleep\n", $1
+  }
+'
+exit 0

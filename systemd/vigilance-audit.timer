@@ -1,0 +1,22 @@
+# DAILY, because this is forensics rather than supervision.
+#
+# The supervision loop (vigilance-enforce.timer) answers "is an edge overdue
+# right now" and runs every minute. This answers "did yesterday's events all
+# land", which is a question worth asking once a day and expensive to ask more
+# often: each run reads a day of journal.
+#
+# Persistent=true, unlike the enforce timer. A missed enforce tick is worthless
+# (the rung has moved on), but a missed AUDIT still has a day of history to
+# reconcile, and a box that was off overnight is exactly when you want it to run
+# on the next boot rather than skip.
+[Unit]
+Description=vigilance: daily forensic reconciliation
+
+[Timer]
+OnCalendar=daily
+RandomizedDelaySec=30min
+AccuracySec=5min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

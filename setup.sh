@@ -146,11 +146,14 @@ do_service() {
   # is exactly the dead tier this project keeps finding: `due.d` was designed,
   # enumerated, and read by nothing for the whole refactor. Report-only by
   # default, so enabling it cannot cross an edge on its own.
-  for _eu in vigilance-enforce.service vigilance-enforce.timer; do
+  for _eu in vigilance-enforce.service vigilance-enforce.timer \
+             vigilance-audit.service vigilance-audit.timer; do
     ln -sfn "$_root/systemd/$_eu" "$_usr/$_eu"
   done
   systemctl --user enable vigilance-enforce.timer 2>/dev/null || true
-  echo "$PKG: linked + enabled the supervision timer (report-only;"
+  systemctl --user enable vigilance-audit.timer 2>/dev/null || true
+  echo "$PKG: linked + enabled the supervision + audit timers"
+  echo "  (supervision is report-only;"
   echo "  VIGILANCE_ENFORCE=force lets it cross an overdue edge)"
   echo "$PKG: the SYSTEM units need root -- place lock-on-sleep.service and"
   echo "  vigilance-resume.service from $_root/systemd under /etc/systemd/"
@@ -178,7 +181,8 @@ do_uninstall() {
     _unplace "$_l" "$_m"; done
   [ "$(readlink "$_usr/vigilance-logind.service" 2>/dev/null)" = "$_unit" ] \
     && rm -f "$_usr/vigilance-logind.service" || :
-  for _eu in vigilance-enforce.service vigilance-enforce.timer; do
+  for _eu in vigilance-enforce.service vigilance-enforce.timer \
+             vigilance-audit.service vigilance-audit.timer; do
     [ "$(readlink "$_usr/$_eu" 2>/dev/null)" = "$_root/systemd/$_eu" ] \
       && rm -f "$_usr/$_eu" || :
   done
