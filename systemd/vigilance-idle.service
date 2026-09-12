@@ -1,0 +1,49 @@
+# Keep the idle timer ALIVE, so idle policy survives its wrapper dying.
+#
+# swayidle-mgr was autostarted by the compositor and supervised by nothing. If
+# it died, EVERY idle timer died with it -- lock, blank, and (since the
+# integrator's idle-suspend seam) suspend too. The box silently went back to
+# never locking and never suspending, which is the exact failure this suite
+# exists to remove: one wedge-prone daemon must not BE the guarantee.
+#
+# WHAT THIS COVERS AND WHAT IT DOES NOT, because the distinction is the whole
+# reason the other tiers exist:
+#
+#   DEATH   this unit. swayidle exits, systemd restarts it. Covered.
+#   WEDGE   NOT this unit. A swayidle alive and silently not firing looks
+#           perfectly healthy to systemd -- and that is the failure that cost
+#           this box two days of a dark monitor. `vigilant audit` catches it
+#           by asking whether the timers that fired produced their edges.
+#
+# A liveness check is also NOT a `due` hook: `due` answers "when should this
+# edge have fired", and "is the process up" is not a deadline. `vigilant report`
+# already reports swayidle's liveness, which is where that belongs.
+#
+# NOT [Install]ed into a target, deliberately. The compositor STARTS it, because
+# two things must be true first and only the compositor knows when they are:
+# WAYLAND_DISPLAY must be in the user manager's environment (wayfire's
+# `0_environment` autostart does that via dbus-update-activation-environment,
+# and sorts first so it wins the race), and a compositor must be there to
+# connect to. graphical-session.target would be the textbook anchor but is
+# INACTIVE on this session, and default.target -- usable by vigilance-logind,
+# since gdbus needs no display -- is active with no compositor at all, so
+# anchoring here would start swayidle into a void and spin.
+#
+# The start limit makes that safe regardless. The imported WAYLAND_DISPLAY
+# OUTLIVES the compositor in the user manager's environment, so after a logout
+# need_session still passes and swayidle fails to connect instead. Bounded
+# restarts mean a genuine crash recovers within seconds while a dead session
+# gives up quietly, and the next login's autostart starts it again.
+[Unit]
+Description=vigilance: keep the idle timer alive
+StartLimitIntervalSec=60
+StartLimitBurst=8
+
+[Service]
+Type=simple
+# -f: run swayidle in the FOREGROUND and exec it, so systemd tracks the real
+# process. The default `start` detaches, which would leave the unit supervising
+# a launcher that exited immediately.
+ExecStart=%h/.local/bin/swayidle-mgr start -f
+Restart=always
+RestartSec=2

@@ -147,12 +147,19 @@ do_service() {
   # enumerated, and read by nothing for the whole refactor. Report-only by
   # default, so enabling it cannot cross an edge on its own.
   for _eu in vigilance-enforce.service vigilance-enforce.timer \
-             vigilance-audit.service vigilance-audit.timer; do
+             vigilance-audit.service vigilance-audit.timer \
+             vigilance-idle.service; do
     ln -sfn "$_root/systemd/$_eu" "$_usr/$_eu"
   done
   systemctl --user enable vigilance-enforce.timer 2>/dev/null || true
   systemctl --user enable vigilance-audit.timer 2>/dev/null || true
+  # vigilance-idle.service is PLACED but never enabled: the COMPOSITOR starts
+  # it, because only the compositor knows when WAYLAND_DISPLAY has been imported
+  # and a display exists to connect to. Enabling it against a target would start
+  # swayidle into a void.
   echo "$PKG: linked + enabled the supervision + audit timers"
+  echo "$PKG: placed vigilance-idle.service (the compositor starts it:"
+  echo "  systemctl --user start vigilance-idle.service from its autostart)"
   echo "  (supervision is report-only;"
   echo "  VIGILANCE_ENFORCE=force lets it cross an overdue edge)"
   echo "$PKG: the SYSTEM units need root -- place lock-on-sleep.service and"
@@ -182,7 +189,8 @@ do_uninstall() {
   [ "$(readlink "$_usr/vigilance-logind.service" 2>/dev/null)" = "$_unit" ] \
     && rm -f "$_usr/vigilance-logind.service" || :
   for _eu in vigilance-enforce.service vigilance-enforce.timer \
-             vigilance-audit.service vigilance-audit.timer; do
+             vigilance-audit.service vigilance-audit.timer \
+             vigilance-idle.service; do
     [ "$(readlink "$_usr/$_eu" 2>/dev/null)" = "$_root/systemd/$_eu" ] \
       && rm -f "$_usr/$_eu" || :
   done
