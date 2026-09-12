@@ -13,7 +13,8 @@
 #   ./setup.sh service     install + enable the --user Session.Lock listener
 #   ./setup.sh all         install + service
 #   ./setup.sh uninstall   remove the symlinks (+ the --user listener)
-#   ./setup.sh check       every tool + dependency present; [OK]/[FAIL] markers
+#   ./setup.sh check       tools, deps, plugins, units, man pages and device
+#                          access; emits [OK]/[FAIL]/[WARN] markers
 #   ./setup.sh test        run the in-repo test suite (test/run)
 #   ./setup.sh version     the packaged version
 #
@@ -30,10 +31,12 @@
 #
 # POSIX sh, non-privileged. `install` is bin + man ONLY (the contract a
 # provisioner delegates to); the --user listener is a separate `service` verb,
-# so a host that wires systemd itself gets no duplicate unit. The
+# so a host that wires systemd itself gets no duplicate unit.
 # The SYSTEM units (systemd/lock-on-sleep.service, vigilance-resume.service)
 # need root; place them under /etc/systemd/system yourself (or let a host do
-# it). They are @USER@/@UID@-templated.
+# it). They are @USER@/@UID@/@HOME@-templated -- and @HOME@ is NOT %h: in a
+# SYSTEM unit %h resolves to ROOT's home regardless of User=, which is exactly
+# how the suspend lock 203/EXEC'd on every sleep for a whole refactor.
 #
 # udev/99-vigilance.rules is the same shape: root-only, so a host places it,
 # and it grants the `vigilant` group write on exactly the nodes the peripheral
@@ -67,7 +70,25 @@ _man=$_shr/man
 _cfg=${XDG_CONFIG_HOME:-$HOME/.config}
 _usr=$_cfg/systemd/user
 _unit=$_root/systemd/vigilance-logind.service
-DEPS="swaylock swayidle wlopm ddcutil"   # external runtime deps (spanning/DDC)
+# External runtime deps. brightnessctl was MISSING from this list while three
+# shipped hooks (kbd-backlight, panel-backlight, mute-leds) called it by name,
+# so the one dependency whose absence is SILENT -- hook_dark/hook_lit swallow
+# its failure by design -- was the one `check` did not look for.
+DEPS="swaylock swayidle wlopm ddcutil brightnessctl"
+
+# NAME THE CONSUMER, not just the package. "dep ddcutil absent" says nothing
+# about what stops working; the marker contract is meant to be actionable, and
+# one shared message ("powers spanning/DDC") was wrong for most of them.
+_dep_why() {   # dep -> what stops working without it
+  case "$1" in
+    swaylock)      echo "the swaylock lock provider" ;;
+    swayidle)      echo "the idle timer (nothing will lock on idle)" ;;
+    wlopm)         echo "the dpms hook (wlroots output power)" ;;
+    ddcutil)       echo "the ddc-monitor hook (external-monitor standby)" ;;
+    brightnessctl) echo "the backlight + keyboard/mute LED hooks" ;;
+    *)             echo "a plugin" ;;
+  esac
+}
 RC=0
 
 # marker contract: plain [OK]/[FAIL]/[WARN] an integrator styles in its palette;
@@ -239,6 +260,73 @@ do_uninstall() {
   echo "$PKG: removed the ~/.local symlinks (+ the --user listener)"
 }
 
+# DEVICE ACCESS, which this file's own header declares as a hard requirement and
+# nothing verified -- so the requirement was a comment. On a real box the user
+# was in none of input/video/i2c, every brightnessctl write was denied, and
+# hook_dark/hook_lit swallow that failure BY DESIGN, so vigilant logged clean
+# crossings while the hardware never moved.
+#
+# Reading files cannot see this. It has to ask the group database about the
+# RUNNING user, which is the difference between a documented prerequisite and an
+# enforced one.
+#
+# A MISSING GROUP WARNS, a non-member FAILS. The gradient is deliberate: a host
+# with no backlight and no LEDs legitimately needs neither, but a group that
+# EXISTS was created by someone who intended it to be used, and a user left out
+# of it is a misconfiguration rather than a choice.
+_check_access() {
+  if getent group vigilant >/dev/null 2>&1; then
+    ok "group 'vigilant' exists"
+    if id -nG 2>/dev/null | tr ' ' '\n' | grep -qx vigilant; then
+      ok "$(id -un) is a member of 'vigilant'"
+    else
+      bad "$(id -un) is NOT in 'vigilant': peripheral hooks will be denied and"\
+" will no-op SILENTLY (log out and back in after being added)"
+    fi
+  else
+    warn "no 'vigilant' group; the peripheral hooks will silently no-op"
+  fi
+  if [ -e /etc/udev/rules.d/99-vigilance.rules ]; then
+    ok "udev rule placed (/etc/udev/rules.d/99-vigilance.rules)"
+  else
+    warn "udev/99-vigilance.rules not in /etc/udev/rules.d (needs root);"\
+" without it the group grants nothing"
+  fi
+}
+
+# THE UNITS, because a tool on PATH that no unit invokes crosses no edges. Every
+# security guarantee in this suite is a unit: the suspend lock, the Session.Lock
+# listener, the supervision timers. `check` audited the binaries and the plugins
+# and said nothing about the things that actually run them.
+#
+# Placement only. Whether a unit is ENABLED and whether its ExecStart RUNS are
+# `vigilant report`'s questions, asked against live systemd -- deliberately not
+# duplicated here.
+#
+# TWO LEGITIMATE LOCATIONS for a --user unit, mirroring the two hook scopes:
+#
+#   ~/.config/systemd/user   this user only (what './setup.sh service' places)
+#   /etc/systemd/user        EVERY user's --user instance, a greeter included
+#
+# An integrator covering a greeter MUST use the second, since the greeter runs
+# as its own user with its own home. Checking only the first cried wolf at once:
+# all four units reported "not placed" on a correctly wired box while systemd
+# had them active from /etc/systemd/user. Caught by running the new check.
+_check_units() {
+  for _u in vigilance-logind.service vigilance-enforce.timer \
+            vigilance-audit.timer vigilance-idle.service; do
+    if [ -e "$_usr/$_u" ]; then ok "--user unit $_u placed (this user)"
+    elif [ -e "/etc/systemd/user/$_u" ]; then
+      ok "--user unit $_u placed (/etc/systemd/user; every user)"
+    else warn "--user unit $_u not placed (run './setup.sh service')"; fi
+  done
+  # Root-placed, so their absence is an integrator task rather than our failure.
+  for _u in lock-on-sleep.service vigilance-resume.service; do
+    if [ -e "/etc/systemd/system/$_u" ]; then ok "SYSTEM unit $_u placed"
+    else warn "SYSTEM unit $_u not placed (needs root; $_root/systemd)"; fi
+  done
+}
+
 do_check() {
   echo "== $PKG (lock / screen-power / idle) =="
   for _t in "$_root"/bin/*; do _n=$(basename "$_t")
@@ -246,7 +334,7 @@ do_check() {
     else bad "$_n not on PATH"; fi; done
   for _d in $DEPS; do
     command -v "$_d" >/dev/null 2>&1 && ok "dep $_d present" \
-      || warn "dep $_d absent ($_d powers spanning/DDC, degrades)"; done
+      || warn "dep $_d absent: $(_dep_why "$_d") degrades"; done
   for _k in hooks providers triggers; do
     for _h in "$_root"/libexec/"$PKG"/"$_k"/*; do
       [ -x "$_h" ] || continue
@@ -255,6 +343,18 @@ do_check() {
       else bad "${_k%s} $_n not installed ($_lib/$PKG/$_k/$_n)"; fi
     done
   done
+  # MAN PAGES, which `install` claims in its own success message ("+ man") and
+  # nothing confirmed. Iterated as a glob rather than via _man_pages, because
+  # that prints, and a `while read` over a pipe runs in a SUBSHELL where
+  # bad() could not raise RC -- a check that cannot fail is not a check.
+  for _m in "$_root"/man/man*/*.[0-9]; do
+    [ -e "$_m" ] || continue
+    _md=$_man/$(basename "$(dirname "$_m")")/$(basename "$_m")
+    if [ -e "$_md" ]; then ok "man $(basename "$_m") installed"
+    else bad "man $(basename "$_m") not installed ($_md)"; fi
+  done
+  _check_units
+  _check_access
   if [ -d "$_cfg/shapes" ]; then
     ok "shape config present (~/.config/shapes)"
   else warn "no ~/.config/shapes; the lock provider uses a plain lock"; fi
