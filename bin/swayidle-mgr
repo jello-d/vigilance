@@ -24,8 +24,22 @@
 set -eu
 
 # --- idle policy: single source of truth ------------------------------------
-LOCK_TIMEOUT=480          # seconds idle before the lock
-BLANK_DELAY=120           # further seconds before the peripherals go dark
+# An optional integrator config supplies policy (KEY=value, sourced): the
+# timeouts below and the idle-SUSPEND seam. vigilance ships NONE -- it is pure
+# mechanism; a provisioner drops an idle.conf to add policy like idle-suspend. A
+# test sets the same vars via env (no conf present in its sandbox).
+_conf=${SWAYIDLE_CONF:-${XDG_CONFIG_HOME:-$HOME/.config}/vigilance/idle.conf}
+[ -r "$_conf" ] && . "$_conf"
+
+LOCK_TIMEOUT=${LOCK_TIMEOUT:-480}   # seconds idle before the lock
+BLANK_DELAY=${BLANK_DELAY:-120}     # further seconds before peripherals go dark
+# Idle-SUSPEND seam (OFF unless the integrator sets both). SUSPEND_TIMEOUT is
+# seconds idle before SUSPEND_CMD runs; that command decides whether to ACTUALLY
+# suspend (e.g. only on battery) and asks SYSTEMD -- crossing a real power
+# transition is systemd's job, not vigilant's (the trust root must not compete
+# to initiate it). Unset = no suspend timer, so vigilance alone never suspends.
+SUSPEND_TIMEOUT=${SUSPEND_TIMEOUT:-}
+SUSPEND_CMD=${SUSPEND_CMD:-}
 BIN=$HOME/.local/bin
 # The idle lock goes through VIGILANT, not a locker directly: crossing the
 # `lock` edge is what fires lock.d (whose provider brings swaylock up), records
@@ -134,6 +148,12 @@ _run() {
     set -- "$@" timeout "$((LOCK_TIMEOUT + BLANK_DELAY))" \
       "$VIGILANT_CMD go sleep"
     set -- "$@" resume "$VIGILANT_CMD go lock"
+  fi
+  # Optional idle-suspend, supplied by the integrator (OFF by default). Its CMD
+  # gates the actual suspend (e.g. battery-only) and asks systemd. Measured from
+  # last input like every timer, so a returning user cancels it too.
+  if [ -n "$SUSPEND_TIMEOUT" ] && [ -n "$SUSPEND_CMD" ]; then
+    set -- "$@" timeout "$SUSPEND_TIMEOUT" "$SUSPEND_CMD"
   fi
   exec swayidle "$@"
 }
