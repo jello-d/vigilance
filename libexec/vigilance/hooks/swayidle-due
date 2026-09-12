@@ -41,7 +41,10 @@ printf '%s\n' "$_args" | awk -v e="$edge" '
           if ($j == "timeout" || $j == "resume") break
           cmd = cmd " " $j
         }
-        if (secs ~ /^[0-9]+$/ && index(cmd, e) > 0) { print secs; exit }
+        # "idle": swayidle measures from the last INPUT, not from when the
+        # rung was entered. Saying so is what stops the supervision loop
+        # calling a busy machine overdue.
+        if (secs ~ /^[0-9]+$/ && index(cmd, e) > 0) { print secs, "idle"; exit }
       }
     }
   }'

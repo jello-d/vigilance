@@ -126,6 +126,50 @@ transition, nor set peripherals for an S3 that is not happening" ;;
 esac
 expect_depth sleep
 
+# --- an IDLE-ANCHORED deadline is reported but NEVER enforced ---------------
+# The first cut had no anchor, so every deadline was measured from rung entry.
+# But swayidle's timers start at the last INPUT, which vigilant cannot observe
+# (logind gives IdleHint=no and IdleSinceHint=0 on this stack). On a machine
+# being actively typed on, `lock` read 1616s OVERDUE and the enforce timer would
+# have alerted every minute, forever, about nothing.
+#
+# So an idle anchor is reported and deliberately not acted on. This is the
+# cry-wolf failure this project keeps having to unlearn, caught on a live box.
+: > "$RECORD"
+go open
+rm -f "$VIGILANCE_HOOK_ROOT"/lock.due.d/* 2>/dev/null || true
+duehook lock 10-idle "480 idle"
+_backdate open 9999
+_out=$("$VIGILANT" due 2>>"$T/stderr")
+case "$_out" in
+  *"NOT enforceable"*) ;;
+  *) printf '%s
+' "$_out" >&2
+     fail "an idle-anchored deadline was not flagged unenforceable" ;;
+esac
+_out=$(VIGILANCE_ENFORCE=force "$VIGILANT" enforce 2>>"$T/stderr") \
+  || fail "enforce reported drift for an idle-anchored deadline 9999s past its
+nominal time; it cannot know whether the machine was busy"
+case "$_out" in
+  *"idle-anchored"*) ;;
+  *) printf '%s
+' "$_out" >&2; fail "enforce did not say why it declined" ;;
+esac
+expect_depth open          # and it must NOT have crossed, even under force
+
+# ONE idle hook is enough to make the whole deadline unenforceable: we cannot
+# tell a busy machine from an idle one, so acting on the rung-anchored sibling
+# would still be a guess.
+duehook lock 20-rung "600 rung"
+_out=$(VIGILANCE_ENFORCE=force "$VIGILANT" enforce 2>>"$T/stderr") \
+  || fail "a rung-anchored sibling re-enabled enforcement"
+case "$_out" in
+  *"idle-anchored"*) ;;
+  *) fail "mixing anchors lost the idle veto" ;;
+esac
+expect_depth open
+rm -f "$VIGILANCE_HOOK_ROOT"/lock.due.d/*
+
 # --- MAX across hooks, not first or min -------------------------------------
 # The latest claimed deadline is the only one nobody can call premature.
 : > "$RECORD"

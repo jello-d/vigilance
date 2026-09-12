@@ -930,24 +930,48 @@ cmd_rescue() {
 # be wrong. So a mechanism-specific hook READS the real config and reports a
 # deadline, and vigilant stays mechanism-agnostic.
 #
-# CONTRACT: a due.d hook prints a whole number of SECONDS, measured from when
-# the previous rung was entered, and exits 0. No output, junk, or a non-zero
-# exit means "no opinion", which is not the same as "zero". MAX across hooks,
-# because the latest claimed deadline is the one nobody can call premature.
-_due_for() {   # edge from -> seconds, or empty when nobody has an opinion
+# CONTRACT: a due.d hook prints
+#
+#     <seconds> [anchor]
+#
+# and exits 0. No output, junk, or a non-zero exit means "no opinion", which is
+# not the same as "zero". MAX across hooks, because the latest claimed deadline
+# is the one nobody can call premature.
+#
+# THE ANCHOR IS LOAD-BEARING and was missing from the first cut, which cost a
+# false alarm on a healthy box. `rung` (the default) means the clock starts when
+# the previous rung was entered. `idle` means it starts at the last INPUT, which
+# is what every swayidle timer actually does.
+#
+# An idle-anchored deadline is NOT ENFORCEABLE here, because vigilant has no
+# idle-time source: logind reports IdleHint=no and IdleSinceHint=0 on this
+# stack, and wlroots exposes no CLI for it. Measured from rung entry instead,
+# `lock` read as 1616s overdue on a machine being actively typed on -- the
+# enforce timer would have alerted every minute, forever, about nothing.
+#
+# So an idle anchor is reported and deliberately NOT acted on. The forensic tier
+# covers those edges properly: `audit` asks whether the timer that did fire
+# produced its edge, which needs no idle clock at all.
+_due_for() {   # edge from -> "seconds [anchor]", or empty for no opinion
   _dl=$(_hooks_for "$1" .due)
   if [ -z "$_dl" ]; then return 0; fi
-  _dmax=
+  _dmax= _danchor=rung
   while IFS= read -r _dh; do
     if [ -z "$_dh" ]; then continue; fi
-    _dv=$(VIGILANCE_EDGE="$1" VIGILANCE_FROM="$2" \
+    _draw=$(VIGILANCE_EDGE="$1" VIGILANCE_FROM="$2" \
       VIGILANCE_KIND=due "$_dh" "$1" "$2" 2>/dev/null) || continue
+    _dv=$(printf '%s' "$_draw" | awk '{print $1}')
+    _da=$(printf '%s' "$_draw" | awk '{print $2}')
     case "$_dv" in ''|*[!0-9]*) continue ;; esac
     if [ -z "$_dmax" ] || [ "$_dv" -gt "$_dmax" ]; then _dmax=$_dv; fi
+    # ANY idle-anchored hook makes the whole deadline unenforceable: we cannot
+    # tell an idle machine from a busy one, so acting would be a guess.
+    case "$_da" in idle) _danchor=idle ;; esac
   done <<EOF
 $_dl
 EOF
-  printf '%s' "$_dmax"
+  [ -n "$_dmax" ] || return 0
+  printf '%s %s' "$_dmax" "$_danchor"
 }
 
 # The next DESCENT edge from a rung, or empty at the bottom.
@@ -972,9 +996,16 @@ cmd_due() {   # [edge]
     echo "due: nothing below '$_from' is an enforcement target"
     return 0
   fi
-  _d=$(_due_for "$_e" "$_from")
-  if [ -z "$_d" ]; then
+  _draw=$(_due_for "$_e" "$_from")
+  if [ -z "$_draw" ]; then
     echo "due $_e: n/a (no due hook has an opinion)"
+    return 0
+  fi
+  _d=$(printf '%s' "$_draw" | awk '{print $1}')
+  _anch=$(printf '%s' "$_draw" | awk '{print $2}')
+  if [ "$_anch" = idle ]; then
+    echo "due $_e: ${_d}s after last INPUT, which vigilant cannot observe;"\
+" reported but NOT enforceable (see audit for these edges)"
     return 0
   fi
   _at=$(_depth_at)
@@ -1016,9 +1047,20 @@ cmd_enforce() {
     echo "enforce: nothing below '$_from' is an enforcement target"
     return 0
   fi
-  _d=$(_due_for "$_e" "$_from")
-  if [ -z "$_d" ]; then
+  _draw=$(_due_for "$_e" "$_from")
+  if [ -z "$_draw" ]; then
     echo "enforce: $_e has no declared deadline; nothing to enforce"
+    return 0
+  fi
+  _d=$(printf '%s' "$_draw" | awk '{print $1}')
+  _anch=$(printf '%s' "$_draw" | awk '{print $2}')
+  # An IDLE-anchored deadline cannot be enforced: the clock starts at the last
+  # input and vigilant has no way to read that, so "overdue" would just mean
+  # "this rung has been held a while" -- which on an actively used machine is
+  # normal. Measured from rung entry it called `lock` 1616s overdue while the
+  # machine was being typed on, and the timer would have alerted every minute.
+  if [ "$_anch" = idle ]; then
+    echo "enforce: $_e is idle-anchored; not enforceable (audit covers it)"
     return 0
   fi
   _el=$(( $(date +%s) - _at ))
