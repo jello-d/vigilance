@@ -21,13 +21,25 @@
 # reported `enabled` and `canonical` -- both true of a unit naming a binary that
 # does not exist.
 #
-# THE TWO EDGES A SLEEP IMPLIES, and they are not `suspend`:
+# THE EDGE A SLEEP IMPLIES IS `lock`, IN BOTH DIRECTIONS, and it is not
+# `suspend`:
 #
-#   before sleeping   `lock`   lock-on-sleep.service, Before=sleep.target
-#   after resuming    `sleep`  vigilance-resume.service, After=suspend.target
+#   before sleeping   lock-on-sleep.service    Before=sleep.target   `go lock`
+#   after resuming    vigilance-resume.service After=suspend.target  `go lock`
 #
-# The units cross those, not `suspend`, so that is what is asserted. Getting
-# this wrong would make the audit cry wolf on a perfectly handled sleep.
+# ASSERT WHAT THE UNITS ACTUALLY DO. Both run `vigilant go lock`, so `lock` is
+# the only edge either can produce. This said `sleep` for the resume direction,
+# left over from when that unit ran `go sleep` (changed in a5355c0: coming back
+# to `sleep` left the machine dark with nothing armed to ascend). Asserting an
+# edge no unit crosses any more would have reported a MISS on every correctly
+# handled resume -- the forensic tier crying wolf, which is precisely the
+# failure the `due` anchor bug already cost once.
+#
+# A HEALTHY RESUME CROSSES NOTHING AT ALL, and that is why vigilant counts
+# `already at '<rung>'` as satisfying the assertion. The depth file lives in
+# XDG_RUNTIME_DIR, which survives suspend, so the machine comes back still
+# recorded at `lock` and `go lock` is correctly a no-op. The edge's PURPOSE was
+# achieved; demanding a crossing would fail the healthy case.
 set -eu
 
 SINCE=${VIGILANCE_AUDIT_SINCE:--1 day}
@@ -42,9 +54,10 @@ journalctl --since "$SINCE" -o short-unix --no-pager 2>/dev/null | awk '
   /Reached target sleep\.target/ {
     printf "%d lock went to sleep\n", $1
   }
-  # Coming back: peripherals should be re-asserted dark at the sleep rung.
+  # Coming back: the session must still be locked. Same edge, because the resume
+  # unit runs the same command -- see the header on why a no-op counts.
   /System returned from sleep operation/ {
-    printf "%d sleep resumed from sleep\n", $1
+    printf "%d lock resumed from sleep\n", $1
   }
 '
 exit 0

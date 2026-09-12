@@ -192,9 +192,13 @@ _no_fail_in() {   # <report-output> <section> <why>
 # Scenarios must prefer this over poking at files: it is what keeps the suite
 # and the production watchdog from drifting apart, because both call the same
 # predicate.
+# STDOUT goes to the capture file too, not the terminal. `verify` prints its own
+# verdict ("verify lock: FAIL"), and an EXPECTED failure printed to the screen
+# made a green run look like it had two failures in it -- a suite whose passing
+# output contains the word FAIL trains you not to read it.
 expect_verify() {   # <edge> <ok|fail>
   _vrc=0
-  "$VIGILANT" verify "$1" 2>>"$T/stderr" || _vrc=1
+  "$VIGILANT" verify "$1" >>"$T/verify.out" 2>>"$T/stderr" || _vrc=1
   case "$2" in
     ok)   [ "$_vrc" = 0 ] || fail "verify $1: want ok, got fail" ;;
     fail) [ "$_vrc" = 1 ] || fail "verify $1: want fail, got ok" ;;

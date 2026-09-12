@@ -128,4 +128,81 @@ case "$_out" in
      fail "the good event was lost alongside the junk one" ;;
 esac
 
+# --- a BROKEN source is not "no events" ------------------------------------
+# The sharpest false green in this tier, and it was live: a source hook that
+# exits non-zero was skipped with a bare `|| continue`, so audit printed
+# "nothing to reconcile" and exited 0. A forensic tier reporting clean because
+# it could not look is worse than one reporting a miss: audit is the tier of
+# last resort, and if it is blind, nothing else is watching.
+: > "$VIGILANCE_LOG"
+rm -f "$VIGILANCE_HOOK_ROOT"/audit.d/*
+mkdir -p "$VIGILANCE_HOOK_ROOT/audit.d"
+printf '#!/bin/sh\nexit 7\n' > "$VIGILANCE_HOOK_ROOT/audit.d/10-broken"
+chmod +x "$VIGILANCE_HOOK_ROOT/audit.d/10-broken"
+: > "$T/alerts"
+_out=$("$VIGILANT" audit 2>>"$T/stderr") && fail "audit reported success while
+its only event source could not be read; that is a green light meaning nobody
+looked, which is the exact failure this tier exists to expose"
+case "$_out" in
+  *"audit BROKEN"*"10-broken"*) ;;
+  *) printf '%s\n' "$_out" >&2
+     fail "an unreadable source was not named as BROKEN" ;;
+esac
+# It must reach the human, and as its OWN kind: a blind source is an unknown
+# number of missed events, a different alarm from one known miss.
+grep -q "^audit-broken " "$T/alerts" \
+  || fail "an unreadable audit source raised no alert"
+
+# --- a broken source must not mask a WORKING one ----------------------------
+# One bad plugin blinding every other is how a tier dies quietly.
+_logline "$((NOW - 300))" "cross lock: open -> lock"
+audithook 20-good "$((NOW - 300)) lock went to sleep"
+_out=$("$VIGILANT" audit 2>>"$T/stderr") || true
+case "$_out" in
+  *"audit ok: lock"*) ;;
+  *) printf '%s\n' "$_out" >&2
+     fail "a working source was lost because another one was broken" ;;
+esac
+
+# --- THE SHIPPED HOOK asserts an edge the units actually cross --------------
+# A regression guard for a live bug: logind-sleep-audit claimed the RESUME
+# direction should produce the `sleep` edge, left over from when that unit ran
+# `go sleep`. It runs `go lock` now, so every correctly handled resume would
+# have been reported as a MISS: the forensic tier crying wolf, which is exactly
+# how a human learns to ignore it.
+#
+# Asserted through the REAL hook rather than a fixture, because the bug was in
+# the hook's own claim. A fixture would have agreed with whatever it said.
+rm -f "$VIGILANCE_HOOK_ROOT"/audit.d/*
+_SRC=$HERE/libexec/vigilance/hooks/logind-sleep-audit
+# 30 days, not 1: the window only has to be wide enough to contain a sleep.
+_edges=$(VIGILANCE_AUDIT_SINCE='-30 days' "$_SRC" 2>/dev/null \
+           | awk '{print $2}' | sort -u)
+if [ -z "$_edges" ]; then
+  # NEVER SILENT. A host whose journal holds no sleeps has nothing to assert
+  # here, and a vacuous pass would read exactly like a verified one -- the same
+  # false green as the empty verify tier. Say what went unchecked.
+  echo "  note: no sleep events in this journal; the shipped-hook edge" \
+       "assertion had nothing to check" >&2
+else
+  for _edge in $_edges; do
+    case "$_edge" in
+      lock) ;;
+      *) fail "logind-sleep-audit asserts the '$_edge' edge, but the units it
+audits (lock-on-sleep, vigilance-resume) both run 'go lock' and can only ever
+produce 'lock'; asserting anything else reports a MISS on a healthy machine" ;;
+    esac
+  done
+fi
+
+# And the no-op a healthy resume actually produces. The depth file lives in
+# XDG_RUNTIME_DIR and survives suspend, so the machine comes back still recorded
+# at `lock` and `go lock` is correctly a no-op that crosses nothing at all.
+: > "$VIGILANCE_LOG"
+_logline "$((NOW - 300))" "already at 'lock'; nothing to do"
+audithook 10-resume "$((NOW - 300)) lock resumed from sleep"
+"$VIGILANT" audit >/dev/null 2>>"$T/stderr" \
+  || fail "a healthy resume (depth already 'lock', so no edge crossed) was
+audited as a miss"
+
 pass
