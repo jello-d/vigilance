@@ -15,7 +15,14 @@ set -eu
 _dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 
 # The capabilities this substrate can honour. test/vm/run sets a longer list.
+#
+# `unprivileged` is the one capability this tier has and the VM does NOT: the
+# guest runs as root, and root ignores permission bits entirely, so an assertion
+# about a file being unwritable cannot hold there. It is declared rather than
+# worked around, because the alternative is a silent `[ "$(id -u)" != 0 ]` guard
+# inside a scenario, and a skip nobody sees is how coverage gets overstated.
 SCENARIO_CAPS=${SCENARIO_CAPS:-}
+[ "$(id -u)" = 0 ] || SCENARIO_CAPS="$SCENARIO_CAPS unprivileged"
 export SCENARIO_CAPS
 
 _rc=0

@@ -20,6 +20,11 @@ for _t in "$HERE"/bin/*; do _n=$(basename "$_t")
 [ -e "$SHR/man/man1/vigilance.1" ] || fail "man page not linked"
 [ -e "$CFG/systemd/user/vigilance-logind.service" ] \
   && fail "install linked the --user unit (should be service-only)"
+# Same for the supervision timer: `install` is bin + man, nothing that runs.
+for _u in vigilance-enforce.service vigilance-enforce.timer; do
+  [ -e "$CFG/systemd/user/$_u" ] \
+    && fail "install linked $_u; units belong to the service verb"
+done
 
 # libexec: the shipped hooks are installed AVAILABLE...
 [ "$(readlink "$T/libexec/vigilance")" = "$HERE/libexec/vigilance" ] \

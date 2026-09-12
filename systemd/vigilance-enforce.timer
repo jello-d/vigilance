@@ -1,0 +1,21 @@
+# Run the supervision loop often enough to be useful, rarely enough to be free.
+#
+# The loop is a few file reads plus the due hooks, and a due hook reads the
+# PRIMARY mechanism's own declaration (swayidle's argv), so a tick costs
+# essentially nothing and never touches hardware.
+#
+# Persistent=false deliberately: a missed tick is not worth catching up on. The
+# question "is this edge overdue" is about NOW, and a burst of catch-up runs
+# after a resume would evaluate deadlines against a rung the machine has already
+# left.
+[Unit]
+Description=vigilance: supervision timer
+
+[Timer]
+OnActiveSec=2min
+OnUnitActiveSec=1min
+AccuracySec=15s
+Persistent=false
+
+[Install]
+WantedBy=timers.target

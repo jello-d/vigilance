@@ -15,7 +15,11 @@
 #   vigilant status           where we are, and where hooks live
 #   vigilant verify [edge]    run reverse hooks; assert reality
 #   vigilant hooks [edge]     what would run, in order, resolved
-#   vigilant check            wiring audit (stage 4)
+#   vigilant report           does reality match what we believe?
+#   vigilant rescue           record everything, then recover
+#   vigilant due [edge]       when SHOULD this edge have fired?
+#   vigilant enforce          the supervision loop, for a timer
+#   vigilant check            wiring audit
 #
 # THE LADDER, one dimension: how far the machine has WITHDRAWN. Present tense
 # throughout, so a state names a condition the machine is IN, never something
@@ -31,7 +35,7 @@
 # why suspending now actually powers the monitor down instead of leaving it
 # lit. There is no minimum-rung special case; you simply cannot skip a rung.
 #
-# FIVE HOOK KINDS, and vigilant hardcodes NO mechanism in any of them. It
+# SIX HOOK KINDS, and vigilant hardcodes NO mechanism in any of them. It
 # knows nothing of logind, swayidle, swaylock or systemd; each is a hook that
 # binds vigilance to one environment. That is the whole point of the split:
 #
@@ -138,6 +142,12 @@ DEPTH_FILE=$RUN_DIR/depth
 STATE_ROOT=$RUN_DIR/state
 
 LADDER='open lock sleep suspend'           # shallowest first
+
+# GRACE: how far past a declared deadline an edge must be before supervision
+# calls it overdue. It exists so the PRIMARY mechanism wins the race in the
+# normal case -- vigilant is the backstop, not the timer, and acting on a tie
+# would make it compete with the thing it is supervising.
+GRACE=${VIGILANCE_GRACE:-30}
 
 # vigilant's OWN record. Built in and mechanism-free (it is a file), because
 # the whole charter is noticing when something silently did not happen, and a
@@ -912,9 +922,139 @@ cmd_rescue() {
   return "$_rrc"
 }
 
+# --- due: when SHOULD this edge have fired? ---------------------------------
+# THE TIMEOUT LIVES OUTSIDE VIGILANT. swaylock.conf has `blank-after`, swayidle
+# has its own timers, a greeter has another; vigilant must not hold a second
+# copy of any of them, because two copies of a timeout is just a slower way to
+# be wrong. So a mechanism-specific hook READS the real config and reports a
+# deadline, and vigilant stays mechanism-agnostic.
+#
+# CONTRACT: a due.d hook prints a whole number of SECONDS, measured from when
+# the previous rung was entered, and exits 0. No output, junk, or a non-zero
+# exit means "no opinion", which is not the same as "zero". MAX across hooks,
+# because the latest claimed deadline is the one nobody can call premature.
+_due_for() {   # edge from -> seconds, or empty when nobody has an opinion
+  _dl=$(_hooks_for "$1" .due)
+  if [ -z "$_dl" ]; then return 0; fi
+  _dmax=
+  while IFS= read -r _dh; do
+    if [ -z "$_dh" ]; then continue; fi
+    _dv=$(VIGILANCE_EDGE="$1" VIGILANCE_FROM="$2" \
+      VIGILANCE_KIND=due "$_dh" "$1" "$2" 2>/dev/null) || continue
+    case "$_dv" in ''|*[!0-9]*) continue ;; esac
+    if [ -z "$_dmax" ] || [ "$_dv" -gt "$_dmax" ]; then _dmax=$_dv; fi
+  done <<EOF
+$_dl
+EOF
+  printf '%s' "$_dmax"
+}
+
+# The next DESCENT edge from a rung, or empty at the bottom.
+#
+# `suspend` is deliberately excluded as an enforcement target. Forcing that edge
+# would fire suspend.d without the machine actually suspending, leaving the
+# peripherals configured for S3 on a box that is awake. And vigilant starting
+# a real power transition would mean competing with the trust root instead of
+# riding it, which is the one thing this design refuses to do.
+_next_down() {   # rung -> edge, or empty
+  case "$1" in
+    open)  echo lock ;;
+    lock)  echo sleep ;;
+    *)     echo "" ;;
+  esac
+}
+
+cmd_due() {   # [edge]
+  _from=$(_depth)
+  _e=${1:-$(_next_down "$_from")}
+  if [ -z "$_e" ]; then
+    echo "due: nothing below '$_from' is an enforcement target"
+    return 0
+  fi
+  _d=$(_due_for "$_e" "$_from")
+  if [ -z "$_d" ]; then
+    echo "due $_e: n/a (no due hook has an opinion)"
+    return 0
+  fi
+  _at=$(_depth_at)
+  if [ "$_at" -gt 0 ]; then
+    _el=$(( $(date +%s) - _at ))
+    echo "due $_e: ${_d}s after '$_from' (entered ${_el}s ago, grace ${GRACE}s)"
+  else
+    echo "due $_e: ${_d}s after '$_from' (no depth record; not overdue)"
+  fi
+}
+
+# --- enforce: the supervision loop, meant for a timer -----------------------
+# This is the second pillar. Pillar one is "make the things go dark"; this is
+# "notice when the mechanism that does it has silently stopped working". A
+# primary mechanism that quietly dies currently costs weeks of dead peripherals
+# and nobody finds out; the goal is to turn that into a RECORDED event.
+#
+# GRACE exists so the primary mechanism wins the race in the normal case.
+# vigilant acts only when an edge is demonstrably overdue, never on the tie.
+#
+# POLICY, and this is a deliberate narrowing of the plan. `report` (the default)
+# logs and alerts; `force` also crosses the edge. The plan's end state is
+# force, and its own safety constraint is "never force a descent without a
+# reliable ascent" -- vigilant cannot see input while locked, so a forced blank
+# could land mid-password. The rescue key is that floor and now exists, but it
+# has been pressed in anger exactly never, so forcing stays opt-in until an
+# ascent has been proven on the box in question. An alert that names the failure
+# already buys the charter's goal; forcing buys convenience on top of it.
+cmd_enforce() {
+  mkdir -p "$RUN_DIR" "$STATE_ROOT"
+  _from=$(_depth)
+  _at=$(_depth_at)
+  if [ "$_at" -le 0 ]; then
+    echo "enforce: no depth record; nothing is overdue"
+    return 0
+  fi
+  _e=$(_next_down "$_from")
+  if [ -z "$_e" ]; then
+    echo "enforce: nothing below '$_from' is an enforcement target"
+    return 0
+  fi
+  _d=$(_due_for "$_e" "$_from")
+  if [ -z "$_d" ]; then
+    echo "enforce: $_e has no declared deadline; nothing to enforce"
+    return 0
+  fi
+  _el=$(( $(date +%s) - _at ))
+  if [ "$_el" -le $((_d + GRACE)) ]; then
+    echo "enforce: $_e not due yet (${_el}s of $((_d + GRACE))s)"
+    return 0
+  fi
+
+  # OVERDUE. Ask whether something is legitimately preventing it before
+  # concluding the mechanism failed: an idle inhibitor or a fullscreen video is
+  # the mechanism behaving correctly, and fighting that would be the bug.
+  if _blocked "$_e" "$_from"; then
+    _log "OVERDUE $_e by $((_el - _d))s, but blocked; holding off"
+    echo "enforce: $_e overdue but blocked; holding off"
+    return 0
+  fi
+
+  _alert overdue "$_e is ${_el}s into a ${_d}s deadline and has not fired;"\
+" the primary mechanism for it is not working"
+  case "${VIGILANCE_ENFORCE:-report}" in
+    force)
+      _log "ENFORCING $_e: overdue by $((_el - _d))s, forcing it"
+      echo "enforce: forcing $_e (overdue by $((_el - _d))s)"
+      cmd_go "$_e" only
+      return $? ;;
+    *)
+      _log "OVERDUE $_e by $((_el - _d))s; reported, not forced"\
+" (VIGILANCE_ENFORCE=force to act)"
+      echo "enforce: $_e OVERDUE by $((_el - _d))s; reported, not forced"
+      return 1 ;;
+  esac
+}
+
 _U="usage: vigilant go <open|lock|sleep|suspend>
                  | force <state> | only <state> | status
-                 | verify [edge] | hooks [edge] | report | rescue | check"
+                 | verify [edge] | hooks [edge] | report | rescue
+                 | due [edge] | enforce | check"
 _sub=${1:-}
 if [ "$#" -gt 0 ]; then shift; fi
 case "$_sub" in
@@ -938,6 +1078,8 @@ case "$_sub" in
   hooks)   cmd_hooks "${1:-}" ;;
   report)  cmd_report ;;
   rescue)  cmd_rescue ;;
+  due)     cmd_due "${1:-}" ;;
+  enforce) cmd_enforce ;;
   check)   cmd_status ;;   # stage 4 replaces this with the marker contract
   -h|--help|help) echo "$_U" ;;
   *) echo "vigilant: unknown command '${_sub:-}'" >&2; echo "$_U" >&2; exit 2 ;;

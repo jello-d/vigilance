@@ -53,6 +53,13 @@ scenario_init() {   # <name>
   # exactly that way, reading a real swaylock from inside a sandbox. Default to
   # "no locker"; a scenario that cares sets it per call.
   export VIGILANCE_LOCKER_UP=0
+  # And the SESSION probe, for the same reason and a sharper one: the two
+  # substrates genuinely differ. The developer's box has a graphical session;
+  # the VM guest has none, so `loginctl` there answers "No sessions". A scenario
+  # that read the live answer passed in the stub tier and failed in the VM on a
+  # difference it was not testing. Default to "a session exists" (the ordinary
+  # case); the scenario that tests the no-session path sets it empty per call.
+  export VIGILANCE_SESSION=1
   mkdir -p "$VIGILANCE_SYS_BACKLIGHT" "$VIGILANCE_SYS_DRM" \
     "$VIGILANCE_SYS_LEDS"
   RECORD=$T/record
@@ -155,6 +162,30 @@ expect_record() {   # <expected-transcript>
 expect_stderr() {   # <substring>
   grep -q -- "$1" "$T/stderr" 2>/dev/null \
     || fail "stderr did not mention '$1'"
+}
+
+# report's EXIT CODE folds in the `-- machinery --` section, which reads the
+# HOST's real systemd: whether vigilance's three units are enabled. That is
+# legitimately different between substrates, and the suite's own rule forbids
+# stubbing systemd to flatten it.
+#
+# So a test that wants "report saw nothing wrong HERE" must scope to the section
+# under test rather than take the whole verdict. The VM tier caught this on its
+# first run: rescue.t was green in the stub substrate and red in the VM, failing
+# on units it was never testing. Exactly the integration gap two tiers exist to
+# expose, and the reason the stub tier alone is not trusted.
+#
+# Assertions of FAILURE still use the exit code: an extra failure elsewhere
+# cannot turn a red verdict green.
+_section() {   # <report-output> <section-name>
+  printf '%s\n' "$1" | awk -v s="-- $2 --" '
+    $0 == s { inside = 1; next } /^-- / { inside = 0 } inside'
+}
+_no_fail_in() {   # <report-output> <section> <why>
+  _sec=$(_section "$1" "$2")
+  case "$_sec" in
+    *"[FAIL]"*) printf '%s\n' "$_sec" >&2; fail "$3" ;;
+  esac
 }
 
 # expect_verify <edge> <ok|fail>: assert THROUGH the product's own verifier.

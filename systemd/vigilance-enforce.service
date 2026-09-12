@@ -1,0 +1,24 @@
+# The supervision loop: notice when an edge that SHOULD have fired has not.
+#
+# This is vigilance's second pillar. The first is "make things go dark"; this
+# is "make sure the mechanism that does it is still working". The failure it
+# exists for is not a crash, which is loud, but a primary mechanism that keeps
+# running while silently no longer firing -- a swayidle alive for weeks with a
+# dead timer, costing a monitor two days of being dark behind a green light.
+#
+# A FAILED UNIT HERE IS THE SIGNAL, not a malfunction. `vigilant enforce` exits
+# non-zero when an edge is overdue, so the unit goes red and stays visible in
+# `systemctl --user status` after the alert has scrolled away. Do not paper
+# over with SuccessExitStatus.
+#
+# Default policy is report-only: it logs and alerts, and does NOT cross it.
+# Forcing is VIGILANCE_ENFORCE=force, and it is opt-in on purpose -- never force
+# a descent without a reliable ascent, because vigilant cannot see input while
+# locked and a forced blank could land mid-password.
+[Unit]
+Description=vigilance: supervise a declared edge deadline
+After=default.target
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/vigilant enforce

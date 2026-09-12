@@ -1,0 +1,48 @@
+#!/bin/sh
+# swayidle-due - report the deadline swayidle's OWN command line declares.
+#
+# A `due` hook answers one question: when SHOULD this edge have fired? It prints
+# a whole number of SECONDS measured from when the previous rung was entered,
+# and exits 0. No output means "no opinion", which is NOT the same as zero.
+#
+# WHY IT READS THE COMMAND LINE rather than a config file: swayidle takes its
+# timers as argv, so the running process IS the authoritative statement of what
+# it intends to do. A config file would be a second copy of that fact, and two
+# copies of a timeout is a slower way to be wrong. This is the whole reason the
+# due tier exists as a hook instead of a vigilant setting: the timeout lives
+# outside vigilance, so something that understands the mechanism reads it.
+#
+# Reports the deadline even when swayidle looks healthy, deliberately. Watching
+# is not "is the process alive" -- the failure this suite was built around was a
+# swayidle that ran happily for weeks while silently not firing. A live process
+# with a declared timer and an edge that never arrives is exactly the case worth
+# catching, and it needs the declared timer to detect.
+set -eu
+
+edge=${1:-${VIGILANCE_EDGE:-}}
+[ -n "$edge" ] || exit 0
+
+# The argv of the running swayidle, which is where its timers actually live.
+_args=$(ps -o args= -C swayidle 2>/dev/null | head -1) || exit 0
+[ -n "$_args" ] || exit 0          # not running: no opinion, not "overdue"
+
+# `timeout <seconds> <command...>` repeats. Take the timeout whose command
+# mentions this edge, so `go lock` and `go sleep` are told apart rather than
+# collapsed into whichever appears first. Matching on the EDGE NAME keeps this
+# agnostic about which command the integrator wired.
+printf '%s\n' "$_args" | awk -v e="$edge" '
+  {
+    for (i = 1; i < NF; i++) {
+      if ($i == "timeout") {
+        secs = $(i + 1)
+        # the command runs until the next timeout/resume keyword
+        cmd = ""
+        for (j = i + 2; j <= NF; j++) {
+          if ($j == "timeout" || $j == "resume") break
+          cmd = cmd " " $j
+        }
+        if (secs ~ /^[0-9]+$/ && index(cmd, e) > 0) { print secs; exit }
+      }
+    }
+  }'
+exit 0

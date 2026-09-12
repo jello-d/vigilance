@@ -141,6 +141,17 @@ do_service() {
   ln -sfn "$_unit" "$_usr/vigilance-logind.service"
   systemctl --user enable vigilance-logind.service 2>/dev/null || true
   echo "$PKG: linked + enabled the --user Session.Lock listener"
+  # The SUPERVISION timer, and the loop it drives. Shipped and enabled here
+  # rather than left to an integrator, because a supervision loop nothing runs
+  # is exactly the dead tier this project keeps finding: `due.d` was designed,
+  # enumerated, and read by nothing for the whole refactor. Report-only by
+  # default, so enabling it cannot cross an edge on its own.
+  for _eu in vigilance-enforce.service vigilance-enforce.timer; do
+    ln -sfn "$_root/systemd/$_eu" "$_usr/$_eu"
+  done
+  systemctl --user enable vigilance-enforce.timer 2>/dev/null || true
+  echo "$PKG: linked + enabled the supervision timer (report-only;"
+  echo "  VIGILANCE_ENFORCE=force lets it cross an overdue edge)"
   echo "$PKG: the SYSTEM units need root -- place lock-on-sleep.service and"
   echo "  vigilance-resume.service from $_root/systemd under /etc/systemd/"
   echo "  system (both are @USER@/@UID@-templated)."
@@ -167,6 +178,10 @@ do_uninstall() {
     _unplace "$_l" "$_m"; done
   [ "$(readlink "$_usr/vigilance-logind.service" 2>/dev/null)" = "$_unit" ] \
     && rm -f "$_usr/vigilance-logind.service" || :
+  for _eu in vigilance-enforce.service vigilance-enforce.timer; do
+    [ "$(readlink "$_usr/$_eu" 2>/dev/null)" = "$_root/systemd/$_eu" ] \
+      && rm -f "$_usr/$_eu" || :
+  done
   if [ "${VIGILANCE_INSTALL_COPY:-0}" = 1 ]; then
     rm -rf "$_lib/$PKG"
   else
