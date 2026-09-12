@@ -18,6 +18,20 @@
 #
 # STATELESS by design: 02 and 01 are absolute, so a repeat is a no-op and
 # there is nothing to save. That also makes `resume` correct for free.
+# PLATFORM-NEUTRAL, AND NOT REDUNDANT WITH ANYTHING. ddcutil speaks I2C to the
+# monitor's own scaler, so this works identically under X11, any Wayland
+# compositor, or none. No compositor and no X server has ever been able to do
+# it: DPMS drops the video SIGNAL and leaves the panel to decide what that means
+# (some sleep, some show "no signal", some stay backlit). This commands it.
+#
+# THE COROLLARY IS THE DANGEROUS PART. Because it is out-of-band, a keypress can
+# NEVER undo it -- the input never reaches the monitor. Wiring this means the
+# ascent must be armed by something, or the screen stays dark and the user is
+# left pressing keys at a monitor that cannot hear them. Not theoretical: it is
+# how this suite's blackouts presented, every time.
+#
+# See the invariant in bin/vigilant: nothing may put the machine into a dark
+# rung unless it arms its own way back.
 set -eu
 
 _self=$(readlink -f "$0")

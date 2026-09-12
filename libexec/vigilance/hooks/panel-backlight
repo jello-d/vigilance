@@ -10,6 +10,27 @@
 #
 # A desktop with no backlight device simply has nothing to get: brightnessctl
 # fails, the save file is removed, and the hook exits 0.
+# WIRING THIS IS A TRADE, not a free win. Read before enabling it elsewhere.
+#
+# A backlight written through sysfs is INVISIBLE TO THE INPUT STACK. Nothing
+# restores it on a keypress, because no component that sees input knows it
+# changed. Compare the platform's own blanking (X11 DPMS, or a full desktop's
+# internal idle): there the component that owns INPUT also owns the BLANKING, so
+# it restores itself and "any input wakes the screen" is true for free.
+#
+# So where the platform can safely blank the panel ITSELF, this hook is both
+# REDUNDANT and INFERIOR: it reaches the same darkness by a route that cannot be
+# undone by input, and wiring it means taking on the ascent. Prefer the
+# platform's mechanism and leave this unwired.
+#
+# It exists because one platform cannot: on the wlroots build this was written
+# against, powering an output off re-modesets and was observed to destroy views,
+# so the panel had to be darkened some other way. If your compositor's DPMS is
+# safe, that reason does not apply to you.
+#
+# WHATEVER blanks the panel, something must arm the way back. See the invariant
+# in bin/vigilant: nothing may put the machine into a dark rung unless it arms
+# its own ascent.
 set -eu
 
 _self=$(readlink -f "$0")

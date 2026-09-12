@@ -16,6 +16,20 @@
 # (the compositor's own idle, a kernel DPMS, a wedge), and this is the cheap
 # idempotent re-assert that brings it back. One no-op call on a healthy ascent;
 # the recovery that matters on a broken one.
+#
+# DO NOT "FIX" THIS TO TURN OUTPUTS OFF. The asymmetry is deliberate and is the
+# whole safety property; a future reader seeing a half-implemented hook and
+# completing it would reintroduce a session-killing crash.
+#
+# Two reasons, and the second may now be stale -- check before acting on it:
+#   1. wlopm is wlroots-only, so an off here would be silently inert elsewhere.
+#   2. on the wlroots build this was written against, powering an output off
+#      re-modesets and was observed to destroy views. That observation
+#      PREDATES the scale-clamp patch this platform now carries, which fixes
+#      a SIGABRT on a re-enabled output taking scale 0 from an unapplied
+#      output-management head -- plausibly the same crash. If DPMS-off proves
+#      safe now, the right move is to BLANK via DPMS (the input stack then
+#      restores it for free), not to make this hook turn things off.
 set -eu
 
 _self=$(readlink -f "$0")

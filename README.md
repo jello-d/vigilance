@@ -152,6 +152,56 @@ An integrator chooses which run on which edge, because that is policy:
 output off, because on wlroots that is a connector change which re-modesets and
 can destroy views. The asymmetry is the safety rule.
 
+## Platforms: what is generic, and what you should not wire
+
+Most of this is platform-neutral. Seven of the shipped hooks are sysfs, I2C or
+logind, with no Wayland in them at all. They work unchanged under X11, any
+Wayland compositor, or none:
+
+    ddc-monitor  panel-backlight  kbd-backlight  mute-leds
+    logind-hint  journal  logind-sleep-audit  phantom-guard
+
+Only `dpms` is compositor-bound (`wlopm`, so wlroots), alongside the swaylock
+provider and the swayidle `due` hook. Those are plugins precisely so another
+environment can swap them.
+
+**The rule that decides whether a screen hook helps or hurts:**
+
+> Input restores a blanked screen for free exactly when the component that owns
+> **input** also owns the **blanking**.
+
+On X11 the server owns both, so `xset dpms` wakes on a keypress. A full desktop
+(GNOME, KDE) blanks internally, same result. On bare wlroots the blanking is
+delegated to an external client over IPC, which is why swayidle's canonical
+config has to PAIR `output * power off` with `resume 'output * power on'`.
+
+vigilance is by definition external. So anything it blanks, something must
+explicitly unblank. Hence:
+
+- **`panel-backlight` is a trade, not a free win.** A backlight written through
+  sysfs is invisible to the input stack. Where the platform can safely blank
+  the panel itself, this hook is both REDUNDANT and INFERIOR -- same darkness,
+  by a route a keypress cannot undo. Prefer the platform's mechanism and leave
+  it unwired. It exists for the case where the platform cannot.
+- **`ddc-monitor` is not redundant with anything, and cannot be undone by
+  input.** It speaks I2C to the monitor's own scaler, which no compositor and
+  no X server can do: DPMS drops the video signal and leaves the panel to
+  decide what that means. The corollary is that a keypress never reaches the
+  monitor, so wiring it means the ascent must be armed by something.
+- **`dpms` is ON-only and must stay that way.** Do not complete it into an
+  off-switch; see its header for the crash that asymmetry avoids.
+
+Which is one invariant, enforced in `bin/vigilant` and worth stating plainly:
+
+> **Nothing may put the machine into a dark rung unless it arms its own way
+> back.**
+
+Every dark descent that actually runs comes from a swayidle pairing its
+`timeout` with a `resume`, so activity brings the screen back. `vigilant
+enforce` refuses to FORCE a descent into a dark rung for the same reason. The
+blackouts in this suite's history were all one bug in different clothes:
+something went dark by a route with nothing armed to undo it.
+
 ## systemd owns the lock's lifetime
 
 The lock is a transient `--user` unit, not a child process. The unit name is the
