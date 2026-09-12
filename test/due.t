@@ -80,14 +80,36 @@ _backdate lock 700
 "$VIGILANT" enforce >/dev/null 2>>"$T/stderr" || true
 grep -q "^overdue " "$T/alerts" || fail "an overdue edge raised no alert"
 
-# --- FORCING IS OPT-IN ------------------------------------------------------
-# The plan's own safety constraint: never force a descent without a reliable
-# ascent. vigilant cannot see input while locked, so a forced blank could land
-# mid-password. Report is the default until an ascent is proven on the box.
-_backdate lock 700
+# --- FORCING IS OPT-IN, and never crosses into a DARK rung ------------------
+# Two rules, and the second is the invariant the blackouts kept violating:
+# NOTHING MAY PUT THE MACHINE INTO A DARK RUNG UNLESS IT ARMS ITS OWN WAY BACK.
+#
+# Every dark descent that runs today comes from a swayidle pairing its `timeout`
+# with a `resume`, so activity brings the screen back. A FORCED descent has no
+# such pairing: swayidle would not know the machine was dark, input would do
+# nothing, and recovery would need a keybind. That is how the resume unit used
+# to blank an active user's screen for 32 seconds.
+#
+# `lock` stays forceable, and it is the case worth having -- "the screen should
+# have locked and did not" is the security-relevant failure.
+duehook lock 10-rung "100 rung"
+_backdate open 900
 VIGILANCE_ENFORCE=force "$VIGILANT" enforce >/dev/null 2>>"$T/stderr" \
-  || fail "the force policy did not cross the edge"
-expect_depth sleep
+  || fail "the force policy did not cross the LIT lock edge"
+expect_depth lock
+
+# ...and the dark one is refused even under force.
+_backdate lock 700
+_out=$(VIGILANCE_ENFORCE=force "$VIGILANT" enforce 2>>"$T/stderr") \
+  && fail "forcing a descent into a DARK rung reported success; it must refuse
+and still report the drift"
+case "$_out" in
+  *"nothing armed to bring it back"*) ;;
+  *) printf '%s\n' "$_out" >&2
+     fail "enforce did not say why it refused to force a dark descent" ;;
+esac
+expect_depth lock          # refused: still at lock, NOT sleep
+rm -f "$VIGILANCE_HOOK_ROOT"/lock.due.d/10-rung
 
 # --- a BLOCK stops enforcement ----------------------------------------------
 # An idle inhibitor or a fullscreen video is the mechanism behaving CORRECTLY.
@@ -102,6 +124,8 @@ chmod +x "$VIGILANCE_HOOK_ROOT/sleep.block.d/10-inhibit"
 _backdate lock 700
 _out=$(VIGILANCE_ENFORCE=force "$VIGILANT" enforce 2>>"$T/stderr") \
   || fail "a blocked enforcement should hold off, not fail"
+# Must be the BLOCK that stopped it, not the dark-rung refusal: both would leave
+# the depth alone, so assert on the reason.
 case "$_out" in
   *"blocked"*) ;;
   *) printf '%s\n' "$_out" >&2; fail "a block was not reported" ;;

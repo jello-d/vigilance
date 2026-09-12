@@ -1082,6 +1082,32 @@ cmd_enforce() {
 " the primary mechanism for it is not working"
   case "${VIGILANCE_ENFORCE:-report}" in
     force)
+      # NEVER FORCE A DESCENT INTO A DARK RUNG, even under the force policy.
+      #
+      # The invariant this protects: nothing may put the machine into a dark
+      # rung unless it arms its own way back. Every dark descent that runs
+      # today comes from a swayidle pairing its `timeout` with a `resume`, so
+      # activity brings the screen back. A forced descent has no such pairing --
+      # swayidle would not know the machine was dark, so input would produce
+      # nothing and recovery would need a keybind.
+      #
+      # That is not hypothetical. It is exactly how `vigilance-resume` used to
+      # blank an active user's screen for 32 seconds, and the disguise the
+      # blackout kept reappearing in.
+      #
+      # `lock` is still forceable, and it is the case worth having: "the screen
+      # should have locked and did not" is the security-relevant failure.
+      # Forcing the peripherals dark only buys power, and not at this price.
+      #
+      # Asked of _intent_of rather than a list of rung names, so a new rung
+      # inherits the rule instead of quietly escaping it.
+      if [ "$(_intent_of "$_e")" = dark ]; then
+        _log "OVERDUE $_e by $((_el - _d))s; NOT forced: a forced descent"\
+" into a dark rung would have no armed ascent"
+        echo "enforce: $_e overdue, but forcing it would go dark with nothing"\
+" armed to bring it back; reported only"
+        return 1
+      fi
       _log "ENFORCING $_e: overdue by $((_el - _d))s, forcing it"
       echo "enforce: forcing $_e (overdue by $((_el - _d))s)"
       cmd_go "$_e" only
