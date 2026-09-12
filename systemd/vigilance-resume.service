@@ -13,11 +13,17 @@ After=suspend.target hibernate.target hybrid-sleep.target
 
 [Service]
 Type=oneshot
+# @HOME@, NOT %h. In a SYSTEM unit %h resolves to ROOT's home regardless of
+# User=, so `%h/.local/bin/vigilant` became /root/.local/bin/vigilant and died
+# with 203/EXEC on every single sleep. It failed SILENTLY, because a failed
+# Before=sleep.target oneshot does not block the transition: systemd logged the
+# failure, reached sleep.target, and slept anyway. The suspend-lock guarantee
+# was fiction from the moment these units stopped using an absolute path.
 User=@USER@
 Environment=VIGILANCE_SOURCE=resume
 Environment=XDG_RUNTIME_DIR=/run/user/@UID@
 Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/@UID@/bus
-ExecStart=%h/.local/bin/vigilant go sleep
+ExecStart=@HOME@/.local/bin/vigilant go sleep
 TimeoutStartSec=25
 
 [Install]

@@ -20,11 +20,17 @@ Before=sleep.target
 
 [Service]
 Type=oneshot
+# @HOME@, NOT %h. In a SYSTEM unit %h resolves to ROOT's home regardless of
+# User=, so `%h/.local/bin/vigilant` became /root/.local/bin/vigilant and died
+# with 203/EXEC on every single sleep. It failed SILENTLY, because a failed
+# Before=sleep.target oneshot does not block the transition: systemd logged the
+# failure, reached sleep.target, and slept anyway. The suspend-lock guarantee
+# was fiction from the moment these units stopped using an absolute path.
 User=@USER@
 Environment=VIGILANCE_SOURCE=suspend
 Environment=XDG_RUNTIME_DIR=/run/user/@UID@
 Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/@UID@/bus
-ExecStart=%h/.local/bin/vigilant go lock
+ExecStart=@HOME@/.local/bin/vigilant go lock
 # Cap the unit so a missing or slow session can never wedge the suspend
 # transition. A box that will not sleep is worse than one that sleeps late.
 TimeoutStartSec=25
