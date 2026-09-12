@@ -55,10 +55,19 @@ passes the rung being **left** as `$2`.
     vigilant hooks [edge]     what would run, in order, resolved
     vigilant report           does reality match what we believe?
     vigilant rescue           one key: record everything, then recover
-    vigilant check            wiring audit
+    vigilant due [edge]       when SHOULD this edge have fired?
+    vigilant enforce          the supervision loop, for a timer
+    vigilant audit            did past events produce the edges they should?
 
 The verb set is closed and the **argument is the state**, so a new rung can
 never collide with a command name.
+
+There is deliberately **no `vigilant check`**. The wiring audit is `setup.sh
+check`, the only thing that knows the prefix, the dependency list and the plugin
+tree it installed; a second implementation would be the same fact in two places.
+It existed briefly as a stub aliased to `status` while three documents described
+it as a wiring audit. That is worse than a missing command, because the missing
+one fails loudly. It now does.
 
 Exit codes are a contract, because units branch on them: `0` ok (including a
 no-op), `1` crossed but a hook failed, `2` usage, `3` refused (a precondition
@@ -70,15 +79,37 @@ intermittent and the button is the only instrument that will be running. It
 actuates nothing itself: recovery is `force open`, which crosses every ascent
 edge through the hooks, so anything it drives exists once instead of twice.
 
-## Six hook kinds
+## Seven hook kinds
 
     <edge>.d          DO it      actuators; drive the hardware
     <edge>.verify.d   CHECK it   did the edge actually take effect?
     <edge>.report.d   TELL       announce it outward (logind's SetLockedHint)
     <edge>.due.d      WHEN       when SHOULD this edge have fired?
     <edge>.block.d    WHY NOT    is something legitimately preventing it?
-    alert.d           SHOUT      tell the HUMAN; not per-edge, it is
-                                 cross-cutting and raised by vigilant itself
+    audit.d           DID IT     did a PAST event produce its edge?
+    alert.d           SHOUT      tell the HUMAN; raised by vigilant itself
+
+The last two are **cross-cutting**: they sit at the top of a scope rather than
+under an edge. An audit hook names the edge in its own output, because one event
+source (a journal) reports events for several edges, and an alert is not about a
+single edge at all.
+
+### The three questions
+
+`verify`, `due` and `audit` differ in **tense**, and no one of them can answer
+another. That is why they are three kinds and not one cleverer one:
+
+    verify   NOW    does the hardware match the rung we believe we are at?
+    due      SOON   is an edge pending and past its deadline?
+    audit    PAST   did an event that already happened produce its edge?
+
+Only the third can see an event that produced **no** edge. That is not a
+hypothetical: a system unit ordered `Before=sleep.target` died 203/EXEC on every
+single sleep for a whole refactor, and the box slept unlocked. Nothing was in a
+wrong state afterwards and nothing was pending, so `verify` and `due` were both
+blind to it, while the unit reported `enabled` and `canonical`. Both of those
+hold for a unit naming a binary that does not exist. A failed `Before=` oneshot
+does not stop the sleep.
 
 `due` and `block` are read **inward** from the environment; `report` is written
 **outward** to it. Both directions are hooks, so playing nice with a stock
@@ -145,6 +176,8 @@ An integrator chooses which run on which edge, because that is policy:
     hooks/logind-hint      SetLockedHint, so the rest of the desktop knows
     hooks/phantom-guard    debounce a spurious re-lock (a block hook)
     hooks/journal          an alert sink that works in any session
+    hooks/swayidle-due     read swayidle's own timers as a `due` deadline
+    hooks/logind-sleep-audit  did each real sleep produce its `lock` edge?
     providers/swaylock     bring a locker up as a transient systemd unit
     triggers/logind-lock   cross `lock` on logind's Session.Lock
 
@@ -216,12 +249,36 @@ hooks, invoked by the unit. systemd stays the actuator and vigilant only crosses
 edges, because the moment it initiates a power transition it competes with the
 trust root instead of riding it.
 
+`systemd/` ships eight units. The two that need root are `@USER@`/`@UID@`/
+`@HOME@`-templated, because **`%h` in a system unit resolves to root's home**
+regardless of `User=`. That is precisely how the suspend lock was fiction for a
+whole refactor:
+
+    lock-on-sleep.service     SYSTEM, Before=sleep.target: the suspend lock
+    vigilance-resume.service  SYSTEM, After=suspend.target: come back to `lock`
+    vigilance-logind.service  --user, the Session.Lock listener
+    vigilance-enforce.timer   --user, the supervision loop, every minute
+    vigilance-audit.timer     --user, the forensic pass, daily + Persistent
+    vigilance-idle.service    --user, keeps the idle timer alive
+
+`vigilance-idle.service` is **placed but never enabled** against a target: only
+the compositor knows when a display exists to connect to, so it starts the unit
+from its own autostart. Enabling it against a target would start swayidle into a
+void.
+
+Supervision is **report-only** by default, so enabling the timers cannot cross
+an edge on its own. `VIGILANCE_ENFORCE=force` lets `enforce` act, and even then
+it will never force a descent into a **dark** rung, because such a descent has
+nothing armed to bring the machine back. Not caution in the abstract: it
+is exactly how the resume unit once blanked an active user's screen for 32
+seconds.
+
 ## Install
 
     ./setup.sh install     symlink the tools (+ man) into ~/.local
     ./setup.sh service     + enable the --user Session.Lock listener
     ./setup.sh all         both
-    ./setup.sh check       every tool + dependency present ([OK]/[FAIL])
+    ./setup.sh check       tools, deps, plugins, units, man, device access
     ./setup.sh test        the in-repo suite
     ./setup.sh uninstall   remove what install placed
 

@@ -9,7 +9,10 @@ vigilance \- edge framework for what a machine does when you step away
 .IR state ", " "vigilant only " state
 .br
 .B vigilant
-.RB { status | verify | hooks | report | rescue | check }
+.RB { status | verify | hooks | report | rescue }
+.br
+.B vigilant
+.RB { due " [" edge ] | enforce | audit }
 .br
 .B swayidle-mgr ", " idle-capture ", " lock-watch
 .SH DESCRIPTION
@@ -59,10 +62,83 @@ Ascent is not the descent reversed: leaving
 the saved state is valid, so a hook restores it; leaving
 .B suspend
 USB has re-enumerated and the saved state is stale, so the hook re-asserts.
+.SH THE THREE QUESTIONS
+Supervision asks three things that differ in TENSE, and no one of them can
+answer another. Each is a separate hook kind for that reason.
+.TP
+.B verify
+NOW: does the hardware match the rung we believe we are at?
+.TP
+.B due
+SOON: is an edge pending and past its declared deadline?
+.TP
+.B audit
+PAST: did an event that already happened produce the edge it should have?
+.PP
+The third is the only one that can see an event which produced NO edge. A unit
+that dies on a bad
+.B ExecStart
+leaves nothing in a wrong state and nothing pending, so only history shows it.
+.PP
+.B enforce
+is the loop a timer runs: it asks
+.B due
+whether an edge is overdue, asks the
+.I block
+tier whether something is legitimately preventing it, and then alerts. It acts
+only when an edge is DEMONSTRABLY overdue \(em never on a tie, so the primary
+mechanism wins the normal race and vigilant stays the backstop rather than a
+competitor.
+.PP
+An IDLE-ANCHORED deadline is reported but never enforced. A
+.I due
+hook may print an anchor alongside its seconds, and
+.B idle
+means the clock starts at the last input \(em which vigilant cannot observe on
+this stack. Measured from rung entry instead, it called
+.B lock
+overdue on a machine being actively typed on.
+The forensic tier is the right home for those edges, since
+.B audit
+needs no idle clock at all. It only covers them if an
+.I audit.d
+source for them is WIRED, though, and none ships: the one shipped source reads
+logind SLEEP events. An idle-anchored edge with no audit source is watched by
+nothing, and
+.B due
+and
+.B enforce
+both say so explicitly rather than implying coverage that does not exist.
+.SH RESCUE
+.B "vigilant rescue"
+is meant for a bare, unmodified key, pressable BLIND when the screen is gone. It
+does two things in this order, and the order is the point: RECORD first (by
+calling
+.BR report ,
+so the evidence is exactly what report would have shown), then recover with
+.BR "force open" .
+The fault it exists for is intermittent and never happens while instrumented, so
+the button IS the instrument; recovering first would burn the only evidence.
+.PP
+It actuates nothing itself. Anything it should drive belongs in a hook, where it
+is one implementation instead of two.
 .SH HOOKS
-Six kinds, under
-.IR ~/.config/vigilance/hooks/ .
-vigilant hardcodes no mechanism in any of them.
+Seven kinds, in TWO SCOPES:
+.TP
+.I /etc/vigilance/hooks
+MACHINE scope, root-owned, runs for every session including a greeter's.
+Peripherals belong to the machine.
+.TP
+.I ~/.config/vigilance/hooks
+USER scope, no privilege needed. Locking, audio and notifications belong to a
+user.
+.PP
+A greeter session needs no configuration of its own: it simply has no user root,
+so it gets the machine hooks and nothing else. The machine scope is the LOWER
+layer, so it comes up first and goes down last, exactly as systemd orders units:
+descent runs user 10\(en90 then machine 10\(en90, and ascent reverses both.
+.PP
+vigilant hardcodes no mechanism in any kind.
 .TP
 .IB <edge> .d
 DO it: actuators that drive the hardware.
@@ -80,6 +156,16 @@ WHEN: when should this edge have fired? The timeout lives outside vigilant.
 WHY NOT: is something legitimately preventing it? Exit 10 blocks, anything
 else allows. Fails OPEN: a broken guard must never suppress a lock.
 .TP
+.I audit.d
+DID IT: read an external event source and report events that SHOULD have
+produced an edge. Prints
+.I "<epoch> <edge> [note]"
+per event; vigilant owns the reconciliation against its own log. NOT per-edge,
+like
+.IR alert.d :
+the hook names the edge in its output, because one source reports events for
+several edges.
+.TP
 .I alert.d
 SHOUT: tell the human. Not per-edge; raised by vigilant itself.
 .PP
@@ -87,8 +173,19 @@ Every hook receives the edge and the rung being left, plus
 .BR VIGILANCE_EDGE ,
 .BR VIGILANCE_FROM ,
 .B VIGILANCE_SOURCE
-(who asked) and
-.BR VIGILANCE_STATE_DIR .
+(who asked),
+.B VIGILANCE_STATE_DIR
+and two the runner states so no hook has to restate them:
+.TP
+.B VIGILANCE_INTENT
+.BR dark ", " lit " or " none
+\(em the darkness this edge implies. A hook honouring it cannot fall through a
+stale case when the ladder grows a rung.
+.TP
+.B VIGILANCE_KIND
+.BR act ", " verify ", " report ", " due ", " block " or " audit
+\(em which question is being asked, so ONE plugin can serve several kinds.
+.PP
 vigilance ships plugins under
 .I libexec/vigilance/
 but enables none: which ones run is the integrator's policy.
@@ -117,11 +214,56 @@ SYSTEM suspend-lock unit (Before=sleep.target); needs root.
 .I systemd/vigilance-resume.service
 SYSTEM resume unit (After=suspend.target); needs root.
 .TP
+.I systemd/vigilance-enforce.timer
+The supervision loop, every minute. Report-only unless
+.B VIGILANCE_ENFORCE=force
+is set; even then it will never force a descent into a DARK rung, because
+nothing would be armed to bring the machine back.
+.TP
+.I systemd/vigilance-audit.timer
+The forensic pass, daily and
+.BR Persistent= ,
+so a box that was asleep at the scheduled time still runs it on waking.
+.TP
+.I systemd/vigilance-idle.service
+Keeps the idle timer alive. Placed but never enabled against a target: only the
+COMPOSITOR knows when a display exists to connect to, so it starts this from its
+own autostart.
+.TP
+.I udev/99-vigilance.rules
+Grants the
+.B vigilant
+group write on exactly the nodes the peripheral hooks drive. Needs root.
+.TP
 .I ~/.local/state/vigilance.log
 vigilant's own record of every crossing, block and alert.
+.SH THE vigilant GROUP
+The peripheral hooks drive backlights and LEDs through
+.BR brightnessctl ,
+and those nodes are root-owned. Without
+.I udev/99-vigilance.rules
+and a
+.B vigilant
+group containing every user that runs vigilance (the greeter user included, if
+greeter coverage is on), those writes are DENIED and the hooks no-op SILENTLY:
+.B hook_dark
+and
+.B hook_lit
+swallow the failure by design, so vigilant logs clean crossings while the
+hardware never moves.
+.PP
+Deliberately not the
+.B input
+group, which also grants raw read on
+.IR /dev/input/event* ,
+i.e. every keystroke.
+.B "setup.sh check"
+verifies the group and the membership.
 .SH RUNTIME DEPENDENCIES
-.BR swaylock ", " swayidle ", " wlopm ", " ddcutil ,
-each used only by a plugin and each degrading gracefully when absent.
+.BR swaylock ", " swayidle ", " wlopm ", " ddcutil ", " brightnessctl ,
+each used only by a plugin and each degrading gracefully when absent. Run
+.B "setup.sh check"
+to see which are present and what each one's absence costs.
 .SH SEE ALSO
 .BR swaylock (1),
 .BR swayidle (1),

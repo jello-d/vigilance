@@ -87,7 +87,14 @@ up with `peripherals on|off` bolted onto `on|off`:
       vigilant status              where we are, and where hooks live
       vigilant hooks [edge]        what would run, in order, resolved
       vigilant verify [edge]       the shared oracle
-      vigilant check               wiring audit, [OK]/[FAIL]/[WARN]
+      setup.sh check               wiring audit, [OK]/[FAIL]/[WARN]
+
+  NOT SHIPPED AS PLANNED. This was specified as `vigilant check` and built as a
+  stub aliased to `status`, with three documents describing it as a wiring audit
+  it never performed. It landed as `setup.sh check` instead, which is the only
+  thing that knows the prefix, the dependency list and the plugin tree it
+  installed; a second copy inside `vigilant` would be the same fact in two
+  places. `vigilant check` now exits 2 and names the real command.
 
 STATES ARE PRESENT TENSE, so a state names a condition the machine is IN, never
 something that already happened to it: `open`, `lock`, `sleep`, `suspend`.
@@ -601,7 +608,7 @@ the same false confidence that let `lock-watch` sit dead for 74k restarts.
 | oracle | used by both tiers AND running in production |
 
 The VM tier installs from scratch (clone, `setup.sh install`, wire the hooks,
-boot, `vigilant check`) so it tests WIRING rather than code. That is the
+boot, `setup.sh check`) so it tests WIRING rather than code. That is the
 category every bug in this cycle fell into.
 
 ### 11.5 Scenarios owed, drawn from real failures
