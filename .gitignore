@@ -1,2 +1,4 @@
 # local working-context for a Claude session; not part of the package
 CLAUDE.md
+CLAUDE.local.md
+.claude/
