@@ -106,9 +106,45 @@ _place() {
   fi
 }
 
+# Tools that belong at a SHARED/SYSTEM prefix, and why the rest do not.
+#
+# Greeter coverage installs this package to /usr/local so _greetd can reach it.
+# Only the EDGE RUNNER belongs there: the greeter's launcher runs `swayidle`
+# DIRECTLY and never calls swayidle-mgr, and idle-capture/lock-watch are
+# diagnostics a human runs inside a session.
+#
+# Installing the rest is not untidy, it is ACTIVELY HARMFUL. /usr/local/bin
+# precedes ~/.local/bin on a default PATH, so a copy there SHADOWS the live pkg
+# symlink and then rots behind it. Observed on a real box: a system swayidle-mgr
+# dated a day earlier was winning `command -v`, so an idle-suspend seam added to
+# the package that morning was inert -- the tool that ran had never heard of it.
+#
+# Keyed on COPY MODE, which is already defined as "what a shared/system prefix
+# needs" (see the header). A symlinking install to a user prefix is unaffected.
+SYSTEM_TOOLS="vigilant"
+
+_wanted_at_prefix() {   # <tool-name>
+  [ "${VIGILANCE_INSTALL_COPY:-0}" = 1 ] || return 0   # user prefix: all
+  for _w in $SYSTEM_TOOLS; do [ "$1" = "$_w" ] && return 0; done
+  return 1
+}
+
 do_install() {
   mkdir -p "$_bin"
-  for _t in "$_root"/bin/*; do _place "$_t" "$_bin/$(basename "$_t")"; done
+  for _t in "$_root"/bin/*; do
+    _n=$(basename "$_t")
+    if _wanted_at_prefix "$_n"; then
+      _place "$_t" "$_bin/$_n"
+    else
+      # SWEEP what an earlier over-install left. Leaving it would keep
+      # shadowing the live copy, and a stale shadow is worse than a missing
+      # tool: the missing one fails loudly, the shadow does the old thing.
+      if [ -e "$_bin/$_n" ] || [ -L "$_bin/$_n" ]; then
+        rm -f "$_bin/$_n"
+        echo "$PKG: removed $_bin/$_n (session tool; it shadowed the live copy)"
+      fi
+    fi
+  done
   _man_pages | while IFS= read -r _m; do
     _d=$_man/$(basename "$(dirname "$_m")")
     mkdir -p "$_d"; _place "$_m" "$_d/$(basename "$_m")"; done
