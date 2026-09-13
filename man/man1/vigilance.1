@@ -259,6 +259,24 @@ group, which also grants raw read on
 i.e. every keystroke.
 .B "setup.sh check"
 verifies the group and the membership.
+.SH WHAT CANNOT BE GUARANTEED
+NOTHING CAN VETO A SUSPEND. A unit ordered
+.B Before=sleep.target
+delays the transition while it runs, and a delay inhibitor delays it too
+.RB ( InhibitDelayMaxSec ),
+but when either one fails or times out, logind proceeds. There is no supported
+way to refuse a suspend outright, and a suite that could refuse one could strand
+a laptop on a critical battery.
+.PP
+So the suspend lock's goal is not prevention: it is that sleeping unlocked
+becomes LOUD and RECORDED instead of a green light.
+.I lock-on-sleep.service
+runs
+.B "vigilant verify lock"
+after crossing, so that "the unit succeeded" is a claim about the SESSION rather
+than merely about the hooks, and the
+.I audit
+tier reconciles it afterwards either way.
 .SH RUNTIME DEPENDENCIES
 .BR swaylock ", " swayidle ", " wlopm ", " ddcutil ", " brightnessctl ,
 each used only by a plugin and each degrading gracefully when absent. Run

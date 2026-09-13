@@ -177,13 +177,42 @@ An integrator chooses which run on which edge, because that is policy:
     hooks/phantom-guard    debounce a spurious re-lock (a block hook)
     hooks/journal          an alert sink that works in any session
     hooks/swayidle-due     read swayidle's own timers as a `due` deadline
+    hooks/locker-up        VERIFY the session is locked (or is not)
     hooks/logind-sleep-audit  did each real sleep produce its `lock` edge?
+    hooks/swayidle-idle-audit did each idle timer firing produce its `lock`?
     providers/swaylock     bring a locker up as a transient systemd unit
     triggers/logind-lock   cross `lock` on logind's Session.Lock
 
 `dpms` is deliberately asymmetric: it issues `wlopm --on` and **never** turns an
 output off, because on wlroots that is a connector change which re-modesets and
 can destroy views. The asymmetry is the safety rule.
+
+`locker-up` is the `lock` edge's missing partner. The framework's rule is that
+for every hook which acts, a paired hook asserts it took effect, and the most
+important actuator in the suite had none: on a real box the `lock` edge was
+verified by three hooks that all check a **peripheral**. They assert the screen
+is lit; not one asked whether the session was secured. Wire it in the **user**
+scope only, never the machine scope, because a greeter *is* the locked state and
+has no locker at all.
+
+Two hooks guard the idle path, and neither substitutes for the other:
+`swayidle-idle-audit` asks whether a timer that **fired** produced its edge, and
+`vigilant report` asks whether the timers can fire **at all** by reading the
+running swayidle's argv. The second exists because the first cannot see an exec
+failure: when the command does not run, the log entry it would have written is
+never written either. That is not hypothetical, and it is why both are here.
+
+### What cannot be guaranteed
+
+**Nothing can veto a suspend.** A unit ordered `Before=sleep.target` delays the
+transition while it runs, and a delay inhibitor delays it too, but when either
+fails or times out, logind proceeds. There is no supported way to refuse a
+suspend outright, and a suite that could refuse one could strand a laptop on a
+critical battery. So the suspend lock's goal is not prevention: it is that
+sleeping unlocked becomes **loud and recorded** rather than a green light.
+`lock-on-sleep.service` therefore runs `vigilant verify lock` after crossing, so
+that "the unit succeeded" is a claim about the session and not merely about the
+hooks.
 
 ## Platforms: what is generic, and what you should not wire
 
