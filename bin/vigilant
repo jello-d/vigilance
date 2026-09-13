@@ -1027,12 +1027,19 @@ _rep_machinery() {
     else _r_bad "$_t NOT active: supervision is off, so a missed edge will go"\
 " unnoticed -- which is the one thing this suite exists to prevent"; fi
   done
-  if pgrep -x swayidle >/dev/null 2>&1; then
-    _r_ok "swayidle running (timer)"
-    # RUNNING IS NOT WORKING, the same distinction as enabled-is-not-working.
-    _rep_idle_armed
+  if pgrep -x swayidle >/dev/null 2>&1; then _r_ok "swayidle running (timer)"
   elif [ -z "$_sess" ]; then _r_info "swayidle n/a (no session to idle in)"
   else _r_bad "swayidle NOT running: nothing will lock on idle"; fi
+  # RUNNING IS NOT WORKING, the same distinction as enabled-is-not-working.
+  #
+  # Called UNCONDITIONALLY, and the function decides for itself whether it has
+  # argv to read. Nesting it under the pgrep above made it unreachable whenever
+  # swayidle was not running -- which is harmless in production (there is no
+  # argv, and a dead swayidle already FAILS on the line above) but made the
+  # check untestable in the VM substrate, where no session exists. The stub tier
+  # passed only because the DEVELOPER's box happened to have swayidle running,
+  # i.e. the test was reading the host after all. The VM caught it.
+  _rep_idle_armed
   # The unit that keeps swayidle ALIVE, which is a different claim from swayidle
   # running. A bare swayidle works right up until it wedges, and wedging is the
   # original failure this entire suite was built around: one wedge-prone daemon

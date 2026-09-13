@@ -156,7 +156,15 @@ resume
 $(command -v true) go lock
 EOF
 _rep=$("$VIGILANT" report 2>&1) || true
-_no_fail_in "$_rep" machinery "a fully runnable set of idle timers was flagged"
+# Scoped to THIS assertion, not to the whole machinery section. That section
+# reads the host's real systemd (whether vigilance's units are enabled), which
+# legitimately differs between the stub and VM substrates, and the suite's own
+# rule forbids stubbing systemd to flatten it. Taking the section's verdict made
+# this red in the VM on units it was never testing. The VM caught that too.
+case "$_rep" in
+  *"[FAIL]"*"cannot run"*)
+    fail "a fully runnable set of idle timers was flagged as unrunnable" ;;
+esac
 case "$_rep" in
   *"idle timer command(s) armed and runnable"*) ;;
   *) fail "report did not confirm the armed timers positively; silence would
