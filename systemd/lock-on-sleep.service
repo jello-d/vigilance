@@ -31,6 +31,19 @@ Environment=VIGILANCE_SOURCE=suspend
 Environment=XDG_RUNTIME_DIR=/run/user/@UID@
 Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/@UID@/bus
 ExecStart=@HOME@/.local/bin/vigilant go lock
+# PROVE IT LOCKED, do not assume it. `go lock` succeeding means the hooks
+# returned 0; it does not mean a locker is up. systemd waits for this unit
+# before reaching sleep.target, so the check costs nothing anyone notices, and
+# it turns "the unit succeeded" into a claim about the SESSION rather than
+# about the hooks. Requires a lock.verify.d that actually asks -- the shipped
+# `locker-up` hook is the one that does; peripheral verifiers only assert the
+# screen is lit.
+#
+# It CANNOT stop the sleep. A failed unit ordered Before=sleep.target does not
+# abort the transition, and nothing supported does. What it buys is that
+# sleeping unlocked is recorded and alerted instead of reported as success, and
+# the audit tier reconciles it afterwards.
+ExecStartPost=@HOME@/.local/bin/vigilant verify lock
 # Cap the unit so a missing or slow session can never wedge the suspend
 # transition. A box that will not sleep is worse than one that sleeps late.
 TimeoutStartSec=25

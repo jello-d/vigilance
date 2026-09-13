@@ -1,0 +1,98 @@
+#!/bin/sh
+# locker-up - VERIFY that the session is actually locked. Or actually is not.
+#
+# THE ACTUATOR THAT NOTHING VERIFIED. The framework's own rule is "for every
+# hook that acts, a paired hook asserting it took effect", and the single
+# most important actuator in the suite -- the one that brings the LOCKER up --
+# had no partner. On a real box the `lock` edge was verified by three hooks
+# (dpms, ddc-monitor, panel-backlight) and every one of them checks a
+# PERIPHERAL. They assert the screen is lit. None of them asks whether the
+# session is secured, which is the entire point of the edge.
+#
+# WHY THAT MATTERS AT SUSPEND. lock-on-sleep.service is ordered
+# Before=sleep.target, so systemd genuinely waits for it -- but a unit that
+# SUCCEEDS while no locker came up means the box sleeps unlocked and reports
+# success doing it. The provider returns non-zero if `systemd-run` fails, which
+# covers most of it; what it cannot cover is the locker starting and then dying
+# before it committed its session lock. That window is narrow and it is exactly
+# the kind this project keeps getting caught by, so it gets a verifier.
+#
+# NEITHER MECHANISM CAN VETO A SLEEP, and it is worth being blunt about that. A
+# Before=sleep.target oneshot delays the transition while it runs (25s here) and
+# a delay inhibitor delays it too (InhibitDelayMaxSec, 30s here), but when
+# either one fails or times out, logind proceeds. There is no supported way to
+# refuse a suspend outright, and a suite that could would be a suite that can
+# strand a laptop on a critical battery. So the goal is not prevention, it is
+# that a failure becomes LOUD and RECORDED instead of a green light.
+#
+# VERIFY-ONLY, deliberately: it never acts. Wired into `lock.d` it would do
+# nothing at all, by design -- bringing a locker up is the provider's job and
+# this must not become a second implementation of it.
+#
+# WIRE IT IN THE USER SCOPE, NEVER THE MACHINE SCOPE. A GREETER IS THE LOCKED
+# STATE: it starts at the `lock` rung with no user session to protect and no
+# swaylock anywhere, so a machine-scope copy of this would fail on every greeter
+# edge and teach its human to ignore the alert. Machine scope is for the
+# peripherals, which behave the same with nobody logged in; a locker does not.
+#
+# NO hooklib. It is sourced by a path relative to this file's own location, and
+# this hook needs nothing from it -- no intent table, no dark/lit actuation,
+# because it only ever READS. Carrying the dependency anyway would buy nothing
+# and would break the moment someone COPIED this hook into a hooks dir instead
+# of symlinking it (the shipped wiring symlinks, so `readlink -f` finds the
+# tree; a copy does not). An unused dependency that can only fail is not worth
+# the consistency.
+set -eu
+
+edge=${1:-${VIGILANCE_EDGE:-}}
+
+# VERIFY ONLY. Anything else is a no-op, including `act`.
+[ "${VIGILANCE_KIND:-act}" = verify ] || exit 0
+
+# Same knobs as the swaylock provider, so the pair cannot disagree about what a
+# locker IS. The unit is authoritative (it is what the provider started); the
+# process name is the fallback for a locker brought up some other way.
+UNIT=${VIGILANCE_LOCK_UNIT:-screen-lock.service}
+LOCKER=${VIGILANCE_LOCKER:-swaylock}
+
+# WHICH RUNGS IMPLY A LOCKED SESSION. verify is called with the edge belonging
+# to the rung we are IN (open -> unlock, lock -> lock, sleep -> sleep, and
+# suspend -> suspend), so this is really a statement about rungs:
+#
+#   unlock            we are at `open`   -> a locker MUST NOT be up
+#   lock/sleep/suspend we are locked     -> a locker MUST be up
+#
+# wake and resume land on `lock` and `sleep` respectively, both locked, so they
+# assert the same thing if ever verified explicitly.
+case "$edge" in
+  lock|sleep|suspend|wake|resume) want=up ;;
+  unlock)                         want=down ;;
+  *) exit 0 ;;                    # no opinion about any other edge
+esac
+
+# Overridable for the same reason `report`'s probe is: without it a test's
+# verdict depends on whether the DEVELOPER's screen happens to be locked while
+# the suite runs, which has already caused a false failure here once.
+_up() {
+  if [ -n "${VIGILANCE_LOCKER_UP+x}" ]; then
+    [ "$VIGILANCE_LOCKER_UP" = 1 ]
+    return $?
+  fi
+  systemctl --user is-active --quiet "$UNIT" 2>/dev/null && return 0
+  pgrep -x "$LOCKER" >/dev/null 2>&1
+}
+
+if [ "$want" = up ]; then
+  if ! _up; then
+    echo "locker-up: at '$edge' the session must be LOCKED, but no locker is" \
+      "running (unit $UNIT inactive and no $LOCKER process)" >&2
+    exit 1
+  fi
+else
+  if _up; then
+    echo "locker-up: at '$edge' the session must be UNLOCKED, but a locker is" \
+      "still running (unit $UNIT or a $LOCKER process)" >&2
+    exit 1
+  fi
+fi
+exit 0
