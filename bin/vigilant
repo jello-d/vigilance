@@ -935,6 +935,71 @@ _rep_unit_runnable() {   # unit
   esac
 }
 
+# ARE THE IDLE TIMER'S COMMANDS ACTUALLY RUNNABLE? The same question the system
+# units are now asked, for the same reason: a timer armed with a command that
+# cannot exec fails SILENTLY, and forever.
+#
+# NOT HYPOTHETICAL. A sweep removed a stale /usr/local/bin/swayidle-mgr while a
+# RUNNING swayidle held that exact path in its argv. The 480s idle-lock stopped
+# working from that instant and the machine stopped auto-locking. It left no
+# trace: vigilant's log shows nothing (no edge was even attempted), the journal
+# shows nothing (swayidle reports a failed exec only under -d), and `verify` is
+# content because a box that never locked sits correctly at `open`. The 600s
+# `go sleep` timer still worked, so the screen still darkened on idle and
+# everything LOOKED right. Found by reading argv by hand, hours later.
+#
+# READ WHAT THE RUNNING PROCESS IS ARMED WITH, not what the config says it
+# should be. Those are different facts and the gap between them is where this
+# failure lives: a daemon pins its argv at start, so a file that moves under it
+# is invisible to every config-level check ever written.
+#
+# The argv SOURCE is overridable for the same reason the sysfs roots and the
+# locker probe are: otherwise this assertion depends on whatever swayidle the
+# DEVELOPER happens to be running, and the test reaches into the live session to
+# find it. Production never sets it.
+_rep_idle_armed() {
+  if [ -n "${VIGILANCE_IDLE_CMDLINE:-}" ]; then
+    _icl=$VIGILANCE_IDLE_CMDLINE
+  else
+    _ipid=$(pgrep -x swayidle 2>/dev/null | head -1)
+    [ -n "${_ipid:-}" ] || return 0
+    _icl=/proc/$_ipid/cmdline
+  fi
+  [ -r "$_icl" ] || return 0
+  _iseen=0 _ibad=0 _istate=0
+  # swayidle's grammar: `timeout <secs> <cmd>`, and `resume`/`before-sleep`/
+  # `after-resume`/`lock`/`unlock` each take a <cmd> directly. A <cmd> is ONE
+  # argv element carrying its own arguments, so only its first word is a binary.
+  while IFS= read -r _ia; do
+    if [ "$_istate" = 1 ]; then _istate=2; continue; fi
+    if [ "$_istate" = 2 ]; then
+      _istate=0
+      _icmd=${_ia%% *}
+      [ -n "$_icmd" ] || continue
+      _iseen=$((_iseen + 1))
+      case "$_icmd" in
+        /*) [ -x "$_icmd" ] && continue ;;
+        *)  PATH="$HOOK_PATH" command -v "$_icmd" >/dev/null 2>&1 && continue ;;
+      esac
+      _r_bad "swayidle is armed with a command that cannot run: $_icmd -- that"\
+" timer fires into nothing, silently, and no other check can see it"
+      _ibad=$((_ibad + 1))
+      continue
+    fi
+    case "$_ia" in
+      timeout) _istate=1 ;;
+      resume|before-sleep|after-resume|lock|unlock) _istate=2 ;;
+    esac
+  done <<EOF
+$(tr '\0' '\n' < "$_icl")
+EOF
+  if [ "$_iseen" = 0 ]; then
+    _r_warn "swayidle is running with NO timers armed; nothing locks on idle"
+  elif [ "$_ibad" = 0 ]; then
+    _r_ok "$_iseen idle timer command(s) armed and runnable"
+  fi
+}
+
 _rep_machinery() {
   echo "-- machinery --"
   if systemctl --user is-active --quiet vigilance-logind.service 2>/dev/null
@@ -962,7 +1027,10 @@ _rep_machinery() {
     else _r_bad "$_t NOT active: supervision is off, so a missed edge will go"\
 " unnoticed -- which is the one thing this suite exists to prevent"; fi
   done
-  if pgrep -x swayidle >/dev/null 2>&1; then _r_ok "swayidle running (timer)"
+  if pgrep -x swayidle >/dev/null 2>&1; then
+    _r_ok "swayidle running (timer)"
+    # RUNNING IS NOT WORKING, the same distinction as enabled-is-not-working.
+    _rep_idle_armed
   elif [ -z "$_sess" ]; then _r_info "swayidle n/a (no session to idle in)"
   else _r_bad "swayidle NOT running: nothing will lock on idle"; fi
   # The unit that keeps swayidle ALIVE, which is a different claim from swayidle

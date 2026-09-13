@@ -53,6 +53,12 @@ scenario_init() {   # <name>
   # exactly that way, reading a real swaylock from inside a sandbox. Default to
   # "no locker"; a scenario that cares sets it per call.
   export VIGILANCE_LOCKER_UP=0
+  # And the IDLE ARGV source. Unset, report pgreps for a real swayidle and reads
+  # the DEVELOPER's live timer: both a reach into the running system and a
+  # verdict that changes depending on their session. Point it at a file that
+  # does not exist: the check then has nothing to read and says nothing, and a
+  # scenario that cares writes the file itself.
+  export VIGILANCE_IDLE_CMDLINE=$T/no-swayidle
   # And the SESSION probe, for the same reason and a sharper one: the two
   # substrates genuinely differ. The developer's box has a graphical session;
   # the VM guest has none, so `loginctl` there answers "No sessions". A scenario
