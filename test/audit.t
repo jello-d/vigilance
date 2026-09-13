@@ -97,6 +97,38 @@ case "$_out" in
      fail "already-at was not treated as satisfied" ;;
 esac
 
+# --- ARRIVING at the rung by another edge satisfies it too ------------------
+# THE LIVE JOURNAL FOUND THIS. On resume, `go lock` is a no-op only when the
+# depth file survived at `lock`; when the box had descended to `sleep` first --
+# which is the ORDINARY idle path -- it crosses `wake` to climb back. Both
+# outcomes mean the session is locked, and only one was being counted, so every
+# resume from the normal idle path was reported as a MISS. Two of them were
+# sitting in the real audit output, indistinguishable from the three genuine
+# failures beside them, which is exactly how a forensic tier becomes ignorable.
+: > "$VIGILANCE_LOG"
+rm -f "$VIGILANCE_HOOK_ROOT"/audit.d/*
+_logline "$((NOW - 300))" "cross wake: sleep -> lock"
+audithook 10-src "$((NOW - 300)) lock resumed from sleep"
+"$VIGILANT" audit >/dev/null 2>>"$T/stderr" \
+  || fail "a resume that reached the 'lock' rung by crossing 'wake' was audited
+as a miss. The assertion is about the RUNG, and there is more than one correct
+route to being there"
+
+# ...but arriving somewhere ELSE does not satisfy it. Without this the guard
+# above would degrade into "any crossing at all counts", which would excuse the
+# genuine misses it exists to find.
+: > "$VIGILANCE_LOG"
+_logline "$((NOW - 300))" "cross unlock: lock -> open"
+"$VIGILANT" audit >/dev/null 2>>"$T/stderr" && fail "a crossing that ended at
+'open' satisfied a 'lock' assertion; arriving at a DIFFERENT rung is not the
+edge's purpose achieved"
+
+# And a rung whose name merely starts the same must not match.
+: > "$VIGILANCE_LOG"
+_logline "$((NOW - 300))" "cross locked-thing: open -> lockdown"
+"$VIGILANT" audit >/dev/null 2>>"$T/stderr" && fail "'-> lockdown' satisfied a
+'lock' assertion; the match is not anchored"
+
 # --- the WINDOW is respected, in both directions ----------------------------
 # Too narrow and a correctly handled sleep reads as a miss; unbounded and any
 # lock ever recorded would excuse any sleep.

@@ -1455,9 +1455,23 @@ AUDIT_WINDOW=${VIGILANCE_AUDIT_WINDOW:-120}
 #
 # ISO-8601 sorts lexicographically, so the window becomes a string comparison
 # and this needs neither `date` per log line nor awk's mktime (absent from
-# mawk). `already at '<rung>'` counts as satisfied: a descent edge shares its
-# name with the rung it enters, and being there already is the edge's purpose
-# achieved, not a miss.
+# mawk).
+#
+# THREE WAYS TO SATISFY ONE ASSERTION, because the assertion is really about the
+# RUNG: a descent edge shares its name with the rung it enters, and there is
+# more than one correct route to being there.
+#
+#   cross lock:            it crossed that edge
+#   already at 'lock'      it was there; the edge's purpose was already achieved
+#   cross wake: sleep -> lock
+#                          it ARRIVED at the rung by another edge
+#
+# The third was missing and the live journal found it. On resume, `go lock` is a
+# no-op only when the depth file survived at `lock`; when the box had descended
+# to `sleep` first -- the ORDINARY idle path -- it crosses `wake` to get back
+# up. Both outcomes mean the session is locked, and only one of them was
+# being counted, so every resume from the normal idle path was reported as a
+# MISS. Same cries-wolf failure as the `due` anchor, one tier over.
 _log_has_edge() {   # epoch edge
   [ -r "$LOG_FILE" ] || return 1
   _lo=$(date -d "@$(( $1 - AUDIT_WINDOW ))" '+%Y-%m-%dT%H:%M:%S' 2>/dev/null) \
@@ -1468,6 +1482,9 @@ _log_has_edge() {   # epoch edge
     $1 >= lo && $1 <= hi {
       if ($0 ~ ("cross " e ":")) { found = 1 }
       if ($0 ~ ("already at ." e ".")) { found = 1 }
+      # ARRIVED at the rung by another edge. The trailing guard stops `lock`
+      # matching a longer rung name, and tolerates the " (forced)" suffix.
+      if ($0 ~ ("-> " e "( |$)")) { found = 1 }
     }
     END { exit(found ? 0 : 1) }' "$LOG_FILE"
 }
