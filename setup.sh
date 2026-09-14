@@ -69,6 +69,10 @@ _shr=${XDG_DATA_HOME:-$PREFIX/share}
 _man=$_shr/man
 _cfg=${XDG_CONFIG_HOME:-$HOME/.config}
 _usr=$_cfg/systemd/user
+# The MACHINE hook root, same default and same override name vigilant uses, so
+# the two cannot disagree about where machine-scope wiring lives and a test can
+# sandbox both with one variable.
+MACHINE_HOOK_ROOT=${VIGILANCE_MACHINE_HOOKS:-/etc/vigilance/hooks}
 _unit=$_root/systemd/vigilance-logind.service
 # External runtime deps. brightnessctl was MISSING from this list while three
 # shipped hooks (kbd-backlight, panel-backlight, mute-leds) called it by name,
@@ -121,7 +125,13 @@ _man_pages() { for _m in "$_root"/man/man*/*.[0-9]; do
 _place() {
   if [ "${VIGILANCE_INSTALL_COPY:-0}" = 1 ]; then
     cp -a --remove-destination "$1" "$2"
-    if [ "$(id -u)" = 0 ]; then chown -R root:root "$2"; fi
+    if [ "$(id -u)" = 0 ]; then
+      chown -R root:root "$2"
+      # And strip group/other write. `cp -a` preserves the SOURCE's mode too,
+      # and a clone made under a user's umask is 0775/0664, so ownership alone
+      # left root-group-writable binaries in a system prefix.
+      chmod -R go-w "$2"
+    fi
   else
     ln -sfn "$1" "$2"
   fi
@@ -182,6 +192,26 @@ do_install() {
       # than replacing it, which would leave a stale tree one level down.
       rm -rf "$_lib/$PKG"
       cp -a "$_root/libexec/$PKG" "$_lib/$PKG"
+      # THE SAME `cp -a` TRAP _place DOCUMENTS, and which _place fixed only for
+      # the BINARIES. --preserve=all carries the SOURCE's ownership AND mode
+      # across even when the copy runs as root, and the clone lives in a user's
+      # home with a user's umask. So a root install produced
+      # /opt/vigilance/libexec/vigilance owned jello:jello and group-WRITABLE.
+      #
+      # That is not untidiness once the tree is shared: the machine-scope hook
+      # wiring symlinks into it, and a GREETER executes those hooks. A file the
+      # unprivileged account can rewrite, executed by another security context,
+      # is the thing "Install placement" bans outright -- anything root reads or
+      # runs must be root-owned and not user-writable.
+      #
+      # Found on a real box after the migration: 19 entries under /opt/vigilance
+      # were jello:jello, including every hook and hooklib.sh itself.
+      if [ "$(id -u)" = 0 ]; then
+        chown -R root:root "$_lib/$PKG"
+        # Strip group/other write as well. Ownership alone is not enough: a
+        # 0775 root-owned dir is still writable by anyone in the root group.
+        chmod -R go-w "$_lib/$PKG"
+      fi
     else
       ln -sfn "$_root/libexec/$PKG" "$_lib/$PKG"
     fi
@@ -405,6 +435,63 @@ _check_stale_trees() {
   done
 }
 
+# NO USER-WRITABLE FILE REACHABLE AS A ROOT INPUT. This is the second half of
+# what "Install placement" calls the load-bearing check, and the half that was
+# missing: PATH uniqueness was asserted, this was not.
+#
+# It matters the moment a package goes shared. The machine hook wiring symlinks
+# into the installed plugin tree, and a GREETER (a different security context)
+# executes those hooks. If the unprivileged account can rewrite them, that is
+# the privilege boundary the placement rule exists to draw.
+#
+# Caught exactly that here: after the /opt migration, 19 entries under the
+# shared tree were still jello:jello and group-writable, because `cp -a` keeps
+# the source's ownership and mode even when root runs it. The install now chowns
+# and strips write; this is what notices when it has not.
+#
+# A USER prefix is exempt, and deliberately so: ~/.local is SUPPOSED to be
+# user-owned, and flagging it would train the reader to ignore this line.
+#
+# KEYED ON THE ROOT-VISIBLE TREES THE RULE ITSELF NAMES (/usr, /etc, /opt, /var)
+# rather than on "not under $HOME". The first version used the latter and failed
+# the suite immediately: a sandboxed install to a /tmp prefix is neither a user
+# prefix nor a shared one, and demanding root ownership of a test fixture is a
+# verdict about the harness, not the package.
+_check_root_inputs() {
+  case "$_lib/$PKG" in
+    /usr/*|/etc/*|/opt/*|/var/*)
+      if [ ! -d "$_lib/$PKG" ]; then
+        return 0
+      fi
+      _nonroot=$(find "$_lib/$PKG" \! -user root 2>/dev/null | wc -l)
+      _writable=$(find "$_lib/$PKG" -perm /022 2>/dev/null | wc -l)
+      if [ "$_nonroot" = 0 ] && [ "$_writable" = 0 ]; then
+        ok "shared plugin tree is root-owned and not writable by anyone else"
+      else
+        bad "shared plugin tree has $_nonroot non-root and $_writable"\
+" group/other-writable entries under $_lib/$PKG; a greeter executes these"\
+" hooks, so the login user must not be able to rewrite them"
+      fi ;;
+    "$HOME"/*) ok "plugin tree is user-owned, correct for a user prefix" ;;
+    *) ;;   # neither a system nor a home prefix: nothing to assert
+  esac
+  # And the wiring that REACHES them. A machine-scope hook is executed by
+  # sessions that are not the owner's, so its target must not be user-writable
+  # either -- the symlink being root-owned says nothing about what it points at.
+  _badtgt=
+  for _mh in "$MACHINE_HOOK_ROOT"/*/*; do
+    [ -e "$_mh" ] || continue
+    _t=$(readlink -f "$_mh" 2>/dev/null || true)
+    [ -n "$_t" ] || continue
+    if [ -w "$_t" ] && [ "$(id -u)" != 0 ]; then
+      _badtgt="$_badtgt ${_mh#"$MACHINE_HOOK_ROOT"/}"
+    fi
+  done
+  if [ -n "$_badtgt" ]; then
+    warn "machine-scope hooks whose target THIS user can write:$_badtgt"
+  fi
+}
+
 do_check() {
   echo "== $PKG (lock / screen-power / idle) =="
   for _t in "$_root"/bin/*; do _n=$(basename "$_t")
@@ -433,6 +520,7 @@ do_check() {
   done
   _check_path_unique vigilant
   _check_stale_trees
+  _check_root_inputs
   _check_units
   _check_access
   if [ -d "$_cfg/shapes" ]; then
