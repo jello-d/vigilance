@@ -193,11 +193,30 @@ do_install() {
   fi
 }
 
+# UNITS ARE RENDERED, NOT SYMLINKED, because they carry placeholders now.
+#
+# @VIGILANT@ is the published path of the `vigilant` command and @PLUGINS@ the
+# installed plugin tree. Neither can be home-relative any more: `vigilant` is
+# classified as a SHARED command (one root-owned tree, one link on PATH), and
+# a unit that hardcoded ~/.local would break the moment a box installs in shared
+# mode -- which is precisely how the idle timer died once already, armed with a
+# path that had been swept out from under it.
+#
+# Substituting at install is what keeps ONE fact in ONE place: the installer
+# already knows where it put things, so no unit has to guess and no second copy
+# of the prefix exists to drift. A symlinked unit could not be substituted at
+# all, which is why this stopped being a symlink.
+_render_unit() {   # <src> <dst>
+  sed -e "s|@VIGILANT@|$_bin/vigilant|g" \
+      -e "s|@PLUGINS@|$_lib/$PKG|g" "$1" > "$2.tmp" \
+    && mv -f "$2.tmp" "$2"
+}
+
 do_service() {
   mkdir -p "$_usr"
-  ln -sfn "$_unit" "$_usr/vigilance-logind.service"
+  _render_unit "$_unit" "$_usr/vigilance-logind.service"
   systemctl --user enable vigilance-logind.service 2>/dev/null || true
-  echo "$PKG: linked + enabled the --user Session.Lock listener"
+  echo "$PKG: rendered + enabled the --user Session.Lock listener"
   # The SUPERVISION timer, and the loop it drives. Shipped and enabled here
   # rather than left to an integrator, because a supervision loop nothing runs
   # is exactly the dead tier this project keeps finding: `due.d` was designed,
@@ -206,7 +225,7 @@ do_service() {
   for _eu in vigilance-enforce.service vigilance-enforce.timer \
              vigilance-audit.service vigilance-audit.timer \
              vigilance-idle.service; do
-    ln -sfn "$_root/systemd/$_eu" "$_usr/$_eu"
+    _render_unit "$_root/systemd/$_eu" "$_usr/$_eu"
   done
   systemctl --user enable vigilance-enforce.timer 2>/dev/null || true
   systemctl --user enable vigilance-audit.timer 2>/dev/null || true
@@ -214,14 +233,15 @@ do_service() {
   # it, because only the compositor knows when WAYLAND_DISPLAY has been imported
   # and a display exists to connect to. Enabling it against a target would start
   # swayidle into a void.
-  echo "$PKG: linked + enabled the supervision + audit timers"
+  echo "$PKG: rendered + enabled the supervision + audit timers"
   echo "$PKG: placed vigilance-idle.service (the compositor starts it:"
   echo "  systemctl --user start vigilance-idle.service from its autostart)"
   echo "  (supervision is report-only;"
   echo "  VIGILANCE_ENFORCE=force lets it cross an overdue edge)"
   echo "$PKG: the SYSTEM units need root -- place lock-on-sleep.service and"
   echo "  vigilance-resume.service from $_root/systemd under /etc/systemd/"
-  echo "  system (both are @USER@/@UID@-templated)."
+  echo "  system (they are @USER@/@UID@/@VIGILANT@-templated; render, do not"
+  echo "  symlink -- and point @VIGILANT@ at the SHARED copy, never a home)."
   echo "  Also root-only: $_root/udev/99-vigilance.rules under /etc/udev/"
   echo "  rules.d, plus a 'vigilant' group holding every user that runs"
   echo "  vigilance. Without it the peripheral hooks silently no-op."
@@ -243,13 +263,14 @@ do_uninstall() {
   _man_pages | while IFS= read -r _m; do
     _l=$_man/$(basename "$(dirname "$_m")")/$(basename "$_m")
     _unplace "$_l" "$_m"; done
-  [ "$(readlink "$_usr/vigilance-logind.service" 2>/dev/null)" = "$_unit" ] \
-    && rm -f "$_usr/vigilance-logind.service" || :
-  for _eu in vigilance-enforce.service vigilance-enforce.timer \
-             vigilance-audit.service vigilance-audit.timer \
-             vigilance-idle.service; do
-    [ "$(readlink "$_usr/$_eu" 2>/dev/null)" = "$_root/systemd/$_eu" ] \
-      && rm -f "$_usr/$_eu" || :
+  # RENDERED units are plain files, so readlink can no longer identify them as
+  # ours. Remove by NAME, safe for the same reason copy-mode removal is: the
+  # names come from this clone, so only what we would install is ever removed.
+  # A unit an integrator wrote under a different name is untouched.
+  for _eu in vigilance-logind.service vigilance-enforce.service \
+             vigilance-enforce.timer vigilance-audit.service \
+             vigilance-audit.timer vigilance-idle.service; do
+    rm -f "$_usr/$_eu"
   done
   if [ "${VIGILANCE_INSTALL_COPY:-0}" = 1 ]; then
     rm -rf "$_lib/$PKG"
@@ -327,6 +348,63 @@ _check_units() {
   done
 }
 
+# ONE COMMAND, ONE PATH ENTRY. The house rule ("Install placement" in
+# ~/src/CLAUDE.md) bans a command being installed into two directories that are
+# both on PATH, because /usr/local/bin precedes ~/.local/bin and the system copy
+# then SHADOWS the live one and rots behind it. That is not theory here: it bit
+# twice in one day -- a stale system swayidle-mgr won `command -v` and made an
+# idle-suspend seam added that morning inert, then a stale system `vigilant`
+# outranked a current user install for three hours.
+#
+# The correct shared layout is ONE root-owned tree plus ONE symlink onto PATH,
+# so a shared command and a user install can never both answer. This asserts the
+# property rather than the layout, so it stays true however the trees move.
+#
+# The PATH it reads is overridable for the same reason `report`'s sysfs roots
+# and locker probe are: otherwise a SANDBOXED install asserts against the
+# DEVELOPER's live PATH and fails on a shadow that has nothing to do with the
+# install under test. It caught exactly that on its first run here. Production
+# never sets it.
+_check_path_unique() {   # <cmd>...
+  for _u_cmd in "$@"; do
+    _u_n=0 _u_found=
+    _u_ifs=$IFS; IFS=:
+    for _u_d in ${VIGILANCE_CHECK_PATH:-$PATH}; do
+      IFS=$_u_ifs
+      [ -n "$_u_d" ] || continue
+      if [ -x "$_u_d/$_u_cmd" ]; then
+        _u_n=$((_u_n + 1)); _u_found="$_u_found $_u_d/$_u_cmd"
+      fi
+      IFS=:
+    done
+    IFS=$_u_ifs
+    if [ "$_u_n" -eq 0 ]; then
+      bad "$_u_cmd not on PATH"
+    elif [ "$_u_n" -eq 1 ]; then
+      ok "$_u_cmd resolves from exactly one place ($_u_found)"
+    else
+      bad "$_u_cmd resolves from $_u_n places; the FIRST wins and the rest are"\
+" SHADOWED and will rot:$_u_found"
+    fi
+  done
+}
+
+# LEFTOVERS FROM THE OTHER MODE. Switching modes has to leave no crumbs, and the
+# crumb that matters is a second PLUGIN TREE: the hook wiring points at one by
+# absolute path, so a stale tree is a set of hooks that still run and are no
+# longer the ones being edited. Dropping a root-owned tree needs sudo, so when
+# this cannot remove it, it says so LOUDLY rather than letting it rot.
+_check_stale_trees() {
+  for _st in /opt/$PKG/libexec/$PKG /usr/local/libexec/$PKG "$_lib/$PKG"; do
+    [ -e "$_st" ] || continue
+    case "$_st" in
+      "$_lib/$PKG") continue ;;   # the prefix this install owns
+    esac
+    warn "another plugin tree exists at $_st; if the wiring points there it is"\
+" the one that runs, and it is not the one you are editing"
+  done
+}
+
 do_check() {
   echo "== $PKG (lock / screen-power / idle) =="
   for _t in "$_root"/bin/*; do _n=$(basename "$_t")
@@ -353,6 +431,8 @@ do_check() {
     if [ -e "$_md" ]; then ok "man $(basename "$_m") installed"
     else bad "man $(basename "$_m") not installed ($_md)"; fi
   done
+  _check_path_unique vigilant
+  _check_stale_trees
   _check_units
   _check_access
   if [ -d "$_cfg/shapes" ]; then

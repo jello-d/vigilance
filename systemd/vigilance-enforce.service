@@ -21,4 +21,4 @@ After=default.target
 
 [Service]
 Type=oneshot
-ExecStart=%h/.local/bin/vigilant enforce
+ExecStart=@VIGILANT@ enforce

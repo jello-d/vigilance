@@ -40,8 +40,15 @@ for _e in lock sleep suspend unlock wake resume; do
     && fail "install wired $_e.d; which hooks run is the integrator's call"
 done
 
-# check runs (tools are on the sandbox PATH via BIN)
-PATH="$BIN:$PATH" run check >/dev/null 2>&1 || fail "check failed post-install"
+# check runs (tools are on the sandbox PATH via BIN).
+#
+# VIGILANCE_CHECK_PATH scopes the one-command-one-PATH-entry assertion to the
+# SANDBOX. Without it that check reads the developer's real PATH and fails on
+# whatever their box happens to have installed: a verdict about the host rather
+# than about this install. Set to the sandbox bindir alone, so the
+# assertion is both meaningful and about the thing under test.
+PATH="$BIN:$PATH" VIGILANCE_CHECK_PATH="$BIN" \
+  run check >/dev/null 2>&1 || fail "check failed post-install"
 
 # uninstall: the bin + man symlinks are removed
 run uninstall >/dev/null 2>&1 || fail "uninstall errored"

@@ -40,7 +40,43 @@ BLANK_DELAY=${BLANK_DELAY:-120}     # further seconds before peripherals go dark
 # to initiate it). Unset = no suspend timer, so vigilance alone never suspends.
 SUSPEND_TIMEOUT=${SUSPEND_TIMEOUT:-}
 SUSPEND_CMD=${SUSPEND_CMD:-}
-BIN=$HOME/.local/bin
+# PATH IS PINNED BEFORE ANYTHING RESOLVES A COMMAND. An SDDM-started session can
+# bypass systemd --user and leave a thin PATH, so this guarantees a floor
+# regardless of how the session was launched. It used to sit further down, which
+# was harmless only while every path here was hardcoded.
+PATH=${XDG_BIN_HOME:-$HOME/.local/bin}:/usr/local/bin:/usr/bin:/bin:$HOME/bin
+export PATH
+
+# RESOLVE `vigilant`, NEVER HARDCODE ITS PREFIX. This said $HOME/.local/bin
+# outright, and that is a live trap rather than a style point: `vigilant` is
+# being published as a SHARED command (one root-owned tree, one /usr/local/bin
+# symlink, and the ~/.local/bin copy deliberately REMOVED so it cannot shadow).
+# The instant that lands, a hardcoded ~/.local/bin/vigilant is a path that no
+# longer exists -- and swayidle would arm its timers with it and fail silently,
+# which is EXACTLY the 2026-09-12 idle-lock outage, re-created by its own fix.
+#
+# So ask PATH, which now covers both the user-only and shared layouts, and fail
+# LOUDLY if the answer is nothing: a timer armed with a command that cannot run
+# is the failure mode this whole suite exists to refuse.
+_find_vigilant() {
+  if [ -n "${VIGILANT_CMD:-}" ]; then printf '%s' "$VIGILANT_CMD"; return 0; fi
+  command -v vigilant 2>/dev/null || true
+}
+VIGILANT_CMD=$(_find_vigilant)
+
+# ...and ABORT rather than arm a timer that cannot fire. Checked where it
+# matters (arming, and firing) rather than at load, because `status`, `stop` and
+# `tail` are diagnostics that must keep working on a broken box -- refusing to
+# report the state is the last thing wanted when the state is what is wrong.
+_need_vigilant() {
+  if [ -z "$VIGILANT_CMD" ] || [ ! -x "$VIGILANT_CMD" ]; then
+    echo "swayidle-mgr: cannot resolve an executable 'vigilant' on PATH"\
+" ($PATH); refusing to arm an idle-lock timer that would fire into"\
+" nothing" >&2
+    return 1
+  fi
+}
+
 # The idle lock goes through VIGILANT, not a locker directly: crossing the
 # `lock` edge is what fires lock.d (whose provider brings swaylock up), records
 # the depth, and lets the block hooks have a say. Pointing this at a locker
@@ -52,7 +88,7 @@ BIN=$HOME/.local/bin
 # sleep and crossed the lock edge on its way past. Two minutes late, by
 # accident, via the wrong timer.
 # Overridable, so a test never locks a real screen.
-LOCK_CMD=${LOCK_CMD:-$BIN/vigilant go lock}
+LOCK_CMD=${LOCK_CMD:-$VIGILANT_CMD go lock}
 # The peripherals now ride VIGILANT, not swaylock. The patched swaylock used
 # to fork $HOME/bin/panel-power on its own blank-after timer; that path went
 # stale when vigilance extracted panel-power to ~/.local/bin, the execl failed,
@@ -60,7 +96,6 @@ LOCK_CMD=${LOCK_CMD:-$BIN/vigilant go lock}
 # retired (docs/framework-refactor.md 10.1) and the blank edge is an ordinary
 # swayidle timer again, which the event log shows handled blank AND restore
 # while locked for months before the patch existed.
-VIGILANT_CMD=${VIGILANT_CMD:-$BIN/vigilant}
 
 # --- paths ------------------------------------------------------------------
 RUNDIR=${XDG_RUNTIME_DIR:-/tmp}/swayidle-mgr
@@ -68,17 +103,12 @@ LOGDIR=${SWAYIDLE_LOG_DIR:-$HOME/.local/state/swayidle-mgr}
 EVENT_LOG=$LOGDIR/events.log
 STATE=$RUNDIR/last-idle-lock
 
-# SDDM-started sessions can bypass systemd --user, leaving a thin PATH so a bare
-# pkill inside panel-power fails. Pin a known-good PATH regardless of launch.
-PATH=$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin:$HOME/bin
-export PATH
-
 # Absolute path to this script, so swayidle's sh -c can re-invoke us regardless
 # of the session PATH.
 SELF=$(command -v "$0" 2>/dev/null || true)
 case "$SELF" in
   /*) ;;
-  *) SELF=$HOME/.local/bin/swayidle-mgr ;;
+  *) SELF=${XDG_BIN_HOME:-$HOME/.local/bin}/swayidle-mgr ;;
 esac
 
 ts() { date +%Y-%m-%dT%H:%M:%S.%N; }
@@ -100,6 +130,7 @@ cmd_event() {
   now=$(date +%s)
   case "$kind" in
     idle-lock)
+      _need_vigilant || exit 1
       prev=$(cat "$STATE" 2>/dev/null || echo 0)
       case "$prev" in ''|*[!0-9]*) prev=0 ;; esac
       printf '%s\n' "$now" > "$STATE"
@@ -130,6 +161,7 @@ cmd_stop() {
 
 # The foreground worker. Detached by cmd_start, or run inline via  start -f .
 _run() {
+  _need_vigilant || exit 1
   set -- -w
   # SWAYIDLE_DEBUG=1 adds -d: swayidle's trace of idle/active/Register/timeout
   # events into the worker's stdio log, to root-cause a phantom-relock storm.

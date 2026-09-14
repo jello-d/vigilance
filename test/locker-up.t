@@ -94,7 +94,9 @@ esac
 # lock-on-sleep.service must actually run `verify` after crossing, or "the unit
 # succeeded" still only means "the hooks returned 0".
 _unit=$HERE/systemd/lock-on-sleep.service
-grep -q '^ExecStartPost=.*vigilant verify lock' "$_unit" \
+# Matches the PLACEHOLDER, not a literal path: the units carry @VIGILANT@ now
+# and the installer substitutes it, precisely so no unit hardcodes a prefix.
+grep -qE '^ExecStartPost=.*(@VIGILANT@|vigilant) verify lock' "$_unit" \
   || fail "lock-on-sleep.service crosses the lock edge but never verifies it, so
 a suspend can still report success while the session is not secured"
 # ...and it must come AFTER the crossing, or it verifies the previous state.

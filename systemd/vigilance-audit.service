@@ -22,4 +22,4 @@ After=default.target
 
 [Service]
 Type=oneshot
-ExecStart=%h/.local/bin/vigilant audit
+ExecStart=@VIGILANT@ audit

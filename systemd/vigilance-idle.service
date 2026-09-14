@@ -44,6 +44,16 @@ Type=simple
 # -f: run swayidle in the FOREGROUND and exec it, so systemd tracks the real
 # process. The default `start` detaches, which would leave the unit supervising
 # a launcher that exited immediately.
+# %h IS CORRECT HERE, and is the ONE unit that keeps it. swayidle-mgr is a
+# USER-ONLY command by classification -- only a logged-in session has an idle
+# timer -- so each user runs their own copy, and %h in a --user unit resolves to
+# THAT user's home. That is the opposite of the %h bug: the failure was %h in a
+# SYSTEM unit, where it resolves to ROOT's home regardless of User= and the unit
+# 203/EXEC'd on every sleep for a refactor.
+#
+# The other units run `vigilant`, which is a SHARED command living in one
+# root-owned tree, so they carry a substituted placeholder instead and
+# reference no home at all.
 ExecStart=%h/.local/bin/swayidle-mgr start -f
 Restart=always
 RestartSec=2

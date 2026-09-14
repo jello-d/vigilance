@@ -31,17 +31,23 @@ After=suspend.target hibernate.target hybrid-sleep.target
 
 [Service]
 Type=oneshot
-# @HOME@, NOT %h. In a SYSTEM unit %h resolves to ROOT's home regardless of
-# User=, so `%h/.local/bin/vigilant` became /root/.local/bin/vigilant and died
-# with 203/EXEC on every single sleep. It failed SILENTLY, because a failed
-# Before=sleep.target oneshot does not block the transition: systemd logged the
-# failure, reached sleep.target, and slept anyway. The suspend-lock guarantee
-# was fiction from the moment these units stopped using an absolute path.
+# NO HOME PATH AT ALL, which is the end of a long story. This once used %h, and
+# in a SYSTEM unit %h resolves to ROOT's home regardless of User=, so
+# `%h/.local/bin/vigilant` became /root/.local/bin/vigilant and died 203/EXEC on
+# every single sleep. It failed SILENTLY, because a failed Before=sleep.target
+# oneshot does not block the transition: systemd logged it, reached
+# sleep.target, and slept anyway. The suspend-lock guarantee was fiction.
+#
+# Templating the user's home fixed the symptom. Pointing at a SHARED command
+# fixes the class: `vigilant` lives in one root-owned tree with a single
+# published path, so this unit references no home, needs no per-user rendering
+# of the binary path, and cannot follow a user's install into an encrypted home
+# that root cannot read anyway. The placeholder is substituted at install.
 User=@USER@
 Environment=VIGILANCE_SOURCE=resume
 Environment=XDG_RUNTIME_DIR=/run/user/@UID@
 Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/@UID@/bus
-ExecStart=@HOME@/.local/bin/vigilant go lock
+ExecStart=@VIGILANT@ go lock
 TimeoutStartSec=25
 
 [Install]

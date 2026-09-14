@@ -15,7 +15,7 @@ After=default.target
 
 [Service]
 Type=simple
-ExecStart=%h/.local/libexec/vigilance/triggers/logind-lock
+ExecStart=@PLUGINS@/triggers/logind-lock
 Restart=always
 RestartSec=2
 
