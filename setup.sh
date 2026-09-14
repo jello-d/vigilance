@@ -425,14 +425,34 @@ _check_path_unique() {   # <cmd>...
 # longer the ones being edited. Dropping a root-owned tree needs sudo, so when
 # this cannot remove it, it says so LOUDLY rather than letting it rot.
 _check_stale_trees() {
-  for _st in /opt/$PKG/libexec/$PKG /usr/local/libexec/$PKG "$_lib/$PKG"; do
-    [ -e "$_st" ] || continue
-    case "$_st" in
-      "$_lib/$PKG") continue ;;   # the prefix this install owns
+  # ASK THE WIRING WHICH TREE IS LIVE, rather than assuming it is this install's
+  # own prefix. On a hybrid box it is NOT: `vigilant` is shared, so both scopes
+  # symlink into the SHARED tree even though setup.sh itself may be running
+  # against the user prefix.
+  #
+  # The first version assumed, and so named /opt -- the tree every hook actually
+  # resolves to -- as the suspicious one, while the genuinely unused ~/.local
+  # copy went unmentioned. A warning that fingers the live tree is worse than no
+  # warning: it sends you to delete the thing that is working.
+  _inuse=
+  for _p in "$MACHINE_HOOK_ROOT"/*/* "$_cfg/$PKG/hooks"/*/*; do
+    if [ ! -e "$_p" ]; then continue; fi
+    _t=$(readlink -f "$_p" 2>/dev/null || true)
+    case "${_t:-}" in
+      */libexec/$PKG/*) _inuse=${_t%%/libexec/$PKG/*}/libexec/$PKG; break ;;
     esac
-    warn "another plugin tree exists at $_st; if the wiring points there it is"\
-" the one that runs, and it is not the one you are editing"
   done
+  for _st in "$_lib/$PKG" /opt/$PKG/libexec/$PKG /usr/local/libexec/$PKG; do
+    if [ ! -e "$_st" ]; then continue; fi
+    if [ -n "$_inuse" ] && [ "$_st" = "$_inuse" ]; then continue; fi
+    if [ -z "$_inuse" ]; then
+      warn "plugin tree at $_st, but no wiring resolves into any tree"
+    else
+      warn "unused plugin tree at $_st; every wired hook resolves into"\
+" $_inuse, so this one is a leftover and edits to it change nothing"
+    fi
+  done
+  if [ -n "$_inuse" ]; then ok "wiring resolves into one tree ($_inuse)"; fi
 }
 
 # NO USER-WRITABLE FILE REACHABLE AS A ROOT INPUT. This is the second half of
@@ -458,18 +478,26 @@ _check_stale_trees() {
 # prefix nor a shared one, and demanding root ownership of a test fixture is a
 # verdict about the harness, not the package.
 _check_root_inputs() {
-  case "$_lib/$PKG" in
+  # THE TREE THE HOOKS ACTUALLY RESOLVE INTO, which on a hybrid box is the
+  # SHARED one, not this install's prefix. _check_stale_trees resolved it from
+  # the wiring just above; falling back to the local prefix only when nothing is
+  # wired. Checking the prefix instead would have asserted ownership of a tree
+  # nothing executes while the executed one went unexamined -- which is how it
+  # read "[OK] user-owned, correct for a user prefix" on a box whose live tree
+  # was 19 files owned by the login user.
+  _tree=${_inuse:-$_lib/$PKG}
+  case "$_tree" in
     /usr/*|/etc/*|/opt/*|/var/*)
-      if [ ! -d "$_lib/$PKG" ]; then
+      if [ ! -d "$_tree" ]; then
         return 0
       fi
-      _nonroot=$(find "$_lib/$PKG" \! -user root 2>/dev/null | wc -l)
-      _writable=$(find "$_lib/$PKG" -perm /022 2>/dev/null | wc -l)
+      _nonroot=$(find "$_tree" \! -user root 2>/dev/null | wc -l)
+      _writable=$(find "$_tree" -perm /022 2>/dev/null | wc -l)
       if [ "$_nonroot" = 0 ] && [ "$_writable" = 0 ]; then
         ok "shared plugin tree is root-owned and not writable by anyone else"
       else
         bad "shared plugin tree has $_nonroot non-root and $_writable"\
-" group/other-writable entries under $_lib/$PKG; a greeter executes these"\
+" group/other-writable entries under $_tree; a greeter executes these"\
 " hooks, so the login user must not be able to rewrite them"
       fi ;;
     "$HOME"/*) ok "plugin tree is user-owned, correct for a user prefix" ;;
