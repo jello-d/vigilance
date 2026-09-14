@@ -186,4 +186,50 @@ _got=$(VIGILANCE_INITIAL_DEPTH=lock "$VIGILANT" status 2>>"$T/stderr" \
 [ ! -s "$RECORD" ] || fail "initialising at a rung fired hooks; it is not an
 edge and nothing was traversed"
 
+# --- WIRED BUT UNRUNNABLE is named, not silently absent -------------------
+# _hooks_in lists a hook only `if [ -x ]`, which is right for RUNNING and wrong
+# for REPORTING: an entry present and not executable became indistinguishable
+# from one never wired. Three faults hide there, and all are silent -- a
+# dangling symlink, a forgotten chmod, and the one that prompted this: a
+# MACHINE-scope hook symlinked into a user's home, where the GREETER's uid
+# cannot traverse and the hook simply does not exist from its side.
+mkdir -p "$VIGILANCE_MACHINE_HOOKS/wake.d"
+ln -sf /nonexistent/swept "$VIGILANCE_MACHINE_HOOKS/wake.d/60-dangling"
+printf '#!/bin/sh\nexit 0\n' > "$VIGILANCE_MACHINE_HOOKS/wake.d/70-noexec"
+chmod -x "$VIGILANCE_MACHINE_HOOKS/wake.d/70-noexec"
+
+_out=$("$VIGILANT" hooks wake 2>>"$T/stderr") || fail "hooks wake failed"
+for _w in 60-dangling 70-noexec; do
+  case "$_out" in
+    *"$_w"*BLOCKED*) ;;
+    *) printf '%s\n' "$_out" >&2
+       fail "hooks did not mark '$_w' as BLOCKED; a wired hook that cannot run
+reads exactly like one that was never wired, which is how six kbd-rgb hooks were
+invisible to the greeter with no log, no alert and no warning" ;;
+  esac
+done
+
+# report must FAIL on it, because no other tier can see it: no edge is
+# attempted, so the log is empty, verify has nothing to disagree with, and audit
+# sees no event. The wiring is the only place the truth exists.
+_rep=$("$VIGILANT" report 2>&1) || true
+case "$_rep" in
+  *"wired but NOT runnable"*"60-dangling"*) ;;
+  *) _section "$_rep" wiring >&2
+     fail "report did not flag the unrunnable hook" ;;
+esac
+
+# ...and a runnable tree stays clean, or the check is just noise.
+rm -f "$VIGILANCE_MACHINE_HOOKS/wake.d/60-dangling" \
+      "$VIGILANCE_MACHINE_HOOKS/wake.d/70-noexec"
+_rep=$("$VIGILANT" report 2>&1) || true
+case "$_rep" in
+  *"wired but NOT runnable"*)
+    fail "report reported an unrunnable hook when every hook was runnable" ;;
+esac
+case "$_rep" in
+  *"every wired hook is runnable"*) ;;
+  *) fail "report did not positively confirm the wiring is runnable" ;;
+esac
+
 pass

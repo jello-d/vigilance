@@ -624,6 +624,56 @@ _hooks_cross() {
     done
   done
 }
+# WIRED BUT WILL NOT RUN, which _hooks_in cannot express. That function lists a
+# hook only `if [ -x "$_hh" ]`, the right filter for RUNNING and a terrible one
+# for REPORTING: an entry present and not executable becomes indistinguishable
+# from one that was never wired at all.
+#
+# Three faults land in that blind spot, and every one of them is silent:
+#
+#   unreachable target  a MACHINE-scope hook symlinked into a user's home. The
+#                       home is 0750 with other:---, so for the GREETER's uid
+#                       `[ -x ]` is simply false and six wired kbd-rgb hooks do
+#                       not EXIST from its side. No log, no alert, no warning.
+#                       Measured on this box 2026-09-14.
+#   dangling symlink    the target moved, or a sweep removed it.
+#   forgotten chmod     an integrator's own hook, wired and never made +x.
+#
+# All three mean "declared, and it will not fire", which is precisely the class
+# this suite exists to surface. So they are NAMED rather than filtered away.
+_hooks_blocked() {   # <root> <edge> <suffix> -> entries present but unrunnable
+  _bd=$1/$2$3.d
+  if [ ! -d "$_bd" ]; then return 0; fi
+  for _bh in "$_bd"/*; do
+    # An unmatched glob yields the pattern itself, which fails -e. A DANGLING
+    # symlink fails -e too, so -L is asked as well: otherwise the commonest
+    # fault here would be the one this missed.
+    if [ ! -e "$_bh" ] && [ ! -L "$_bh" ]; then continue; fi
+    # `if`, not `[ -x ] && continue`: under set -e an AND-list whose test FAILS
+    # returns non-zero and would abort the caller mid-listing.
+    if [ -x "$_bh" ]; then continue; fi
+    printf '%s\n' "$_bh"
+  done
+  return 0
+}
+
+# Every blocked entry, across both scopes, all edges and kinds, including the
+# cross-cutting tiers. cmd_hooks marks them inline; report counts them.
+_blocked_all() {
+  for _ba_e in lock sleep suspend unlock wake resume; do
+    for _ba_k in $KINDS; do
+      case "$_ba_k" in .) _ba_s= ;; *) _ba_s=$_ba_k ;; esac
+      _hooks_blocked "$HOOK_ROOT" "$_ba_e" "$_ba_s"
+      _hooks_blocked "$MACHINE_HOOK_ROOT" "$_ba_e" "$_ba_s"
+    done
+  done
+  for _ba_c in audit alert; do
+    _hooks_blocked "$HOOK_ROOT" "$_ba_c" ""
+    _hooks_blocked "$MACHINE_HOOK_ROOT" "$_ba_c" ""
+  done
+  return 0
+}
+
 cmd_hooks() {   # [edge]
   for _e in ${1:-lock sleep suspend unlock wake resume}; do
     echo "$_e:"
@@ -631,7 +681,9 @@ cmd_hooks() {   # [edge]
     for _k in $KINDS; do
       case "$_k" in .) _sfx= ; _lbl= ;; *) _sfx=$_k; _lbl="[${_k#.}] " ;; esac
       _l=$(_hooks_for "$_e" "$_sfx")
-      if [ -z "$_l" ]; then continue; fi
+      _bl=$(_hooks_blocked "$HOOK_ROOT" "$_e" "$_sfx"
+            _hooks_blocked "$MACHINE_HOOK_ROOT" "$_e" "$_sfx")
+      if [ -z "$_l" ] && [ -z "$_bl" ]; then continue; fi
       _any=1
       printf '%s\n' "$_l" | while IFS= read -r _h; do
         if [ -z "$_h" ]; then continue; fi
@@ -640,6 +692,17 @@ cmd_hooks() {   # [edge]
           *) _scope=user ;;
         esac
         echo "  $_lbl$(basename "$_h") [$_scope] -> $_h"
+      done
+      # BLOCKED entries are listed too, and marked. Omitting them is what made
+      # "wired but unrunnable" read identically to "not wired at all".
+      printf '%s\n' "$_bl" | while IFS= read -r _h; do
+        if [ -z "$_h" ]; then continue; fi
+        case "$_h" in
+          "$MACHINE_HOOK_ROOT"/*) _scope=machine ;;
+          *) _scope=user ;;
+        esac
+        echo "  $_lbl$(basename "$_h") [$_scope] BLOCKED -> $_h (present but"\
+" not executable from this session; it will NOT run)"
       done
     done
     if [ "$_any" = 0 ]; then echo "  (none)"; fi
@@ -1092,6 +1155,25 @@ _rep_actuators() {
 
 _rep_wiring() {
   echo "-- wiring --"
+  # BLOCKED HOOKS FIRST, because they are the finding and the listing below is
+  # only context. A hook wired and unable to run is invisible to every other
+  # tier: no edge is attempted, so nothing reaches the log, `verify` has nothing
+  # to disagree with, and `audit` sees no event. The wiring is the ONLY place
+  # that truth exists.
+  _blk=$(_blocked_all)
+  if [ -z "$_blk" ]; then
+    _r_ok "every wired hook is runnable from this session"
+  else
+    printf '%s\n' "$_blk" | while IFS= read -r _b; do
+      if [ -z "$_b" ]; then continue; fi
+      printf '  [FAIL] wired but NOT runnable here: %s\n' "$_b"
+    done
+    # That loop is a subshell, so it cannot raise RRC from inside.
+    RRC=1
+    _r_info "a hook present but not executable does not FAIL, it does not"\
+" EXIST for this session; check the target is reachable by the uid crossing"\
+" the edge (a MACHINE-scope hook under a home is unreadable to a greeter)"
+  fi
   cmd_hooks 2>/dev/null | sed 's/^/  /'
 
   echo "-- recent edges --"
