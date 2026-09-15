@@ -43,6 +43,21 @@ for _t in "$_dir"/*.t; do
       _n=${_out#*(needs }; _n=${_n%)*}
       case " $_need " in *" $_n "*) ;; *) _need="$_need $_n" ;; esac ;;
     ok\ *) _pass=$((_pass + 1)) ;;
+    # NEITHER IS A FAILURE, and this was a real hole. A test that exits 0
+    # without reaching `pass` is counted as neither passed nor skipped, so the
+    # suite goes on to report success and the ONLY trace is the total silently
+    # dropping by one -- which nobody reads as a regression.
+    #
+    # Found by causing it: a mangled heredoc delimiter swallowed the rest of a
+    # test file, so everything after it (including `pass`) was heredoc content.
+    # The file exited 0, printed nothing, and the run stayed green. A test that
+    # has stopped testing must be as loud as a test that fails, because it is
+    # the same thing wearing a quieter hat.
+    *)
+      _rc=1
+      printf '%s: NO VERDICT -- exited 0 without reaching pass or skip\n' \
+        "$(basename "$_t")"
+      printf '  A truncated or silently-aborted test is not a passing one.\n' ;;
   esac
 done
 
