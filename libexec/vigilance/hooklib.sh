@@ -100,7 +100,26 @@ hook_dark() {
     rm -f "$_sf"
     return 0                                   # no such device here; fine
   fi
-  _bc "$@" set 0 || true
+  # A SAVE FILE THAT CANNOT BE RESTORED FROM is worse than none: hook_lit would
+  # hand it to brightnessctl as a level, fail, and (before this) delete it.
+  _hd_lvl=$(cat "$_sf" 2>/dev/null || true)
+  case "${_hd_lvl:-}" in
+    ''|*[!0-9]*)
+      rm -f "$_sf"
+      echo "hooklib: saved level '$_hd_lvl' is not a number; not dimming" >&2
+      return 1 ;;
+  esac
+  # A FAILED DIM IS NOT SUCCESS. It used to be `|| true`, which is how a denied
+  # brightnessctl produced clean crossings over hardware that never moved.
+  #
+  # The save file goes too, and that is not tidying: nothing was dimmed, so
+  # leaving it would make `report` cry "saved levels outstanding at a lit rung"
+  # about a device sitting in exactly the state it should be in.
+  if ! _bc "$@" set 0; then
+    rm -f "$_sf"
+    echo "hooklib: could not dim $* (brightnessctl denied or absent)" >&2
+    return 1
+  fi
 }
 
 # hook_verify_level <save-file> <intent> [brightnessctl-selector...]
@@ -132,9 +151,34 @@ hook_verify_level() {
 }
 
 # hook_lit <save-file> [brightnessctl-selector...]
+#
+# THE SAVE FILE IS THE EVIDENCE, so it only goes when the restore WORKED.
+#
+# This used to be `_bc set "$(cat "$_sf")" || true; rm -f "$_sf"`, and that one
+# line defeated both things that could have noticed a screen staying dark:
+#
+#   the exit status      swallowed, so the runner logged a clean crossing and
+#                        raised no alert
+#   report's "saved       could never fire, because the evidence it looks for
+#   levels outstanding    had just been deleted by the thing that failed
+#   at a lit rung"
+#
+# Keeping the file on failure also means a LATER ascent can still restore the
+# real level -- `force open`, the rescue key, or simply the next unlock -- so
+# the brightness is recoverable instead of lost.
 hook_lit() {
   _sf=$1; shift
   if [ ! -f "$_sf" ]; then return 0; fi        # nobody dimmed it; leave it
-  _bc "$@" set "$(cat "$_sf")" || true
+  _hl_lvl=$(cat "$_sf" 2>/dev/null || true)
+  case "${_hl_lvl:-}" in
+    ''|*[!0-9]*)
+      echo "hooklib: saved level '$_hl_lvl' is not a number; not restoring" >&2
+      return 1 ;;
+  esac
+  if ! _bc "$@" set "$_hl_lvl"; then
+    echo "hooklib: could not restore $* to $_hl_lvl; keeping $_sf so the level"\
+" is not lost and report can see it" >&2
+    return 1
+  fi
   rm -f "$_sf"
 }
