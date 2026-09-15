@@ -129,4 +129,46 @@ _after=$(cksum "$_realdir/vigilance.log" 2>/dev/null || echo none)
 REAL vigilance.log ($_realdir); the sandbox leaks and every test run pollutes
 the operator's own record"
 
+# --- 5. AND THE TESTS THEMSELVES, which nothing was ratcheting -------------
+# Sections 1-3 guard the PRODUCT against reading the host. This guards the
+# SUITE, and it is a distinct failure with the same cause.
+#
+# `report` has ONE exit code for nine sections, and some of them ask the real
+# machine -- machinery queries the live systemd about whether vigilance's units
+# are enabled. So:
+#
+#   _out=$("$VIGILANT" report) && fail "it should have failed"
+#
+# is not an assertion about the code under test. On any host red for an
+# unrelated reason it passes for free, and keeps passing with the check it
+# claims to cover DELETED. greeter.t hit this in the VM, where report was red on
+# units that file never meant to test; actuators.t and rescue.t each carried one
+# of these until this ratchet was written.
+#
+# The fix is never to weaken the claim, it is to aim it: assert on the SECTION
+# that owns the behaviour, via _fail_in / _no_fail_in. Those give the same
+# verdict on every substrate, which is the whole property.
+#
+# Scoped to `report` deliberately. Other verbs (verify, audit, due, enforce) run
+# entirely on sandboxed state, so their exit codes ARE attributable and tests
+# branch on them correctly throughout.
+# PROSE IS SKIPPED, and it caught this scanner on its first run: the comment
+# above quotes the banned pattern to explain it, and the scan matched its own
+# explanation. A checker that flags the documentation OF the rule is the same
+# reading-the-wrong-thing class it exists to police, one level up.
+_branchers=$(grep -n '\("\$VIGILANT"\|"\$VIG"\) report' "$HERE"/test/*.t \
+               2>/dev/null \
+             | grep -v ':[0-9]*: *#' \
+             | grep -v ') *|| *true' | grep -v ') *|| *:' \
+             | grep -e '&&' -e '||' -e '^[^:]*:[0-9]*: *if ' || true)
+if [ -n "$_branchers" ]; then
+  printf '%s\n' "$_branchers" >&2
+  fail "a test BRANCHES on the whole exit code of 'report'. That code folds in
+sections which read the real host, so the assertion is partly about the machine
+running the suite: it passes for free wherever the host is already red, and goes
+on passing with the check it claims to cover removed. Assert on the owning
+section instead -- _fail_in / _no_fail_in -- which reads the same on every
+substrate. Discarding the code with '|| true' and grepping the output is fine"
+fi
+
 pass

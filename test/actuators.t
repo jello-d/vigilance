@@ -36,12 +36,19 @@ esac
 # Read-only: exactly the manifestor state, where the user was in no group that
 # could write and brightnessctl was denied.
 chmod 0444 "$_node"
-_out=$("$VIGILANT" report 2>>"$T/stderr") && fail "report passed with an
-actuator node that cannot be written"
+# Scoped to the SECTION, not to report's overall exit code. That code folds in
+# machinery, which asks the real systemd about real units, so `report && fail`
+# would pass for free on any host red for a reason this file never meant to
+# test -- and would then keep passing with the actuator check deleted.
+_out=$("$VIGILANT" report 2>>"$T/stderr") || true
+_fail_in "$_out" actuators "an unwritable actuator node was not flagged. The
+hooks that drive it swallow the denial by design, so nothing else in the system
+would ever say the hardware is not moving"
 case "$_out" in
   *"[FAIL]"*"NOT writable"*"silently no-op"*) ;;
   *) printf '%s\n' "$_out" >&2
-     fail "an unwritable actuator was not flagged" ;;
+     fail "the actuators section flagged something, but not the unwritable node
+in the terms a reader can act on" ;;
 esac
 # And it must name the remedy, or the reader goes source-diving for it.
 case "$_out" in

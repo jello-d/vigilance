@@ -194,6 +194,27 @@ _no_fail_in() {   # <report-output> <section> <why>
   esac
 }
 
+# _fail_in: the positive twin, and the reason both exist is that REPORT HAS ONE
+# EXIT CODE for nine sections, several of which read the real host (machinery
+# asks the live systemd whether vigilance's units are enabled).
+#
+# So `report ... && fail "it should have failed"` is not an assertion about the
+# code under test. It passes for free on any host that is red for an unrelated
+# reason, and a test that cannot fail is worse than no test: it reports
+# confidence it does not have. greeter.t hit exactly this in the VM.
+#
+# Scope the claim to the section that owns it. A test about actuators asserts
+# about the actuators section, and its verdict is then the same on every
+# substrate.
+_fail_in() {   # <report-output> <section> <why>
+  _sec=$(_section "$1" "$2")
+  case "$_sec" in
+    *"[FAIL]"*) return 0 ;;
+  esac
+  printf '%s\n' "$_sec" >&2
+  fail "$3"
+}
+
 # expect_verify <edge> <ok|fail>: assert THROUGH the product's own verifier.
 # Scenarios must prefer this over poking at files: it is what keeps the suite
 # and the production watchdog from drifting apart, because both call the same

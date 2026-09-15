@@ -42,12 +42,18 @@ esac
 # had been looking for it at a path nothing writes.
 mkdir -p "$VIGILANCE_RUN_DIR/state/20-panel-backlight"
 echo 260 > "$VIGILANCE_RUN_DIR/state/20-panel-backlight/level"
-_out=$("$VIGILANT" report 2>>"$T/stderr") && fail "report passed with a stale
-save at a lit rung"
+# Scoped to the SECTION. report has one exit code for nine sections and some of
+# them read the real host, so branching on the whole code asserts something
+# about the substrate as much as about this save file.
+_out=$("$VIGILANT" report 2>>"$T/stderr") || true
+_fail_in "$_out" "recorded state" "a save file outstanding at a LIT rung was not
+flagged. That file IS the record that something was dimmed and never restored,
+so nothing else would report the screen is dark with no way back"
 case "$_out" in
   *"[FAIL]"*"outstanding at a lit rung"*) ;;
   *) printf '%s\n' "$_out" >&2
-     fail "report did not flag the outstanding save" ;;
+     fail "the recorded-state section flagged something, but not the outstanding
+save in the terms a reader can act on" ;;
 esac
 
 # ...and the SAME file at a dark rung is expected, not drift. A verifier that
