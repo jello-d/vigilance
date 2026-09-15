@@ -972,7 +972,21 @@ _rep_coherence() {
         _r_bad "depth says 'open' but a locker is UP (an edge was missed)"
       else _r_ok "depth 'open' matches an unlocked session"; fi ;;
     lock)
-      if _r_locker_up; then
+      # A LOCKER IS ONLY EXPECTED WHERE ONE CAN BE RAISED. A GREETER is the
+      # locked state: it sits at this rung with no user session, no lock
+      # provider and no locker, forever and correctly. Asserting one there made
+      # report permanently RED on the one session nobody is present to watch,
+      # which is worse than silence -- a check that is always failing is a check
+      # nobody reads.
+      #
+      # The provider is what decides. If no lock.d hook is wired, nothing in
+      # this session could produce a locker, so demanding one is asserting
+      # something no mechanism here can satisfy. Said out loud rather than
+      # skipped, because "no opinion" must not read as "checked and fine".
+      if [ -z "$(_hooks_for lock)" ]; then
+        _r_info "depth 'lock' with no lock provider wired, so no locker is"\
+" expected (a greeter IS the locked state)"
+      elif _r_locker_up; then
         _r_ok "depth 'lock' matches a live locker"
       else _r_bad "depth says 'lock' but no locker is running"; fi ;;
     *) _r_warn "unknown rung '$_rung'" ;;

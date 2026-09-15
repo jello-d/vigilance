@@ -100,7 +100,13 @@ case "$_out" in
 override exists but the code still read the real /sys" ;;
 esac
 
-# The locker probe flips the coherence verdict, so it is observable.
+# The locker probe flips the coherence verdict, so it is observable -- but only
+# where a lock PROVIDER is wired. report deliberately says "no locker expected"
+# when nothing could raise one, because a greeter sits at this rung forever with
+# no provider and demanding a locker made its report permanently red. So wire a
+# provider first: this is asserting that the override is honoured, not
+# re-testing the greeter carve-out.
+hook lock 50-provider
 go lock
 _up=$(VIGILANCE_LOCKER_UP=1 "$VIG" report 2>&1) || true
 _dn=$(VIGILANCE_LOCKER_UP=0 "$VIG" report 2>&1) || true
