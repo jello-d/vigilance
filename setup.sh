@@ -105,8 +105,20 @@ ok()   { printf '  %s[OK]%s   %s\n' "$_G" "$_O" "$1"; }
 bad()  { printf '  %s[FAIL]%s %s\n' "$_R" "$_O" "$1"; RC=1; }
 warn() { printf '  %s[WARN]%s %s\n' "$_Y" "$_O" "$1"; }
 
-_man_pages() { for _m in "$_root"/man/man*/*.[0-9]; do
-  [ -e "$_m" ] && printf '%s\n' "$_m"; done; }
+# `if`, not `[ -e ] && printf`. With an EMPTY or absent man dir the glob does
+# not match, the test fails on the last iteration, the for loop inherits that
+# status, and the FUNCTION returns it. A function call returning non-zero IS
+# subject to set -e, so every verb calling this aborted before doing its job.
+# Proven, not theorised: dash exits 1 on an empty man dir with the old form.
+#
+# The AND-list itself is exempt from set -e; what is not exempt is the function
+# CALL that inherits its status. That distinction is why this shape is safe in
+# mid-function and fatal at the end of one.
+_man_pages() {
+  for _m in "$_root"/man/man*/*.[0-9]; do
+    if [ -e "$_m" ]; then printf '%s\n' "$_m"; fi
+  done
+}
 
 # _place <src> <dst>: symlink, or copy when VIGILANCE_INSTALL_COPY=1.
 # --remove-destination on the copy so replacing a RUNNING binary cannot fail
