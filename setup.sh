@@ -254,11 +254,42 @@ _render_unit() {   # <src> <dst>
     && mv -f "$2.tmp" "$2"
 }
 
+# ENABLE, AND THEN SAY WHAT ACTUALLY HAPPENED.
+#
+# `systemctl --user enable` fails wherever there is no user systemd instance to
+# talk to: a provisioner, a container, an ssh session before the user bus
+# exists. Swallowing that and printing "enabled" anyway is the same false claim
+# this package keeps finding elsewhere -- and here it matters, because the
+# listener it names is what crosses the `lock` edge on logind's Session.Lock.
+# Believing it is armed when it is not is precisely the gap that leaves a
+# machine unlocked.
+#
+# The swallow itself stays: PLACING the units is still correct on a box with no
+# user bus, and aborting an install over it would be worse. Only the sentence
+# has to be honest.
+_enable_user() {   # <unit>...
+  _eu_bad=
+  for _eu_u in "$@"; do
+    systemctl --user enable "$_eu_u" >/dev/null 2>&1 \
+      || _eu_bad="$_eu_bad $_eu_u"
+  done
+  if [ -n "$_eu_bad" ]; then
+    echo "$PKG: PLACED but could NOT enable:$_eu_bad"
+    echo "  no user systemd instance is reachable here, so these will never"
+    echo "  start on their own; enable them from a live session"
+    return 1
+  fi
+  return 0
+}
+
 do_service() {
   mkdir -p "$_usr"
   _render_unit "$_unit" "$_usr/vigilance-logind.service"
-  systemctl --user enable vigilance-logind.service 2>/dev/null || true
-  echo "$PKG: rendered + enabled the --user Session.Lock listener"
+  if _enable_user vigilance-logind.service; then
+    echo "$PKG: rendered + enabled the --user Session.Lock listener"
+  else
+    echo "$PKG: rendered the --user Session.Lock listener (NOT enabled)"
+  fi
   # The SUPERVISION timer, and the loop it drives. Shipped and enabled here
   # rather than left to an integrator, because a supervision loop nothing runs
   # is exactly the dead tier this project keeps finding: `due.d` was designed,
@@ -269,13 +300,18 @@ do_service() {
              vigilance-idle.service; do
     _render_unit "$_root/systemd/$_eu" "$_usr/$_eu"
   done
-  systemctl --user enable vigilance-enforce.timer 2>/dev/null || true
-  systemctl --user enable vigilance-audit.timer 2>/dev/null || true
+  _timers_on=1
+  _enable_user vigilance-enforce.timer vigilance-audit.timer || _timers_on=0
   # vigilance-idle.service is PLACED but never enabled: the COMPOSITOR starts
   # it, because only the compositor knows when WAYLAND_DISPLAY has been imported
   # and a display exists to connect to. Enabling it against a target would start
   # swayidle into a void.
-  echo "$PKG: rendered + enabled the supervision + audit timers"
+  if [ "$_timers_on" = 1 ]; then
+    echo "$PKG: rendered + enabled the supervision + audit timers"
+  else
+    echo "$PKG: rendered the supervision + audit timers (NOT enabled, so"
+    echo "  nothing supervises this box until they are)"
+  fi
   echo "$PKG: placed vigilance-idle.service (the compositor starts it:"
   echo "  systemctl --user start vigilance-idle.service from its autostart)"
   echo "  (supervision is report-only;"
