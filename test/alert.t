@@ -73,4 +73,42 @@ expect_rc 1                                  # unchanged: the actuator failed
 grep -q "alert hook failed: 20-broken" "$VIGILANCE_LOG" \
   || fail "a broken alert hook was not itself logged"
 
+# --- AND AN ALERT HOOK THAT HANGS, which is worse than one that fails -------
+# _alert is reached FROM _run_hooks, when a hook on the edge has just failed.
+# So a notifier that never returns blocks the very edge whose failure raised it:
+# a broken toast stops the lock.
+#
+# It is a distinct hole from the hook bound because _alert keeps its OWN loop
+# rather than going through _run_hooks, so it did not inherit the timeout when
+# that was added. The hook here IGNORES SIGTERM, which is both the harder case
+# and the realistic one for something wedged on a bus or a socket.
+rm -f "$VIGILANCE_HOOK_ROOT/alert.d/20-broken"
+cat > "$VIGILANCE_HOOK_ROOT/alert.d/10-hangs" <<'H'
+#!/bin/sh
+trap "" TERM INT
+sleep 30
+H
+chmod +x "$VIGILANCE_HOOK_ROOT/alert.d/10-hangs"
+
+# CROSSES `sleep`, NOT `lock`, and the difference is the whole test. The failing
+# hook wired above is on the SLEEP edge; nothing fails on `lock`, so a lock
+# crossing raises no alert and the hanging hook never runs. Written that way
+# first, this passed with the bound removed -- a timing assertion on a path the
+# alert tier is never reached from.
+go open
+: > "$T/alerts"
+_t0=$(date +%s)
+VIGILANCE_HOOK_TIMEOUT=2 "$VIGILANT" go sleep >/dev/null 2>>"$T/stderr" || true
+_el=$(( $(date +%s) - _t0 ))
+
+# The precondition, asserted rather than assumed: if no alert was raised, the
+# timing below measures nothing.
+[ -s "$T/alerts" ] || fail "no alert was raised on this edge, so the hanging
+alert hook never ran and the timing assertion below proves nothing"
+
+[ "$_el" -lt 15 ] || fail "the sleep edge took ${_el}s because an ALERT hook
+hung. The alert tier is reached from a hook failure, so an unbounded notifier
+lets a broken toast stop the edge -- the tier that exists to report trouble
+becoming the trouble"
+
 pass

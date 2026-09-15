@@ -231,8 +231,12 @@ _alert() {   # kind message
   if [ -z "$_al" ]; then return 0; fi
   while IFS= read -r _ah; do
     if [ -z "$_ah" ]; then continue; fi
+    # BOUNDED, for the same reason every other hook is (see HOOK_TIMEOUT) and
+    # with a sharper edge: _alert is reached FROM _run_hooks when a hook fails,
+    # so a notifier that hangs blocks the very edge whose failure raised it. A
+    # broken toast must not be able to stop a lock.
     VIGILANCE_ALERT_KIND="$1" VIGILANCE_ALERT_MSG="$2" \
-      "$_ah" "$1" "$2" >/dev/null 2>&1 \
+      $HOOK_TMO "$_ah" "$1" "$2" >/dev/null 2>&1 \
       || _log "  alert hook failed: $(basename "$_ah")"
   done <<EOF
 $_al
@@ -443,6 +447,37 @@ _intent_of() {   # edge -> dark | lit | none
 HOOK_PATH=${VIGILANCE_HOOK_PATH:-${XDG_BIN_HOME:-$HOME/.local/bin}:$HOME/bin:\
 /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin}
 
+# A HOOK MAY NOT HANG FOREVER, because hooks run in LEXICAL ORDER and the lock
+# provider is not first. Measured before this existed: a hook in lock.d that
+# slept blocked the traversal indefinitely and `50-provider` never ran -- the
+# screen was never locked, with nothing in the log, no alert and no timeout.
+#
+# Under lock-on-sleep.service that IS the whole failure. The unit is a system
+# oneshot with TimeoutStartSec=25; systemd kills it at 25s and NOTHING CAN VETO
+# A SUSPEND, so logind proceeds and the box sleeps UNLOCKED. One hung plugin,
+# ordered before the provider, silently removes the guarantee this package
+# exists to make.
+#
+# The default is generous on purpose: this bounds a HANG, it does not enforce an
+# SLA. A healthy ddcutil pass over three displays is a few seconds, and killing
+# a slow-but-working hook would trade a rare hang for a routine failure. It has
+# to leave room for the rest of the edge inside the unit's budget.
+#
+# SAFE FOR THE LOCKER, which looks like the obvious hazard and is not. The
+# shipped provider starts swaylock with `systemd-run --user` and returns at
+# commit, so the locker is a SIBLING unit no timeout here can reach. Killing a
+# foreground locker mid-lock would leave a frozen abandoned ext-session-lock,
+# which is precisely why the architecture forbids running one as a child -- so
+# this enforces that rule rather than fighting it.
+#
+# VIGILANCE_HOOK_TIMEOUT=0 disables it, for debugging a hook interactively.
+HOOK_TIMEOUT=${VIGILANCE_HOOK_TIMEOUT:-10}
+HOOK_TMO=
+if [ "$HOOK_TIMEOUT" != 0 ] && command -v timeout >/dev/null 2>&1; then
+  # -k, or the bound is advisory: a hook ignoring SIGTERM must still die.
+  HOOK_TMO="timeout -k 2 $HOOK_TIMEOUT"
+fi
+
 _run_hooks() {   # edge from [suffix]
   _edge=$1; _from=$2; _sfx=${3:-}
   _list=$(_hooks_for "$_edge" "$_sfx")
@@ -462,9 +497,19 @@ _run_hooks() {   # edge from [suffix]
       VIGILANCE_KIND="$(printf '%s' "${_sfx:-.act}" | tr -d .)" \
       VIGILANCE_INTENT="$(_intent_of "$_edge")" \
       PATH="$HOOK_PATH" \
-      VIGILANCE_STATE_DIR="$_sd" "$_h" "$_edge" "$_from" || _hrc=$?
+      VIGILANCE_STATE_DIR="$_sd" \
+      $HOOK_TMO "$_h" "$_edge" "$_from" || _hrc=$?
     if [ "$_hrc" -ne 0 ]; then
-      log "HOOK FAILED (rc=$_hrc): $_edge$_sfx $(basename "$_h")"
+      # 124 is timeout(1) saying it fired; 137 is the -k SIGKILL after a hook
+      # that ignored the TERM. Named apart from an ordinary failure because the
+      # remedy differs: a hook that HUNG also held up every later hook on the
+      # edge, and that consequence is what the reader needs told.
+      case "$_hrc" in
+        124|137)
+          log "HOOK TIMED OUT after ${HOOK_TIMEOUT}s (rc=$_hrc):"\
+" $_edge$_sfx $(basename "$_h") -- it held up every later hook on this edge" ;;
+        *) log "HOOK FAILED (rc=$_hrc): $_edge$_sfx $(basename "$_h")" ;;
+      esac
       _fails=$((_fails + 1))
       # An ACTUATOR or VERIFY failure means the machine may not be in the
       # state we believe: a monitor that did not sleep, a check that did not
@@ -1257,6 +1302,13 @@ _rep_wiring() {
   # AND A BLOCK HOOK ON AN ASCENT EDGE, which the runner now refuses to honour.
   # Silently ignoring it would leave the operator believing a veto is armed that
   # does nothing, so the ignoring is stated where wiring errors are read.
+  # A MISSING timeout(1) silently removes the hook bound, so say so. Without
+  # this the guarantee would be present on every box that has coreutils and
+  # absent, with no trace, on one that does not.
+  if [ -z "$HOOK_TMO" ] && [ "$HOOK_TIMEOUT" != 0 ]; then
+    _r_warn "no timeout(1) on PATH: hooks run UNBOUNDED. A hook that hangs"\
+" blocks every later hook on its edge, including the lock provider"
+  fi
   _ab=$(_ascent_blocks)
   if [ -n "$_ab" ]; then
     printf '%s\n' "$_ab" | while IFS= read -r _b; do

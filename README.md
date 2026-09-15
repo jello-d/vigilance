@@ -123,6 +123,17 @@ once sat dark for two days behind a green light.
 A broken block hook must never be able to suppress a lock, because suppressing
 a lock is a security failure while allowing a redundant one is merely noise.
 
+Hooks are **time-bounded**. They run in lexical order and the lock provider is
+not first, so a hook that hangs blocks every later hook on its edge -- including
+the one that locks the screen. Under `lock-on-sleep.service` that removes the
+guarantee outright: systemd kills the unit at its 25s timeout and nothing can
+veto a suspend, so the box sleeps unlocked. Each hook therefore runs under
+`timeout(1)` with a SIGKILL backstop, defaulting to 10s and set by
+`VIGILANCE_HOOK_TIMEOUT` (`0` disables). The same bound covers `alert.d`, which
+is reached from a hook failure: a notifier that hangs would otherwise block the
+very edge whose failure raised it. If `timeout(1)` is missing the bound is
+silently gone, so `vigilant report` warns.
+
 They also only apply in one direction. **A block may refuse to take the machine
 down; it may never refuse to bring it back up.** Refusing a descent is the
 tier's purpose and is safe: the machine stays awake and usable. Refusing an

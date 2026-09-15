@@ -198,6 +198,37 @@ stale case when the ladder grows a rung.
 vigilance ships plugins under
 .I libexec/vigilance/
 but enables none: which ones run is the integrator's policy.
+.SS Hooks are time-bounded
+Hooks run in LEXICAL order, and the lock provider is not first, so a hook that
+hangs blocks every later hook on its edge \(em including the one that locks the
+screen. Under
+.I lock-on-sleep.service
+that removes the guarantee entirely: systemd kills the unit at its 25s timeout
+and nothing can veto a suspend, so the box sleeps UNLOCKED.
+.PP
+Each hook therefore runs under
+.BR timeout (1)
+with a SIGKILL backstop, defaulting to 10 seconds and set by
+.BR VIGILANCE_HOOK_TIMEOUT
+.RI ( 0
+disables it). A hook killed this way is logged as
+.B HOOK TIMED OUT
+and counts as a failure. The same bound applies to
+.I alert.d
+hooks, which are reached from a hook failure: a notifier that hangs would
+otherwise block the very edge whose failure raised it.
+.PP
+The default is generous because it bounds a HANG, not an SLA \(em a healthy
+.BR ddcutil (1)
+pass over three displays takes seconds. It cannot reach a locker started with
+.BR systemd\-run (1),
+which is a sibling unit rather than a child; killing a foreground locker
+mid\-lock would leave a frozen abandoned session lock, which is why the
+architecture forbids running one as a child. If
+.BR timeout (1)
+is absent the bound is silently gone, so
+.B vigilant report
+warns.
 .SH EXIT STATUS
 .TP
 .B 0
