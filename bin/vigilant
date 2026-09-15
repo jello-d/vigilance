@@ -319,8 +319,35 @@ _depth_at() {   # epoch the current rung was entered, or 0
   case "${_t:-}" in ''|*[!0-9]*) echo 0 ;; *) echo "$_t" ;; esac
 }
 
+# ATOMIC REPLACE, because this file has several writers and a minutely reader.
+#
+# `> "$DEPTH_FILE"` TRUNCATES and only then writes, so a reader landing in that
+# window gets an EMPTY file. Measured under contention, not theorised: 2 empty
+# reads in 4000, reproducibly.
+#
+# An empty read is not a harmless blip. `_depth` returns nothing, `_depth_of ""`
+# fails, and every caller does `_dfrom=$(_depth_of "$(_depth)") || _dfrom=0` --
+# and 0 is `open`. So a reader concludes the machine is UNLOCKED while it is at
+# `sleep`, and a traversal from that false start records `lock` while the
+# peripherals stay dark with nothing armed to re-light them.
+#
+# Who races: the enforce timer reads this every minute forever, the audit timer
+# daily, while Super+L, three swayidle timers, the suspend unit and the resume
+# unit all write it. 1,440 attempts a day is not a rare event budget.
+#
+# A rename is atomic within one filesystem, so a reader sees the whole old value
+# or the whole new one. The temp name carries the PID so two writers cannot
+# clobber each other's partial file; the last rename wins, which is correct (a
+# later crossing is a later truth) and is never TORN.
 _set_depth() {   # rung
-  printf '%s %s\n' "$1" "$(date +%s)" > "$DEPTH_FILE"
+  _sd_tmp=$DEPTH_FILE.$$
+  if printf '%s %s\n' "$1" "$(date +%s)" > "$_sd_tmp" \
+     && mv -f "$_sd_tmp" "$DEPTH_FILE"; then
+    return 0
+  fi
+  rm -f "$_sd_tmp" 2>/dev/null || true
+  log "could not record depth '$1' at $DEPTH_FILE"
+  return 1
 }
 
 # --- hook enumeration -------------------------------------------------------
@@ -498,7 +525,11 @@ _cross_one() {   # edge leaving to [note]
     _log "refused $1: $2 (blocked)"
     return 3
   fi
-  _set_depth "$3"
+  # DELIBERATELY TOLERANT. A function returning non-zero aborts its caller
+  # under set -e, and aborting here would mean a failure to WRITE A FILE
+  # suppressed the LOCK. Suppressing a lock is a security failure; a wrong
+  # record is only a reporting one, and _set_depth already logs it.
+  _set_depth "$3" || true
   _log "cross $1: $2 -> $3${4:+ ($4)}"
   _crc=0
   _run_hooks "$1" "$2" || _crc=1
