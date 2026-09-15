@@ -75,4 +75,68 @@ VIGILANCE_PHANTOM_COOLDOWN=0 VIGILANCE_SOURCE=idle "$VIGILANT" go lock \
   2>>"$T/stderr" || fail "a legitimate idle lock was blocked"
 expect_depth lock
 
+# --- THE DIRECTION ASYMMETRY: a descent may be refused, an ascent may not ----
+# Found by auditing cmd_rescue rather than by a failing test, then MEASURED
+# before the fix: a hook in wake.block.d made `vigilant force open` AND
+# `vigilant rescue` both return 3 with the machine still recorded at `sleep`.
+#
+# That is the panic key -- bound to a bare unmodified key, pressed BLIND by
+# someone who cannot see the screen -- disabled by a plugin. "The screen is dark
+# and nothing will bring it back" was a supported configuration.
+#
+# Nothing is lost by refusing it. This edge performs no authentication (swaylock
+# does), so blocking `unlock` never kept anyone out; it only suppressed the
+# RECORD and the restore hooks, desyncing the file from a machine the user has
+# already unlocked.
+go sleep
+expect_depth sleep
+mkdir -p "$VIGILANCE_HOOK_ROOT/wake.block.d"
+printf '#!/bin/sh\necho veto\nexit 10\n' \
+  > "$VIGILANCE_HOOK_ROOT/wake.block.d/10-veto"
+chmod +x "$VIGILANCE_HOOK_ROOT/wake.block.d/10-veto"
+
+"$VIGILANT" go open >/dev/null 2>>"$T/stderr" \
+  || fail "an ordinary ASCENT was refused by a block hook. The machine is left
+in a dark rung with its only way out vetoed"
+expect_depth open
+
+# ...and the panic path specifically, because that is the one that matters most
+# and it reaches the runner by a different route (force, not go).
+go sleep
+_rc=0
+VIGILANCE_RESCUE_LOG=$T/rescue.log \
+  "$VIGILANT" rescue >/dev/null 2>>"$T/stderr" || _rc=$?
+[ "$_rc" = 0 ] || fail "'rescue' returned $_rc with a block hook wired on an
+ascent edge. The panic key is the last resort and a plugin could veto it"
+expect_depth open
+
+# --- a DESCENT block still works, which is the tier's actual purpose --------
+# Without this the fix could have been "ignore the block tier", which would
+# delete the phantom guard above and every inhibitor with it.
+mkdir -p "$VIGILANCE_HOOK_ROOT/sleep.block.d"
+printf '#!/bin/sh\necho veto\nexit 10\n' \
+  > "$VIGILANCE_HOOK_ROOT/sleep.block.d/10-veto"
+chmod +x "$VIGILANCE_HOOK_ROOT/sleep.block.d/10-veto"
+_rc=0
+"$VIGILANT" go sleep >/dev/null 2>>"$T/stderr" || _rc=$?
+[ "$_rc" = 3 ] || fail "a DESCENT block returned $_rc, not 3 (refused). The
+asymmetry must remove the ascent veto WITHOUT disarming the tier's real job"
+expect_depth lock
+
+# --- and the ignored hook is REPORTED, not silently dropped ----------------
+# Silently ignoring it leaves the operator believing a veto is armed that does
+# nothing, which is this project's signature failure wearing the fix's clothes.
+_out=$("$VIGILANT" report 2>>"$T/stderr") || true
+case "$_out" in
+  *"ASCENT edge, IGNORED"*) ;;
+  *) printf '%s\n' "$_out" >&2
+     fail "a block hook wired on an ascent edge is ignored by the runner and
+NOT mentioned by report. The operator believes a veto is armed that does
+nothing, and nothing anywhere says otherwise" ;;
+esac
+# It is a WARN, not a FAIL: the wiring is wrong but the machine is safe, and
+# nothing here should make an otherwise-healthy report red.
+_no_fail_in "$_out" wiring "an ignored ascent block was raised as a FAIL; the
+machine is in its correct state, so this is a wiring warning"
+
 pass

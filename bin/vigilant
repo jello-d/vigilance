@@ -521,7 +521,27 @@ EOF
 # Returns the command contract's own codes (3 blocked, 1 a hook failed, 0 ok) so
 # a caller just propagates rather than re-deriving them.
 _cross_one() {   # edge leaving to [note]
-  if _blocked "$1" "$2"; then
+  # THE BLOCK TIER MAY REFUSE TO TAKE THE MACHINE DOWN. IT MAY NEVER REFUSE TO
+  # BRING IT BACK UP.
+  #
+  # Refusing a DESCENT is the tier's whole purpose and is conservative in the
+  # safe direction: the machine stays where it is, awake and usable, and a
+  # debounce or an inhibitor is the mechanism behaving correctly.
+  #
+  # Refusing an ASCENT is the opposite in every respect. It leaves the machine
+  # in a DARK rung with the one path out of it vetoed -- "the screen is dark and
+  # nothing will bring it back", stated as a supported configuration. Measured,
+  # before this guard: a block hook in wake.block.d made `force open` AND
+  # `vigilant rescue` return 3 with the machine still at `sleep`. The panic key
+  # is the last resort, pressed blind by someone who cannot see the screen, and
+  # a plugin could disable it.
+  #
+  # Nor is anything lost. This edge does not perform authentication -- swaylock
+  # does -- so blocking `unlock` never kept anyone out; it only stopped the
+  # RECORD and the restore hooks, desyncing the file from a machine the user has
+  # already unlocked. An ascent block is all cost and no benefit, so it is
+  # refused here and reported as a wiring error rather than honoured.
+  if _is_descent "$1" && _blocked "$1" "$2"; then
     _log "refused $1: $2 (blocked)"
     return 3
   fi
@@ -1198,6 +1218,21 @@ _rep_actuators() {
   fi
 }
 
+# Every executable block hook wired on an edge the runner will never consult.
+# Both scopes, because a machine-scope one is just as inert and less visible.
+_ascent_blocks() {
+  for _ar in "$HOOK_ROOT" "$MACHINE_HOOK_ROOT"; do
+    if [ -z "$_ar" ] || [ ! -d "$_ar" ]; then continue; fi
+    for _ae in unlock wake resume; do
+      if [ ! -d "$_ar/$_ae.block.d" ]; then continue; fi
+      for _ah in "$_ar/$_ae.block.d"/*; do
+        if [ -x "$_ah" ]; then printf '%s\n' "$_ah"; fi
+      done
+    done
+  done
+  return 0
+}
+
 _rep_wiring() {
   echo "-- wiring --"
   # BLOCKED HOOKS FIRST, because they are the finding and the listing below is
@@ -1218,6 +1253,19 @@ _rep_wiring() {
     _r_info "a hook present but not executable does not FAIL, it does not"\
 " EXIST for this session; check the target is reachable by the uid crossing"\
 " the edge (a MACHINE-scope hook under a home is unreadable to a greeter)"
+  fi
+  # AND A BLOCK HOOK ON AN ASCENT EDGE, which the runner now refuses to honour.
+  # Silently ignoring it would leave the operator believing a veto is armed that
+  # does nothing, so the ignoring is stated where wiring errors are read.
+  _ab=$(_ascent_blocks)
+  if [ -n "$_ab" ]; then
+    printf '%s\n' "$_ab" | while IFS= read -r _b; do
+      if [ -z "$_b" ]; then continue; fi
+      printf '  [WARN] block hook on an ASCENT edge, IGNORED: %s\n' "$_b"
+    done
+    _r_info "the block tier may refuse a descent but never an ascent:"\
+  " honouring it would leave the machine dark with its only way out vetoed."\
+  " Move it to the matching DESCENT edge, or delete it"
   fi
   cmd_hooks 2>/dev/null | sed 's/^/  /'
 

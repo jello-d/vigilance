@@ -123,6 +123,16 @@ once sat dark for two days behind a green light.
 A broken block hook must never be able to suppress a lock, because suppressing
 a lock is a security failure while allowing a redundant one is merely noise.
 
+They also only apply in one direction. **A block may refuse to take the machine
+down; it may never refuse to bring it back up.** Refusing a descent is the
+tier's purpose and is safe: the machine stays awake and usable. Refusing an
+ascent leaves it in a dark rung with the one path out vetoed, which would make
+"the screen is dark and nothing will bring it back" a supported configuration
+-- and it disabled `vigilant rescue`, the panic key, until this was fixed.
+Nothing is lost: the `unlock` edge performs no authentication (the locker does),
+so blocking it never kept anyone out. A block hook wired on `unlock`, `wake` or
+`resume` is ignored and reported by `vigilant report` as a wiring error.
+
 The log is built in and mechanism-free, because a supervisor that only records
 when an integrator wires something up is not a supervisor. Alerting a human is
 policy (a toast, a bar, an intervention flag), so that is a hook.

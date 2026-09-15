@@ -155,6 +155,15 @@ WHEN: when should this edge have fired? The timeout lives outside vigilant.
 .IB <edge> .block.d
 WHY NOT: is something legitimately preventing it? Exit 10 blocks, anything
 else allows. Fails OPEN: a broken guard must never suppress a lock.
+DESCENT EDGES ONLY. A block may refuse to take the machine down but never to
+bring it back up: honouring one on
+.BR unlock ", " wake " or " resume
+would leave the machine in a dark rung with its only way out vetoed, and
+disabled
+.B vigilant rescue
+outright. Such a hook is ignored and reported by
+.B vigilant report
+as a wiring error.
 .TP
 .I audit.d
 DID IT: read an external event source and report events that SHOULD have
