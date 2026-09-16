@@ -162,7 +162,42 @@ MACHINE_HOOK_ROOT=${VIGILANCE_MACHINE_HOOKS:-/etc/vigilance/hooks}
 HOOK_ROOT=${VIGILANCE_HOOK_ROOT:-$_cfg/vigilance/hooks}
 # Runtime state. XDG_RUNTIME_DIR survives suspend and hibernate but NOT a
 # reboot, which is exactly right: a boot means we are at the top of the ladder.
-RUN_DIR=${VIGILANCE_RUN_DIR:-${XDG_RUNTIME_DIR:-/tmp}/vigilance}
+#
+# FINDING THE WRONG RUNTIME DIR IS ANSWERING ABOUT A DIFFERENT MACHINE, and the
+# bare `${XDG_RUNTIME_DIR:-/tmp}` fallback did exactly that. The variable is
+# unset in a non-interactive ssh, in cron, and under `su`, so `vigilant status`
+# there read an empty /tmp/vigilance and reported `depth: open, since: unknown`
+# -- the SAME answer whether the machine was open, locked or dark. A tool whose
+# subject is truthful state, confidently wrong about it, with nothing saying the
+# record it read was not the session's.
+#
+# The real one is still findable: logind creates /run/user/<uid> for any session
+# of that uid, including the ssh one, and it is 0700 and ours. So look there
+# before giving up, which FIXES the ssh case rather than merely reporting it.
+#
+# The last resort is PER-UID, under TMPDIR. `/tmp/vigilance` was a shared name
+# in a sticky world-writable directory: whoever creates it first owns it, and a
+# pre-planted symlink there would redirect the depth writes of everyone who came
+# after. That is a poor place for the authoritative state of a lock supervisor,
+# and a per-uid name costs nothing.
+# The base is overridable for the same reason every other host read here is:
+# a test asserting "no runtime dir was found" must be able to arrange that
+# without depending on whether the developer's box happens to have one.
+_rtbase=${VIGILANCE_RUNTIME_BASE:-/run/user}
+_rt=${XDG_RUNTIME_DIR:-}
+_uid=$(id -u)
+if [ -z "$_rt" ] && [ -d "$_rtbase/$_uid" ]; then _rt=$_rtbase/$_uid; fi
+if [ -n "${VIGILANCE_RUN_DIR:-}" ]; then
+  RUN_DIR=$VIGILANCE_RUN_DIR
+elif [ -n "$_rt" ]; then
+  RUN_DIR=$_rt/vigilance
+else
+  # TMPDIR is honoured, both because that is what it is for and because it is
+  # what makes this branch testable inside a sandbox.
+  # Recorded so `report` can say the state is not where the session keeps it.
+  RUN_DIR=${TMPDIR:-/tmp}/vigilance-$_uid
+  RUN_DIR_FALLBACK=1
+fi
 DEPTH_FILE=$RUN_DIR/depth
 STATE_ROOT=$RUN_DIR/state
 
@@ -1302,6 +1337,13 @@ _rep_wiring() {
   # AND A BLOCK HOOK ON AN ASCENT EDGE, which the runner now refuses to honour.
   # Silently ignoring it would leave the operator believing a veto is armed that
   # does nothing, so the ignoring is stated where wiring errors are read.
+  # STATE OUTSIDE A RUNTIME DIR is a different machine's answer waiting to
+  # happen: nothing else writes there, so every rung reads as `open`.
+  if [ -n "${RUN_DIR_FALLBACK:-}" ]; then
+    _r_warn "no runtime dir found (XDG_RUNTIME_DIR unset, no"\
+" $_rtbase/$_uid): state is in $RUN_DIR, which the session does not share."\
+" Every rung reads as 'open' here regardless of where the machine is"
+  fi
   # A MISSING timeout(1) silently removes the hook bound, so say so. Without
   # this the guarantee would be present on every box that has coreutils and
   # absent, with no trace, on one that does not.

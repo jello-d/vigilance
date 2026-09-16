@@ -244,6 +244,26 @@ Usage error.
 Refused: a precondition was not met and nothing happened.
 .SH FILES
 .TP
+.IR $XDG_RUNTIME_DIR /vigilance/depth
+The recorded rung, and the authoritative state. It lives in the runtime dir
+because that survives suspend and hibernate but NOT a reboot, which is exactly
+right: a boot means the machine is at the top of the ladder.
+.IP
+When
+.B XDG_RUNTIME_DIR
+is unset \(em a non\-interactive ssh, cron,
+.BR su (1)
+\(em vigilant looks for
+.IR /run/user/ <uid>,
+which logind maintains for any session of that uid, so the real record is still
+found. Failing that it uses a PER\-UID directory under
+.BR $TMPDIR ,
+never a shared name in a world\-writable one, and
+.B vigilant report
+warns: nothing else writes there, so every rung would read as
+.B open
+regardless of where the machine actually is.
+.TP
 .I systemd/vigilance-logind.service
 The --user Session.Lock listener (install with
 .BR "setup.sh service" ).
