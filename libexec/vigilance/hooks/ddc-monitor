@@ -38,11 +38,47 @@ _self=$(readlink -f "$0")
 . "$(dirname "$_self")/../hooklib.sh"
 
 edge=${1:-${VIGILANCE_EDGE:-}}
-case "$(hook_intent "$edge")" in
-  dark) _d6=02 ;;
-  lit)  _d6=01 ;;
-  *)    exit 0 ;;
+_intent=$(hook_intent "$edge")
+case "$_intent" in
+  dark|lit) ;;
+  *)        exit 0 ;;
 esac
+
+# THE DARK VALUE IS PER-MONITOR, NOT A CONSTANT, and assuming otherwise made
+# this hook a no-op on the panel that needed it most.
+#
+# MCCS defines VCP D6 as 01=on, 02=standby, 03=suspend, 04=off, 05=off
+# (write-only), and each monitor advertises which it actually implements.
+# Writing one it does not implement is NOT an error the monitor reports:
+# `setvcp --noverify` sends it and returns 0, so the screen stays lit while the
+# edge records a clean crossing. Asserted-versus-actual drift, in the actuator.
+#
+# Measured on manifestor:
+#   HP E243     D6: 01 02 03 04 05
+#   Dell AW2725Q D6: 01 04 05          <-- no 02
+#
+# So the hardcoded 02 did nothing on the QD-OLED, which is the panel with the
+# burn-in cost and therefore the one most worth powering down.
+#
+# Preference is least-disruptive first: 02 keeps the scaler warm and wakes
+# fastest, 04 is a full DPM off, 05 is a write-only off. A monitor advertising
+# none of them is left alone rather than guessed at.
+#
+# NOT CACHED. `capabilities` measured 310ms per bus, the same as a getvcp, so
+# the whole pass stays around 2s against a 10s hook bound -- and a cached value
+# that outlives a monitor swap would write the wrong code at exactly the moment
+# the hardware changed, which is the failure this is fixing.
+_dark_value() {   # bus -> best supported off value, or "" if none
+  _caps=$(ddcutil --bus "$1" capabilities 2>/dev/null \
+    | awk '/Feature: D6/ { f = 1; next }
+           f && /^[[:space:]]*Feature:/ { f = 0 }
+           f && /^[[:space:]]*[0-9A-Fa-f][0-9A-Fa-f]:/ {
+             v = $1; sub(":", "", v); printf "%s ", tolower(v) }')
+  for _want in 02 04 05; do
+    case " $_caps " in *" $_want "*) printf '%s' "$_want"; return 0 ;; esac
+  done
+  return 0
+}
 
 # VERIFY reads VCP D6 back instead of writing it. This is precisely the check
 # that was run BY HAND to prove manifestor's monitor had been dark for two
@@ -68,7 +104,25 @@ _map=$(ddcutil detect --brief 2>/dev/null | awk '
 
 _rc=0
 for _bus in $_map; do
+  # Resolved per bus, by the same function on both tiers, so what verify
+  # expects is by construction what act wrote.
+  if [ "$_intent" = lit ]; then
+    _d6=01
+  else
+    _d6=$(_dark_value "$_bus")
+    if [ -z "$_d6" ]; then
+      echo "ddc-monitor: bus $_bus advertises no D6 off value; leaving it" >&2
+      continue
+    fi
+  fi
   if [ "$_verify" = 1 ]; then
+    # 05 IS WRITE-ONLY BY SPEC, so it cannot be read back. Reporting drift
+    # because a value is unreadable would fail every verify on a monitor that
+    # only offers 05, which is crying wolf about a panel doing as it was told.
+    if [ "$_d6" = 05 ]; then
+      echo "ddc-monitor: bus $_bus uses write-only D6=05; not readable" >&2
+      continue
+    fi
     # sl=0xNN is the current power mode; 01 on, 02 standby.
     _got=$(ddcutil --bus "$_bus" getvcp d6 2>/dev/null \
       | sed -n 's/.*sl=0x0\([0-9]\).*/0\1/p')
