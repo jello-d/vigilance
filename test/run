@@ -31,7 +31,13 @@ _skip=0
 _need=""
 for _t in "$_dir"/*.t; do
   [ -f "$_t" ] || continue
-  _out=$(sh "$_t" 2>&1) || _rc=1
+  # The test's OWN status, kept apart from the run's, because "failed" and
+  # "reached no verdict" are different findings and only one of them is news. A
+  # failing test already says so in its own words; reporting it as verdictless
+  # too buries the message it printed under a second, wronger one.
+  _trc=0
+  _out=$(sh "$_t" 2>&1) || _trc=1
+  [ "$_trc" -eq 0 ] || _rc=1
   printf '%s\n' "$_out"
   # Match the LAST line, not the first: a test may emit tool noise ahead of its
   # verdict (rtcwake chatters on stderr during the real suspend scenario), and
@@ -54,10 +60,12 @@ for _t in "$_dir"/*.t; do
     # has stopped testing must be as loud as a test that fails, because it is
     # the same thing wearing a quieter hat.
     *)
-      _rc=1
-      printf '%s: NO VERDICT -- exited 0 without reaching pass or skip\n' \
-        "$(basename "$_t")"
-      printf '  A truncated or silently-aborted test is not a passing one.\n' ;;
+      if [ "$_trc" -eq 0 ]; then
+        _rc=1
+        printf '%s: NO VERDICT -- exited 0 without reaching pass or skip\n' \
+          "$(basename "$_t")"
+        printf '  A truncated or silently-aborted test is not a passing one.\n'
+      fi ;;
   esac
 done
 

@@ -42,7 +42,7 @@ VIG=$HERE/bin/vigilant
 for _p in VIGILANCE_HOOK_ROOT VIGILANCE_MACHINE_HOOKS VIGILANCE_RUN_DIR \
           VIGILANCE_LOG VIGILANCE_SYS_BACKLIGHT VIGILANCE_SYS_DRM \
           VIGILANCE_SYS_LEDS VIGILANCE_LOCKER_UP VIGILANCE_SESSION \
-          VIGILANCE_IDLE_CMDLINE; do
+          VIGILANCE_IDLE_CMDLINE VIGILANCE_SLEEP_BUDGET; do
   grep -q "export $_p=" "$HERE/test/scenario.sh" \
     || fail "$_p is an overridable host probe, but scenario_init does not set
 it. Every scenario therefore reads the DEVELOPER'S box for that fact, and its
@@ -63,7 +63,7 @@ done
 # untestable in the stub tier and host-dependent in both. Prefer an override
 # with a live fallback (see _r_session, _rep_idle_armed) over a new entry.
 LIVE_OK='_rep_machinery _rep_unit_runnable _rep_idle_armed _r_session
-_r_locker_up cmd_rescue cmd_report'
+_r_locker_up cmd_rescue cmd_report _rep_budget_secs'
 
 _offenders=$(awk -v ok="$LIVE_OK" '
   BEGIN { n = split(ok, a, /[[:space:]]+/)
@@ -152,6 +152,14 @@ the operator's own record"
 # Scoped to `report` deliberately. Other verbs (verify, audit, due, enforce) run
 # entirely on sandboxed state, so their exit codes ARE attributable and tests
 # branch on them correctly throughout.
+# The `|| true` exemption is matched ANYWHERE on the line, not only after a
+# closing paren. Written paren-anchored it flagged
+#
+#   _rep() { "$VIGILANT" report 2>>"$T/stderr" || true; }
+#
+# which discards the code exactly as intended -- a false positive on the helper
+# form, in a checker whose whole value is that its verdicts are trusted.
+#
 # PROSE IS SKIPPED, and it caught this scanner on its first run: the comment
 # above quotes the banned pattern to explain it, and the scan matched its own
 # explanation. A checker that flags the documentation OF the rule is the same
@@ -159,7 +167,7 @@ the operator's own record"
 _branchers=$(grep -n '\("\$VIGILANT"\|"\$VIG"\) report' "$HERE"/test/*.t \
                2>/dev/null \
              | grep -v ':[0-9]*: *#' \
-             | grep -v ') *|| *true' | grep -v ') *|| *:' \
+             | grep -v '|| *true' | grep -v '|| *:' \
              | grep -e '&&' -e '||' -e '^[^:]*:[0-9]*: *if ' || true)
 if [ -n "$_branchers" ]; then
   printf '%s\n' "$_branchers" >&2
