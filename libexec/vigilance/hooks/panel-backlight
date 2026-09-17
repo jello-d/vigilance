@@ -46,12 +46,30 @@ if [ "$_intent" = none ]; then exit 0; fi
 
 # ONE plugin, two kinds: act drives the device, verify reads it back. Sharing
 # the file keeps the device discovery in one place.
+# SCOPED TO THE BACKLIGHT CLASS, and that is load-bearing rather than tidy.
+#
+# With no selector, brightnessctl picks its own default -- and on a machine with
+# no panel backlight at all (any desktop) it falls back to the `leds` class and
+# lands on whatever comes first, which on manifestor is a keyboard kana LED. So
+# a hook named panel-backlight silently drove an unrelated LED, could not write
+# it, and FAILED EVERY WAKE, raising an alert each time. The guard above checks
+# that brightnessctl EXISTS; nothing checked that the thing it is meant to drive
+# does.
+#
+# Scoped, `get` fails on such a box ("Failed to read any devices of class
+# 'backlight'"), which hooklib already treats as n/a -- a desktop without a
+# panel backlight is not a broken desktop. kbd-backlight has always passed
+# --class=leds --device=...; this was the one hook trusting the default.
+BL="--class=backlight"
+
 if [ "${VIGILANCE_KIND:-act}" = verify ]; then
-  hook_verify_level "$SAVE" "$_intent"
+  # shellcheck disable=SC2086
+  hook_verify_level "$SAVE" "$_intent" $BL
   exit $?
 fi
 
+# shellcheck disable=SC2086
 case "$_intent" in
-  dark) hook_dark "$SAVE" ;;
-  lit)  hook_lit  "$SAVE" ;;
+  dark) hook_dark "$SAVE" $BL ;;
+  lit)  hook_lit  "$SAVE" $BL ;;
 esac

@@ -175,6 +175,20 @@ hook_lit() {
       echo "hooklib: saved level '$_hl_lvl' is not a number; not restoring" >&2
       return 1 ;;
   esac
+  # AN ABSENT DEVICE IS NOT A FAILED RESTORE, the same distinction hook_dark
+  # already draws on `get`. If the device cannot even be READ there is nothing
+  # here to restore TO: the save is a leftover from a machine that has since
+  # changed -- a dock unplugged, a hook rescoped, a monitor retired.
+  #
+  # Keeping it would fail this edge on EVERY ascent, forever, and raise an alert
+  # each time, while report cried drift about hardware that is not there. That
+  # is not hypothetical: a stale save from an older hooklib outlived the fix and
+  # failed every wake on a live box, because hook_dark short-circuits on the
+  # file's existence and so never re-created the condition that made it.
+  if ! brightnessctl "$@" get >/dev/null 2>&1; then
+    rm -f "$_sf"
+    return 0
+  fi
   if ! _bc "$@" set "$_hl_lvl"; then
     echo "hooklib: could not restore $* to $_hl_lvl; keeping $_sf so the level"\
 " is not lost and report can see it" >&2

@@ -48,6 +48,11 @@ case "$_last" in
   max) echo "${BC_MAX:-100}"; exit 0 ;;
 esac
 if [ "$_prev" = set ]; then
+  # AN ABSENT DEVICE FAILS WRITES TOO. Modelling BC_FAIL_GET as "reads fail but
+  # writes succeed" is a device that does not exist, and the difference is not
+  # academic: it made the mutation that deletes hook_lit's absent-device check
+  # PASS, because the restore then "succeeded" against nothing.
+  if [ -n "${BC_FAIL_GET:-}" ]; then exit 1; fi
   if [ -n "${BC_FAIL_SET:-}" ]; then exit 1; fi
   printf '%s\n' "$_last" > "$BC_LEVEL"
   exit 0
@@ -144,6 +149,45 @@ a box without that device is not a broken box"
 [ ! -f "$SF" ] || fail "hook_dark left a save file for a device that does not
 exist"
 BC_FAIL_GET=
+
+# --- a STALE save for a device that is GONE is dropped, not failed forever --
+# The mirror of the absent-device case above, on the ascent. hook_dark treats an
+# unreadable device as n/a; hook_lit used to treat it as a failed restore, so a
+# save file left over from a machine that has since changed failed EVERY ascent
+# and alerted each time -- while report cried drift about hardware that is not
+# there.
+#
+# It cannot self-heal either, and that is what makes it permanent: hook_dark
+# short-circuits on the save file's existence, so the descent never re-creates
+# the condition and never clears it. Measured on a live box: a save written by
+# an older hooklib outlived the fix and failed every wake for days.
+_reset 45
+hook_dark "$SF" -d x || fail "setup: hook_dark failed on a healthy device"
+[ -f "$SF" ] || fail "setup: no save file to go stale"
+BC_FAIL_GET=1; export BC_FAIL_GET
+hook_lit "$SF" -d x 2>>"$T/stderr" \
+  || fail "hook_lit reported a FAILED restore for a device that cannot even be
+READ. There is nothing to restore to, so this fails every ascent forever and
+alerts each time -- and hook_dark short-circuits on the save file, so the
+descent never clears it"
+[ ! -f "$SF" ] || fail "hook_lit kept a save file for a device that is gone. It
+is a leftover from a machine that has changed; keeping it makes report report
+drift about hardware that does not exist"
+BC_FAIL_GET=
+
+# ...but a device that READS and refuses to be WRITTEN is still a real failure,
+# and the save must survive. Without this the fix above would degrade into
+# "swallow every restore failure", which is the bug the file was written for.
+_reset 35
+hook_dark "$SF" -d x
+BC_FAIL_SET=1; export BC_FAIL_SET
+if hook_lit "$SF" -d x 2>>"$T/stderr"; then
+  fail "a readable device that refused the write was reported as a successful
+restore; only an UNREADABLE device is n/a"
+fi
+[ -f "$SF" ] || fail "the save file was dropped for a device that is present
+but denied; that level is still wanted and report still needs to see it"
+BC_FAIL_SET=
 
 # --- a CORRUPT save file is refused, not handed to brightnessctl -----------
 # `set ""` or `set garbage` is not a restore, and silently rm-ing afterwards
