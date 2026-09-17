@@ -77,11 +77,103 @@ case "$_out" in
 not say the LOCK itself can overrun. If those hooks hang, systemd kills the
 unit mid-lock and logind suspends anyway -- nothing can veto a suspend" ;;
 esac
-# Actionable, or the reader has a number and no next step.
+# Actionable, or the reader has a number and no next step. These are plain
+# hooks, none of which resolves into a providers/ directory, so this is the
+# PESSIMISTIC branch: it must say so rather than present the assumption as a
+# measurement.
 case "$_out" in
-  *"provider FIRST"*) ;;
+  *"no hook in lock.d resolves into a providers/ directory"*|\
+  *"No hook in lock.d resolves into a providers/ directory"*) ;;
+  *) printf '%s\n' "$_out" >&2
+     fail "with no identifiable provider the check assumed every act hook runs
+before the lock -- correct, and the safe direction -- but did not say it was an
+assumption. A guess presented as a measurement is what sends someone tuning a
+number that was never measured" ;;
+esac
+case "$_out" in
+  *VIGILANCE_HOOK_TIMEOUT*) ;;
   *) fail "the overrun was reported without naming a remedy" ;;
 esac
+
+# --- 3b. AN IDENTIFIED PROVIDER changes the number, not just the wording ----
+# This is the whole point of identifying it: only the hooks that run BEFORE the
+# lock can cost the lock. A provider ordered first means one act hook precedes
+# it, however many follow.
+#
+# It is found by CONVENTION -- a hook resolving into a providers/ directory --
+# so the fixture builds exactly that: a real directory of that name, symlinked
+# into lock.d the way an integrator wires it.
+mkdir -p "$T/plug/providers"
+printf '#!/bin/sh\nexit 0\n' > "$T/plug/providers/swaylock"
+chmod +x "$T/plug/providers/swaylock"
+
+rm -rf "$VIGILANCE_HOOK_ROOT/lock.d"
+mkdir -p "$VIGILANCE_HOOK_ROOT/lock.d"
+ln -sf "$T/plug/providers/swaylock" "$VIGILANCE_HOOK_ROOT/lock.d/05-provider"
+_hook_n lock.d 3                      # 3 plain hooks, all sorting AFTER 05-
+_out=$(VIGILANCE_HOOK_TIMEOUT=10 _rep)
+case "$_out" in
+  *"LOCK itself can take"*)
+     printf '%s\n' "$_out" >&2
+     fail "with the provider ordered FIRST, three hooks behind it were still
+counted against the lock. They run after the screen is already locked: counting
+them means the warning can never be cleared by the remedy it recommends, which
+is how a check gets ignored" ;;
+esac
+# The milder TOTAL warning is still correct here and must remain: 4 hooks x 12s
+# is 48s, so the unit can still be killed -- after the screen is locked. The two
+# claims are different and the distinction is the reason for identifying the
+# provider at all.
+case "$_out" in
+  *"total"*"against lock-on-sleep's 25s"*) ;;
+  *) printf '%s\n' "$_out" >&2
+     fail "the lock now fits, but 48s of total work against a 25s budget went
+unreported. The unit is still killed; what survives is the lock" ;;
+esac
+
+# ...and ordering it LAST puts them back, which is the same fixture proving the
+# position is what is being read rather than the mere presence of a provider.
+rm -f "$VIGILANCE_HOOK_ROOT/lock.d/05-provider"
+ln -sf "$T/plug/providers/swaylock" "$VIGILANCE_HOOK_ROOT/lock.d/99-provider"
+_out=$(VIGILANCE_HOOK_TIMEOUT=10 _rep)
+case "$_out" in
+  *"LOCK itself can take 48s"*) ;;
+  *) printf '%s\n' "$_out" >&2
+     fail "with the provider ordered LAST, the three hooks ahead of it were not
+counted against the lock. Those are exactly the hooks that can stop the screen
+locking at all" ;;
+esac
+case "$_out" in
+  *"run before the provider finishes"*) ;;
+  *) fail "an identified provider was not described in terms of its position" ;;
+esac
+
+# --- 3c. BLOCK hooks still count, even with the provider identified --------
+# The two halves of the critical span come from different places and only this
+# case needs both: every other provider case has no block hooks, so dropping
+# the block term entirely goes unnoticed there.
+#
+# 1 block + a provider ordered SECOND = 3 hooks x 12s = 36s, over the 25s
+# budget. Drop the block term and it reads 24s, which fits -- so the verdict
+# flips, which is what makes the case worth having.
+rm -f "$VIGILANCE_HOOK_ROOT/lock.d/99-provider"
+rm -rf "$VIGILANCE_HOOK_ROOT/lock.d"
+mkdir -p "$VIGILANCE_HOOK_ROOT/lock.d"
+printf '#!/bin/sh\nexit 0\n' > "$VIGILANCE_HOOK_ROOT/lock.d/10-first"
+chmod +x "$VIGILANCE_HOOK_ROOT/lock.d/10-first"
+ln -sf "$T/plug/providers/swaylock" "$VIGILANCE_HOOK_ROOT/lock.d/20-provider"
+_hook_n lock.block.d 1
+_out=$(VIGILANCE_HOOK_TIMEOUT=10 _rep)
+case "$_out" in
+  *"LOCK itself can take 36s"*) ;;
+  *) printf '%s\n' "$_out" >&2
+     fail "a block hook was not counted alongside an identified provider. The
+block tier runs before every act hook, so it is always part of the delay before
+the lock -- dropping it understates the span by exactly the tier that is
+guaranteed to precede the provider" ;;
+esac
+rm -rf "$VIGILANCE_HOOK_ROOT/lock.block.d" "$VIGILANCE_HOOK_ROOT/lock.d"
+_hook_n lock.d 3
 
 # --- 4. the BLOCK tier draws on the same budget -----------------------------
 # Easy to miss, and the sharpest of them: block.d runs BEFORE the depth is
@@ -119,6 +211,23 @@ case "$_out" in
   *) printf '%s\n' "$_out" >&2
      fail "48s of verify work against a 25s budget was not reported at all. The
 unit is still killed; what survives is the lock, not the verification" ;;
+esac
+# ...as INFO, not WARN. The lock -- the guarantee -- fits. On a normally-wired
+# box the total exceeds the budget permanently and no realistic wiring clears
+# it, so warning here would be a line that is always on, which is how a report
+# teaches you to skip the line that matters.
+# Matched on the LINE, not on the whole report: a shell glob spans newlines, so
+# `*"[WARN]"*"total"*` against the full output matches any unrelated warning
+# earlier in the report followed by the word "total" later. That is the same
+# too-loose-assertion class this suite keeps finding, in a test written to
+# police severity.
+_totline=$(printf '%s\n' "$_out" | grep 'total')
+case "$_totline" in
+  *"[WARN]"*)
+     printf '%s\n' "$_totline" >&2
+     fail "an overrun that costs only the verification was raised as a WARN.
+The lock itself fits, and a warning no wiring can clear is one the reader
+learns to scroll past" ;;
 esac
 
 # --- 6. the BOUND is what scales it, so it must be read live ----------------

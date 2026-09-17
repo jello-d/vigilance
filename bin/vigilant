@@ -1365,6 +1365,38 @@ _rep_hookcount() {   # <suffix>... -> how many hooks across those tiers
   printf '%s' "$_hc"
 }
 
+# WHICH act hook raises the locker, by POSITION -- because that, not the total,
+# decides whether the screen is locked inside the unit's budget. Hooks ordered
+# after the provider can only cost the unit; hooks ordered before it can cost
+# the LOCK.
+#
+# Identified by CONVENTION rather than configuration: a lock provider resolves
+# into a `providers/` directory (vigilance ships its own at
+# libexec/vigilance/providers/swaylock and an integrator symlinks it into
+# lock.d). That keeps the fact in one place -- no second declaration to drift
+# from the wiring, which is the failure this project keeps paying for.
+#
+# UNKNOWN IS PESSIMISTIC. A third-party provider that does not follow the
+# convention yields no position, and then every act hook is assumed to precede
+# the lock. That is the safe direction, and _rep_budget says so rather than
+# quietly presenting a guess as a measurement.
+_lock_provider_pos() {   # -> 1-based position among act hooks, or ""
+  _pl=$(_hooks_for lock)
+  if [ -z "$_pl" ]; then return 0; fi
+  _pp=0
+  _pfound=
+  while IFS= read -r _ph; do
+    if [ -z "$_ph" ]; then continue; fi
+    _pp=$((_pp + 1))
+    case "$(readlink -f "$_ph" 2>/dev/null)" in
+      */providers/*) _pfound=$_pp; break ;;
+    esac
+  done <<EOF
+$_pl
+EOF
+  printf '%s' "$_pfound"
+}
+
 _rep_budget() {
   _bsec=$(_rep_budget_secs)
   if [ -z "$_bsec" ]; then return 0; fi   # machinery reports an absent unit
@@ -1376,8 +1408,13 @@ _rep_budget() {
   # +2 for the SIGKILL grace: a hook ignoring SIGTERM costs the full bound plus
   # the backstop before the traversal moves on.
   _per=$((HOOK_TIMEOUT + 2))
-  _ncrit=$(_rep_hookcount .block act)
+  _nblock=$(_rep_hookcount .block)
+  _nact=$(_rep_hookcount act)
   _nall=$(_rep_hookcount .block act .report .verify)
+  # Only what runs BEFORE the screen is locked counts against the lock.
+  _ppos=$(_lock_provider_pos)
+  if [ -n "$_ppos" ]; then _ncrit=$((_nblock + _ppos))
+  else _ncrit=$((_nblock + _nact)); fi
   _wcrit=$((_ncrit * _per))
   _wall=$((_nall * _per))
 
@@ -1386,19 +1423,38 @@ _rep_budget() {
     return 0
   fi
   if [ "$_wcrit" -gt "$_bsec" ]; then
-    _r_warn "the LOCK itself can take ${_wcrit}s ($_ncrit block+act hooks x"\
-" ${_per}s) against lock-on-sleep's ${_bsec}s. Hooks run in order, so anything"\
-" ahead of the provider delays the lock: if they hang, systemd kills the unit"\
-" mid-lock and logind suspends anyway. Order the provider FIRST, lower"\
-" VIGILANCE_HOOK_TIMEOUT, or drop a hook"
+    if [ -n "$_ppos" ]; then
+      _r_warn "the LOCK itself can take ${_wcrit}s ($_ncrit hooks run before"\
+" the provider finishes, x ${_per}s) against lock-on-sleep's ${_bsec}s. If"\
+" they hang, systemd kills the unit mid-lock and logind suspends anyway."\
+" Order the provider EARLIER in lock.d, lower VIGILANCE_HOOK_TIMEOUT, or drop"\
+" a hook ahead of it"
+    else
+      _r_warn "the LOCK itself can take ${_wcrit}s ($_ncrit block+act hooks x"\
+" ${_per}s) against lock-on-sleep's ${_bsec}s. No hook in lock.d resolves into"\
+" a providers/ directory, so every act hook is counted as running before the"\
+" lock -- the safe assumption, not a measurement. Lower"\
+" VIGILANCE_HOOK_TIMEOUT, drop a hook, or place the provider so it is"\
+" identifiable"
+    fi
   elif [ "$_wall" -gt "$_bsec" ]; then
-    _r_warn "the lock edge can take ${_wall}s total ($_nall hooks x ${_per}s)"\
-" against lock-on-sleep's ${_bsec}s. The lock itself fits (${_wcrit}s), so the"\
-" screen locks; the unit can still be killed during report/verify, which costs"\
+    # INFO, not WARN, and the difference is deliberate. The LOCK fits, which is
+    # the guarantee; what can be cut short is the verification after it. On a
+    # normally-wired box the total exceeds the budget permanently (eight hooks
+    # at the default bound is 96s against 25s) and no realistic wiring clears
+    # it, so a warning here would be a line that is always on -- which is how a
+    # report teaches you to skip the line that matters.
+    _r_info "the lock edge can take ${_wall}s total ($_nall hooks x ${_per}s)"\
+" against lock-on-sleep's ${_bsec}s. The lock itself fits (${_wcrit}s), so"\
+" the screen locks; only a pathological run reaches this, and it would cost"\
 " the verification rather than the lock"
   else
     _r_ok "lock edge worst case ${_wall}s fits lock-on-sleep's ${_bsec}s"\
 " (${_ncrit} of $_nall hooks before the lock is done)"
+    if [ -z "$_ppos" ] && [ "$_nact" -gt 1 ]; then
+      _r_info "no hook in lock.d resolves into a providers/ directory, so the"\
+" figure above assumes every act hook precedes the lock"
+    fi
   fi
 }
 
