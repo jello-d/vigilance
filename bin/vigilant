@@ -240,12 +240,36 @@ _blocked() {   # edge from -> 0 if an explicit block was raised
   while IFS= read -r _bh; do
     if [ -z "$_bh" ]; then continue; fi
     _brc=0
-    _why=$(VIGILANCE_EDGE="$1" VIGILANCE_FROM="$2" \
-      "$_bh" "$1" "$2" 2>/dev/null) || _brc=$?
+    # BOUNDED, and this is the sharpest of the tiers to bound: block hooks run
+    # BEFORE the depth is committed and before any actuator sees the edge, so a
+    # hook that hangs here stops the lock earlier than one in lock.d does.
+    # Measured unbounded: `go lock` sat for as long as the hook did and the
+    # provider never ran.
+    #
+    # CAPTURED VIA A FILE, NOT `$(...)`, AND THAT IS THE LOAD-BEARING PART.
+    # A command substitution waits for the PIPE to close, not for the hook to
+    # exit. A hook that leaves a child holding stdout therefore blocks the
+    # substitution for as long as the CHILD lives, and the bound is simply not
+    # in force: measured at 21s against a 2s bound, with timeout(1) having
+    # correctly killed the hook at 4s. Writing to a file removes the pipe, so
+    # an orphan still writing afterwards delays nobody.
+    #
+    # It looks fine when the hook dies politely (2s, correct), which is exactly
+    # why it survived: the broken and the working case are indistinguishable
+    # unless the hook outlives its own children. The same shape applies to the
+    # due and audit tiers, which capture the same way.
+    mkdir -p "$RUN_DIR" 2>/dev/null || true
+    _bcf=$RUN_DIR/.block.$$
+    VIGILANCE_EDGE="$1" VIGILANCE_FROM="$2" \
+      $HOOK_TMO "$_bh" "$1" "$2" >"$_bcf" 2>/dev/null || _brc=$?
+    _why=$(cat "$_bcf" 2>/dev/null || true)
+    rm -f "$_bcf" 2>/dev/null || true
     case "$_brc" in
       10) log "BLOCKED $1 by $(basename "$_bh"): ${_why:-no reason given}"
           _hit=0 ;;
       0)  ;;
+      124|137)
+          log "block hook $(basename "$_bh") TIMED OUT; ALLOWING" ;;
       *)  log "block hook $(basename "$_bh") errored (rc=$_brc); ALLOWING" ;;
     esac
   done <<EOF
@@ -511,6 +535,17 @@ HOOK_TMO=
 if [ "$HOOK_TIMEOUT" != 0 ] && command -v timeout >/dev/null 2>&1; then
   # -k, or the bound is advisory: a hook ignoring SIGTERM must still die.
   HOOK_TMO="timeout -k 2 $HOOK_TIMEOUT"
+fi
+
+# The AUDIT tier gets its own, larger budget. It reads external event sources --
+# the shipped one runs journalctl over a day of records -- and a big journal
+# legitimately takes longer than anything on the lock path may. Nothing waits on
+# it (a daily timer), so latency is not what needs protecting here; only the
+# hang does.
+AUDIT_TIMEOUT=${VIGILANCE_AUDIT_TIMEOUT:-60}
+AUDIT_TMO=
+if [ "$AUDIT_TIMEOUT" != 0 ] && command -v timeout >/dev/null 2>&1; then
+  AUDIT_TMO="timeout -k 2 $AUDIT_TIMEOUT"
 fi
 
 _run_hooks() {   # edge from [suffix]
@@ -1273,6 +1308,100 @@ _rep_machinery() {
 # and a permission bit answers the question without touching the device. A
 # node that does not EXIST is n/a, not drift -- a desktop has no panel
 # backlight and no hook should care.
+# THE EDGE BUDGET: hooks x bound, against the unit's own timeout.
+#
+# Two numbers in two different files that must relate, and nothing related them.
+# lock-on-sleep.service is a system oneshot with TimeoutStartSec=25, covering
+# BOTH its ExecStart (`go lock`) and its ExecStartPost (`verify lock`).
+#
+# THE NUMBER THAT MATTERS IS NOT THE TOTAL, IT IS THE TIME BEFORE THE SCREEN IS
+# LOCKED. Hooks run in lexical order and the block tier runs before any of them,
+# so every hook ordered ahead of the provider is a hook that can delay the lock
+# itself. Measured on a live box: block `10-phantom` and act `20-mute-on-lock`
+# both precede `50-swaylock`, so at the 10s default the provider can start at
+# 24s of a 25s budget -- systemd then kills the unit mid-lock and logind
+# suspends anyway, because nothing can veto a suspend.
+#
+# The act tier is where the screen is locked, so (block + act) is the critical
+# span; report and verify run after and only risk the UNIT being killed once the
+# lock has already happened. They are reported separately for that reason.
+#
+# WORST CASE, not typical. The typical crossing is milliseconds; the only number
+# that can reach the timeout is the pathological one.
+#
+# A WARN, not a FAIL: the machine is working and its headroom is not. A correct
+# box turned red is how a report teaches you to stop reading it.
+# -> seconds, "" when there is legitimately nothing to check, or "?" when there
+# IS a value and this cannot read it. The three are deliberately distinct: an
+# absent unit is machinery's finding to report, but a timeout in a form this
+# does not understand means the check silently did nothing, which is the failure
+# mode the whole project is about. Conflating them hid exactly that.
+_rep_budget_secs() {
+  _bg=${VIGILANCE_SLEEP_BUDGET:-}
+  if [ -z "$_bg" ]; then
+    _bg=$(systemctl show lock-on-sleep.service -p TimeoutStartUSec --value \
+            2>/dev/null)
+  fi
+  case "$_bg" in
+    ""|infinity) return 0 ;;               # no unit, or no timeout to exceed
+    *s)          _bg=${_bg%s} ;;
+    *)           printf '?'; return 0 ;;
+  esac
+  case "$_bg" in
+    ''|*[!0-9]*) printf '?'; return 0 ;;   # "1min 30s" and friends
+  esac
+  printf '%s' "$_bg"
+}
+
+_rep_hookcount() {   # <suffix>... -> how many hooks across those tiers
+  _hc=0
+  for _hcs in "$@"; do
+    if [ "$_hcs" = act ]; then _hcs=""; fi
+    _hcl=$(_hooks_for lock "$_hcs")
+    if [ -n "$_hcl" ]; then
+      _hc=$((_hc + $(printf '%s\n' "$_hcl" | grep -c .)))
+    fi
+  done
+  printf '%s' "$_hc"
+}
+
+_rep_budget() {
+  _bsec=$(_rep_budget_secs)
+  if [ -z "$_bsec" ]; then return 0; fi   # machinery reports an absent unit
+  if [ "$_bsec" = "?" ]; then
+    _r_info "lock-on-sleep's start timeout is not a plain number of seconds,"\
+" so the lock edge's worst case is unchecked"
+    return 0
+  fi
+  # +2 for the SIGKILL grace: a hook ignoring SIGTERM costs the full bound plus
+  # the backstop before the traversal moves on.
+  _per=$((HOOK_TIMEOUT + 2))
+  _ncrit=$(_rep_hookcount .block act)
+  _nall=$(_rep_hookcount .block act .report .verify)
+  _wcrit=$((_ncrit * _per))
+  _wall=$((_nall * _per))
+
+  if [ "$_nall" -eq 0 ]; then
+    _r_info "no hooks on the lock edge, so nothing can spend its budget"
+    return 0
+  fi
+  if [ "$_wcrit" -gt "$_bsec" ]; then
+    _r_warn "the LOCK itself can take ${_wcrit}s ($_ncrit block+act hooks x"\
+" ${_per}s) against lock-on-sleep's ${_bsec}s. Hooks run in order, so anything"\
+" ahead of the provider delays the lock: if they hang, systemd kills the unit"\
+" mid-lock and logind suspends anyway. Order the provider FIRST, lower"\
+" VIGILANCE_HOOK_TIMEOUT, or drop a hook"
+  elif [ "$_wall" -gt "$_bsec" ]; then
+    _r_warn "the lock edge can take ${_wall}s total ($_nall hooks x ${_per}s)"\
+" against lock-on-sleep's ${_bsec}s. The lock itself fits (${_wcrit}s), so the"\
+" screen locks; the unit can still be killed during report/verify, which costs"\
+" the verification rather than the lock"
+  else
+    _r_ok "lock edge worst case ${_wall}s fits lock-on-sleep's ${_bsec}s"\
+" (${_ncrit} of $_nall hooks before the lock is done)"
+  fi
+}
+
 _rep_actuators() {
   echo "-- actuators --"
   _act_seen=0 _act_bad=0
@@ -1382,6 +1511,7 @@ cmd_report() {
   _rep_verify
   _rep_machinery
   _rep_actuators
+  _rep_budget
   _rep_wiring
   return "$RRC"
 }
@@ -1490,8 +1620,18 @@ _due_for() {   # edge from -> "seconds [anchor]", or empty for no opinion
   while IFS= read -r _dh; do
     if [ -z "$_dh" ]; then continue; fi
     _drc=0
-    _draw=$(VIGILANCE_EDGE="$1" VIGILANCE_FROM="$2" \
-      VIGILANCE_KIND=due "$_dh" "$1" "$2" 2>/dev/null) || _drc=$?
+    # Bounded: `enforce` runs this every minute forever, and a due hook that
+    # hangs wedges the supervision loop that exists to notice things not
+    # happening. These read a config file; they have no reason to be slow.
+    # Captured through a file rather than `$(...)` -- see _blocked for why a
+    # substitution silently defeats the bound.
+    mkdir -p "$RUN_DIR" 2>/dev/null || true
+    _dcf=$RUN_DIR/.due.$$
+    VIGILANCE_EDGE="$1" VIGILANCE_FROM="$2" \
+      VIGILANCE_KIND=due $HOOK_TMO "$_dh" "$1" "$2" >"$_dcf" 2>/dev/null \
+      || _drc=$?
+    _draw=$(cat "$_dcf" 2>/dev/null || true)
+    rm -f "$_dcf" 2>/dev/null || true
     # "No opinion" and "could not answer" are the same VERDICT here by contract
     # (a missing deadline must not alarm), but they are not the same EVENT, and
     # the record is where that distinction has to survive. A due hook that
@@ -1770,8 +1910,20 @@ cmd_audit() {
     _sd=$STATE_ROOT/$(basename "$_ah")
     mkdir -p "$_sd" 2>/dev/null || true
     _arc=0
-    _out=$(VIGILANCE_KIND=audit VIGILANCE_STATE_DIR="$_sd" \
-      PATH="$HOOK_PATH" "$_ah" 2>/dev/null) || _arc=$?
+    # Bounded, but on ITS OWN larger budget. An audit source reads an external
+    # event log -- the shipped one runs journalctl over a day of records -- and
+    # a big journal legitimately takes longer than anything on the lock path is
+    # allowed to. Sharing the edge bound would turn a healthy slow read into
+    # "audit BROKEN" and retire the forensic tier by crying wolf. Nothing waits
+    # on this: it is a daily timer, so latency is not the property to protect.
+    # Captured through a file rather than `$(...)`, for the reason spelled out
+    # in _blocked: a substitution waits on the pipe, so a source that leaves a
+    # child holding stdout would hold the tier open past its bound.
+    _acf=$RUN_DIR/.audit.$$
+    VIGILANCE_KIND=audit VIGILANCE_STATE_DIR="$_sd" \
+      PATH="$HOOK_PATH" $AUDIT_TMO "$_ah" >"$_acf" 2>/dev/null || _arc=$?
+    _out=$(cat "$_acf" 2>/dev/null || true)
+    rm -f "$_acf" 2>/dev/null || true
     # A BROKEN SOURCE IS NOT "NO EVENTS". This was a bare `|| continue`, so a
     # hook that could not read its source (no journal access, a renamed unit, a
     # parse error) left audit printing "nothing to reconcile" and exiting 0: a

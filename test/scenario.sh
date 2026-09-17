@@ -66,6 +66,13 @@ scenario_init() {   # <name>
   # difference it was not testing. Default to "a session exists" (the ordinary
   # case); the scenario that tests the no-session path sets it empty per call.
   export VIGILANCE_SESSION=1
+  # And the SLEEP UNIT'S BUDGET, which the edge-budget check compares the hook
+  # count against. Unset, it asks the real systemd what lock-on-sleep's
+  # TimeoutStartSec is -- a host read, and one that is absent entirely on a box
+  # where the unit was never installed, so the check would silently do nothing
+  # in the stub tier and something else again in the VM. Pinned to the value the
+  # shipped unit carries, so the arithmetic is the thing under test.
+  export VIGILANCE_SLEEP_BUDGET=25s
   mkdir -p "$VIGILANCE_SYS_BACKLIGHT" "$VIGILANCE_SYS_DRM" \
     "$VIGILANCE_SYS_LEDS"
   RECORD=$T/record

@@ -132,7 +132,17 @@ veto a suspend, so the box sleeps unlocked. Each hook therefore runs under
 `VIGILANCE_HOOK_TIMEOUT` (`0` disables). The same bound covers `alert.d`, which
 is reached from a hook failure: a notifier that hangs would otherwise block the
 very edge whose failure raised it. If `timeout(1)` is missing the bound is
-silently gone, so `vigilant report` warns.
+silently gone, so `vigilant report` warns. The `audit.d` tier has its own larger
+budget (`VIGILANCE_AUDIT_TIMEOUT`, 60s): it reads an external event log and is
+legitimately slower than anything on the lock path, and sharing the edge bound
+would retire the forensic tier by crying wolf.
+
+`report` also compares the **edge budget** against `lock-on-sleep.service`'s
+`TimeoutStartSec` -- two numbers in two files that must relate, with nothing
+else relating them. The number that matters is not the total but the time before
+the screen is *locked*: hooks run in lexical order and `block.d` runs before all
+of them, so anything ordered ahead of the provider delays the lock itself, while
+`report.d` and `verify.d` run after it and risk only the unit being killed.
 
 They also only apply in one direction. **A block may refuse to take the machine
 down; it may never refuse to bring it back up.** Refusing a descent is the

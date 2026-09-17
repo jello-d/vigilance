@@ -229,6 +229,42 @@ architecture forbids running one as a child. If
 is absent the bound is silently gone, so
 .B vigilant report
 warns.
+.PP
+The
+.I audit.d
+tier has its OWN, larger budget,
+.BR VIGILANCE_AUDIT_TIMEOUT " (60s)."
+An audit source reads an external event log \(em the shipped one runs
+.BR journalctl (1)
+over a day of records \(em and legitimately takes longer than anything on the
+lock path may. Sharing the edge bound would turn a healthy slow read into
+.B "audit BROKEN"
+and retire the forensic tier by crying wolf. Nothing waits on it, so latency is
+not the property being protected there; only the hang is.
+.SS The edge budget
+.B vigilant report
+compares the hooks wired on the
+.B lock
+edge against the time
+.I lock-on-sleep.service
+allows, because those are two numbers in two files that must relate and nothing
+else relates them.
+.PP
+The number that matters is not the total, it is the time before the screen is
+LOCKED. Hooks run in lexical order and
+.I block.d
+runs before all of them, so every hook ordered ahead of the lock provider can
+delay the lock itself; anything in
+.IR report.d " or " verify.d
+runs after the screen is already locked and risks only the unit being killed. So
+.B "(block + act)"
+is reported as the critical span and the total separately.
+.PP
+It WARNS rather than fails: what is wrong is the headroom, not the state, and a
+correct machine turned red is how a report stops being read. The remedies are to
+order the provider first, lower
+.BR VIGILANCE_HOOK_TIMEOUT ,
+or drop a hook.
 .SH EXIT STATUS
 .TP
 .B 0
