@@ -202,6 +202,7 @@ An integrator chooses which run on which edge, because that is policy:
     hooks/ddc-monitor      real screen-off over DDC/CI (VCP D6), modeset-safe
     hooks/dpms             re-assert outputs ON; never turns one off
     hooks/panel-backlight  the built-in panel backlight
+    hooks/lock-blank       paint the LOCK SURFACE black, and restore it
     hooks/kbd-backlight    the keyboard backlight (vendor LED, discovered)
     hooks/mute-leds        the mute / mic-mute indicator LEDs
     hooks/logind-hint      SetLockedHint, so the rest of the desktop knows
@@ -276,6 +277,17 @@ explicitly unblank. Hence:
   the panel itself, this hook is both REDUNDANT and INFERIOR -- same darkness,
   by a route a keypress cannot undo. Prefer the platform's mechanism and leave
   it unwired. It exists for the case where the platform cannot.
+- **`lock-blank` exists because nothing else can repaint a locked screen.**
+  Under `ext-session-lock` the lock surface renders above every layer-shell
+  layer, so no overlay can cover it, and on a panel with no DPMS standby the
+  hardware can only DIM -- measured on a QD-OLED, `VCP 10 = 0` is dim, not
+  black. So the locker has to do it, and swaylock is patched with a two-signal
+  interface (`SIGUSR2` blank, `SIGRTMIN` restore) carrying no timer and no
+  policy: WHEN to blank is this hook's business, driven by the ladder. On an
+  OLED a black pixel is an off pixel, so this is a real power-down of the
+  emitting surface without a power state the panel may not return from. It
+  changes what is drawn, never whether the session is locked.
+
 - **`ddc-monitor` is not redundant with anything, and cannot be undone by
   input.** It speaks I2C to the monitor's own scaler, which no compositor and
   no X server can do: DPMS drops the video signal and leaves the panel to

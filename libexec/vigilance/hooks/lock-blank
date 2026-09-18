@@ -1,0 +1,76 @@
+#!/bin/sh
+# lock-blank - paint the LOCK SURFACE black at a dark rung, restore it at a lit
+# one, by signalling the locker.
+#
+# WHY THIS EXISTS AND NOTHING ELSE CAN DO IT. Under ext-session-lock the lock
+# surface renders above every layer-shell layer, so no overlay can cover a
+# locked screen. The only things that can change what a locked display emits
+# are the locker itself, gamma control, and the monitor's own hardware. On a
+# panel with no DPMS standby (an OLED that advertises no D6=02) the hardware
+# path can only DIM -- measured on an AW2725Q: brightness 0 is dim, not black.
+#
+# So the locker has to repaint, and swaylock is patched with a two-signal
+# control interface for exactly that:
+#
+#     SIGUSR2   blank    paint the solid colour instead of the image
+#     SIGRTMIN  restore  paint the image again
+#
+# THE PATCH CARRIES NO POLICY. It has no timer and no options: WHEN to blank is
+# this hook's business, driven by the ladder, which is why the timer half of the
+# old patch was correctly retired. Wire this into sleep.d and wake.d and the
+# blank rides the same edges as every other peripheral.
+#
+# ON AN OLED A BLACK PIXEL IS AN OFF PIXEL, so this is a real power-down of the
+# emitting surface without touching a power state the panel may not return
+# from. Paired with ddc-monitor's brightness fallback, even the unlock indicator
+# is dimmed.
+#
+# NOT A SECURITY BOUNDARY. Blanking changes what is drawn, never whether the
+# session is locked; swaylock is still holding the lock and still wants the
+# password. A failure here costs a dark wallpaper, never access.
+set -eu
+
+_self=$(readlink -f "$0")
+. "$(dirname "$_self")/../hooklib.sh"
+
+edge=${1:-${VIGILANCE_EDGE:-}}
+_intent=$(hook_intent "$edge")
+case "$_intent" in
+  dark|lit) ;;
+  *)        exit 0 ;;
+esac
+
+LOCKER=${VIGILANCE_LOCKER:-swaylock}
+
+# NO LOCKER IS n/a, NOT FAILURE, and this is the common case rather than an
+# edge: a machine crosses `sleep` from an unlocked session all the time (the
+# display keybind, a manual `go sleep`), and a greeter has no locker at all.
+# There is simply no lock surface to repaint.
+if ! pgrep -x "$LOCKER" >/dev/null 2>&1; then
+  exit 0
+fi
+
+# VERIFY CANNOT SEE THE SURFACE. swaylock exposes no way to ask what it is
+# painting, so the honest answer is that this tier has nothing to assert: a
+# claim it cannot check would be exactly the false green this project exists to
+# catch. The ACT tier is idempotent (set_blanked is a no-op when already there),
+# so a re-assert costs nothing and is the real remedy.
+if [ "${VIGILANCE_KIND:-act}" = verify ]; then
+  exit 0
+fi
+
+if [ "$_intent" = dark ]; then _sig=USR2; else _sig=RTMIN; fi
+
+# pkill by NAME, because the locker is deliberately a SIBLING unit rather than
+# a child of this process (a locker in a oneshot's cgroup gets reaped with it,
+# which is how a frozen ext-session-lock happened once). There is no pid to
+# inherit, so the name is what we have.
+#
+# The patch resets these dispositions to SIG_IGN in swaylock's password-backend
+# CHILD precisely because this broadcast reaches it too; without that reset an
+# inherited handler would run in a process with no event loop.
+if ! pkill -"$_sig" -x "$LOCKER" 2>/dev/null; then
+  echo "lock-blank: could not signal $LOCKER ($_sig)" >&2
+  exit 1
+fi
+exit 0
