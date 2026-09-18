@@ -276,7 +276,15 @@ case "$*" in
             for _v in $_c; do echo "         $_v: x"; done
             echo "   Feature: DF (VCP Version)"; exit 0 ;;
   *getvcp*) exit 1 ;;                      # silent monitor
-  *setvcp*) exit 0 ;;
+  *setvcp*)
+    # RECORDS THE WRITE, like the main stub. Omitting it here made every
+    # _wrote check after this point read empty, so a later section reported
+    # "the monitor was never driven" about a stub that simply was not
+    # listening. A replacement fixture has to keep the observations the
+    # original one made.
+    printf '%s %s\n' "$_bus" "$(printf '%s' "$*" | awk '{print $NF}')" \
+      >> "$DDC_WRITES"
+    exit 0 ;;
 esac
 exit 0
 STUB
@@ -289,5 +297,46 @@ compliance; failing on it cries wolf about a display doing as it was told"
 _verify wake && fail "a monitor silent at a LIT rung was accepted. It was just
 commanded ON and will not speak, which is the precise shape of a panel that is
 dark with no way back" || :
+
+# --- 10. AN UNWRITABLE STATE DIR MUST NOT SUPPRESS THE ACTUATOR ------------
+# Found by running the hook for real with a state dir that could not be created.
+# This hook runs under `set -eu`, and the dark-record writes sit BEFORE the
+# loop, so the failed redirect aborted it outright: NEITHER monitor was driven,
+# and the edge simply looked like it had not worked.
+#
+# That is the bug _set_depth in bin/vigilant carries a comment about, one layer
+# out -- a failure to WRITE A FILE must never suppress the thing the edge exists
+# to do. A wrong record is a reporting problem; a monitor that never got its
+# command is the job not happening.
+export DDC_BUSES="4"
+export DDC_CAPS_4="01 02 03 04 05"
+VIGILANCE_STATE_DIR=$T/state/nonexistent/deeper/still
+export VIGILANCE_STATE_DIR
+# A FILE where the state dir's parent must be, so mkdir -p genuinely cannot
+# succeed. Without this the sandbox would happily create the tree and the case
+# would test nothing.
+mkdir -p "$T/blocked"
+: > "$T/blocked/parent"
+VIGILANCE_STATE_DIR=$T/blocked/parent/state
+export VIGILANCE_STATE_DIR
+
+: > "$DDC_WRITES"
+VIGILANCE_EDGE=sleep VIGILANCE_KIND=act sh "$HOOK" sleep 2>"$T/err" || _rc10=$?
+[ "$(_wrote 4)" = 02 ] || fail "an unwritable state dir stopped the monitor from
+being driven at all. Bookkeeping must never suppress the actuator: a wrong
+record is a reporting problem, a monitor that never got its command is the edge
+not happening"
+
+# ...and the blind watchdog is REPORTED, not swallowed. Without the record, a
+# monitor that goes dark and drops off DDC cannot be noticed on the way back --
+# the check silently gone, which is this project's signature failure.
+grep -q "cannot write" "$T/err" || fail "the hook could not keep its dark
+record and said nothing. The vanished-monitor check is then blind, and nothing
+anywhere says so"
+[ "${_rc10:-0}" != 0 ] || fail "the hook returned SUCCESS while unable to keep
+the record its own safety check depends on. stderr goes nowhere under a
+keybind, so the exit status is the only thing that carries this"
+
+VIGILANCE_STATE_DIR=$T/state; export VIGILANCE_STATE_DIR
 
 pass

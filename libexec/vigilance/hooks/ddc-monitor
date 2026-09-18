@@ -138,6 +138,37 @@ if [ "${VIGILANCE_KIND:-act}" = verify ]; then _verify=1; fi
 # never there -- UNLESS we wrote down that we put it to sleep. So we do.
 DARK_RECORD=${VIGILANCE_STATE_DIR:-/tmp}/dark-buses
 
+# BOOKKEEPING MUST NEVER SUPPRESS THE ACTUATOR. This hook runs under `set -eu`,
+# so a failed redirect aborts it outright -- and the record writes sit BEFORE
+# the loop, which meant a state directory that could not be created stopped
+# every monitor from being driven at all. Observed: a run where the state dir
+# was unwritable left both panels untouched while the edge looked like it had
+# simply not worked.
+#
+# That is the exact bug _set_depth in bin/vigilant carries a comment about, one
+# layer out: "a failure to WRITE A FILE" must not suppress the thing the edge
+# exists to do. A wrong record is a reporting problem; a monitor that never got
+# its command is the actual job not happening.
+#
+# So every write here is tolerant, and a record we could not keep is REPORTED
+# rather than swallowed: without it, a monitor that goes dark and drops off DDC
+# cannot be detected on the way back, which is the check silently gone.
+DARK_RECORD_OK=1
+_dark_record_reset() {
+  mkdir -p "$(dirname "$DARK_RECORD")" 2>/dev/null || true
+  # `true >`, NOT `: >`. `:` is a POSIX SPECIAL BUILTIN, and a redirection
+  # error on a special builtin makes the shell EXIT outright -- neither `if`
+  # nor `set -e` protects it. Measured: `if : > BAD/f; then` kills dash and is
+  # survived by bash, so this hook (#!/bin/sh -> dash here) died at the truncate
+  # while the same line would have looked fine under bash. `true` is a regular
+  # builtin and merely returns non-zero.
+  if true > "$DARK_RECORD" 2>/dev/null; then return 0; fi
+  DARK_RECORD_OK=
+  echo "ddc-monitor: cannot write $DARK_RECORD, so a monitor that goes dark"\
+" and drops off DDC will not be noticed on the way back" >&2
+  return 0
+}
+
 command -v ddcutil >/dev/null 2>&1 || exit 0
 
 # Map "i2c_bus" for every DDC/CI display. A laptop eDP appears in `ddcutil
@@ -184,13 +215,13 @@ if [ "$_intent" = lit ] && [ -f "$DARK_RECORD" ]; then
   # reporting clean, which is the failure mode this hook is fixing. A bus that
   # came back drops out, so a recovered monitor stops being mentioned.
   if [ "$_verify" != 1 ]; then
-    if [ -n "$_still" ]; then printf '%s' "$_still" > "$DARK_RECORD"
+    if [ -n "$_still" ]; then
+      printf '%s' "$_still" > "$DARK_RECORD" 2>/dev/null || true
     else rm -f "$DARK_RECORD" 2>/dev/null || true; fi
   fi
 fi
 if [ "$_intent" = dark ] && [ "$_verify" != 1 ]; then
-  mkdir -p "$(dirname "$DARK_RECORD")" 2>/dev/null || true
-  : > "$DARK_RECORD"
+  _dark_record_reset
 fi
 
 for _bus in $_map; do
@@ -244,9 +275,22 @@ for _bus in $_map; do
   elif [ "$_intent" = dark ]; then
     # Written only after the command was accepted, so the record holds what we
     # actually put to sleep rather than what we intended to.
-    printf '%s\n' "$_bus" >> "$DARK_RECORD"
+    # The `||` here is BELT AND BRACES and is deliberately not claimed as
+    # covered: the reset above already gates this, so the append can only fail
+    # from something changing mid-run. It stays because the failure it guards
+    # is a `set -e` abort in the middle of the loop -- the exact bug this whole
+    # block exists to fix -- and the cost of being wrong is monitors that never
+    # got their command.
+    if [ -n "$DARK_RECORD_OK" ]; then
+      printf '%s\n' "$_bus" >> "$DARK_RECORD" 2>/dev/null || DARK_RECORD_OK=
+    fi
   fi
 done
+
+# A record we could not keep leaves the vanished-monitor check blind, which is a
+# DEGRADED edge even though every monitor got its command. Reported through the
+# exit status, because stderr alone goes nowhere under a keybind.
+if [ -z "$DARK_RECORD_OK" ]; then _rc=1; fi
 
 # A non-zero exit is REPORTED, not swallowed. The runner names this hook and
 # carries on with the others: a monitor that will not sleep must not stop the
