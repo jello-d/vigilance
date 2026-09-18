@@ -279,6 +279,11 @@ _map=$(ddcutil detect --brief 2>/dev/null | awk '
 [ -n "$_map" ] || exit 0
 
 _rc=0
+# How many buses this run actually ASSERTED something about. A verify that
+# checked nothing -- every monitor skipped by policy, silent, or write-only --
+# must not report the same as one that confirmed every panel. See HOOK_NA in
+# bin/vigilant: exiting 78 is how the runner is told the difference.
+_checked=0
 
 # A MONITOR WE DROVE DARK THAT IS NO LONGER IN THE MAP IS DRIFT, NOT ABSENCE.
 # Checked at every LIT intent, before the loop, because by then it is precisely
@@ -341,8 +346,11 @@ for _bus in $_map; do
           _rc=1
         fi
       elif [ "$_intent" = dark ] && [ "$_now" != 0 ]; then
+        _checked=$((_checked + 1))
         echo "ddc-monitor: bus $_bus is at brightness $_now, expected 0" >&2
         _rc=1
+      elif [ "$_intent" = dark ]; then
+        _checked=$((_checked + 1))       # confirmed at 0
       elif [ "$_intent" = lit ] && [ -f "$_bs" ]; then
         # A save still outstanding at a LIT rung means the restore never
         # happened: the panel is dim and the level it should return to is
@@ -392,9 +400,12 @@ for _bus in $_map; do
       else
         echo "ddc-monitor: bus $_bus silent at a dark rung (expected)" >&2
       fi
-    elif [ "$_got" != "$_d6" ]; then
-      echo "ddc-monitor: bus $_bus is d6=$_got, expected $_d6" >&2
-      _rc=1
+    else
+      _checked=$((_checked + 1))
+      if [ "$_got" != "$_d6" ]; then
+        echo "ddc-monitor: bus $_bus is d6=$_got, expected $_d6" >&2
+        _rc=1
+      fi
     fi
     continue
   fi
@@ -415,6 +426,14 @@ done
 # DEGRADED edge even though every monitor got its command. Reported through the
 # exit status, because stderr alone goes nowhere under a keybind.
 if [ -z "$DARK_RECORD_OK" ]; then _rc=1; fi
+
+# A VERIFY THAT CHECKED NOTHING IS NOT A PASS. Every monitor skipped by policy,
+# silent at a dark rung, or driven with a write-only code: there is no verdict
+# here, and saying 0 would let it read as a confirmed screen. Exactly the state
+# a desktop with no DPMS standby was in while `verify sleep` reported OK.
+if [ "$_verify" = 1 ] && [ "$_rc" = 0 ] && [ "$_checked" = 0 ]; then
+  exit 78
+fi
 
 # A non-zero exit is REPORTED, not swallowed. The runner names this hook and
 # carries on with the others: a monitor that will not sleep must not stop the

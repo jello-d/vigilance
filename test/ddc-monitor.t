@@ -189,9 +189,16 @@ VIGILANCE_DDC_DEEP_OFF=1 VIGILANCE_EDGE=sleep VIGILANCE_KIND=act \
 monitor"
 [ "$(_wrote 6)" = 05 ] || fail "with the opt-in set, a monitor offering only 01
 and 05 was written '$(_wrote 6)'; 05 is the only off code it has"
-VIGILANCE_DDC_DEEP_OFF=1 _verify sleep || fail "verify reported drift for a
-write-only D6 value. It cannot be read back by definition, so this fails every
-verify on a monitor that is doing exactly as instructed"
+# 78 IS THE RIGHT ANSWER HERE, not 0. A write-only code cannot be read back by
+# definition, so this verify checked NOTHING -- and under the n/a contract that
+# is reported as n/a rather than as a confirmed panel. Returning 0 would put it
+# back to reading exactly like a monitor that was checked and found correct,
+# which is the conflation the contract exists to end.
+_vrc=0
+VIGILANCE_DDC_DEEP_OFF=1 _verify sleep || _vrc=$?
+[ "$_vrc" = 78 ] || fail "a verify that could check nothing (write-only D6=05)
+returned $_vrc, not 78. 0 would read as a confirmed panel; anything else would
+read as drift. Neither is true -- there was no verdict to give"
 
 # --- 5. a monitor with NO off value is LEFT ALONE -------------------------
 # Guessing a code at a panel that advertises none is how the original bug
@@ -277,9 +284,16 @@ unset DDC_STATE_4
 rm -f "$T/state/dark-buses"
 DDC_SILENT=1; export DDC_SILENT
 
-_verify sleep || fail "a monitor silent at a DARK rung was reported as drift.
-Several power states take the scaler down with the panel, so silence there is
-compliance; failing on it cries wolf about a display doing as it was told"
+# n/a (78), NOT a pass. Silence at a dark rung was always INFERRED compliance,
+# never an observation: a monitor whose scaler is down looks identical to one
+# that is unplugged or wedged. Under the n/a contract that inference stops
+# being laundered into a confirmed dark screen -- and it is still not drift,
+# because failing on it would cry wolf about a panel doing as it was told.
+_vrc=0
+_verify sleep || _vrc=$?
+[ "$_vrc" = 78 ] || fail "a monitor silent at a DARK rung returned $_vrc. 78 is
+the truth: we did not observe anything. 0 would launder silence into a
+confirmed dark screen, and non-zero would cry wolf at a compliant panel"
 
 _verify wake && fail "a monitor silent at a LIT rung was accepted. It was just
 commanded ON and will not speak, which is the precise shape of a panel that is

@@ -530,6 +530,27 @@ HOOK_PATH=${VIGILANCE_HOOK_PATH:-${XDG_BIN_HOME:-$HOME/.local/bin}:$HOME/bin:\
 # this enforces that rule rather than fighting it.
 #
 # VIGILANCE_HOOK_TIMEOUT=0 disables it, for debugging a hook interactively.
+# "I COULDN'T LOOK" IS NOT "I LOOKED AND IT'S FINE", and conflating them is the
+# single shape behind almost every defect this suite has found.
+#
+# Exit 0 used to mean BOTH "I did the work" and "not applicable here", so
+# nothing downstream could tell them apart. Measured consequence: on a desktop
+# whose monitor has no DPMS standby and no sysfs backlight, `verify sleep` said
+# OK while BOTH of its screen checkers had quietly declined -- ddc-monitor
+# because the panel advertises no off code, panel-backlight because there is no
+# such device. The screen was verified by nothing and the tier whose whole job
+# is to catch that reported green.
+#
+# So a hook may now say NOT APPLICABLE with exit 78, and the runner counts it
+# apart from both success and failure. 78 is sysexits' EX_CONFIG: unusual
+# enough not to collide with a real failure, and it already means "this is not
+# configured for me".
+#
+# BACKWARD COMPATIBLE BY CONSTRUCTION: a hook that does not use it exits 0 and
+# is counted as having CHECKED, exactly as before. The signal only ever adds
+# information; it never turns a working integration into a failing one.
+HOOK_NA=78
+
 HOOK_TIMEOUT=${VIGILANCE_HOOK_TIMEOUT:-10}
 HOOK_TMO=
 if [ "$HOOK_TIMEOUT" != 0 ] && command -v timeout >/dev/null 2>&1; then
@@ -551,6 +572,12 @@ fi
 _run_hooks() {   # edge from [suffix]
   _edge=$1; _from=$2; _sfx=${3:-}
   _list=$(_hooks_for "$_edge" "$_sfx")
+  # Counters are globals so a caller can ask what actually happened rather than
+  # only whether anything failed. Reset per call: a stale count would be a
+  # claim about a previous edge.
+  HOOKS_CHECKED=0
+  HOOKS_NA=0
+  HOOKS_NA_NAMES=
   if [ -z "$_list" ]; then return 0; fi
   _fails=0
   while IFS= read -r _h; do
@@ -569,6 +596,17 @@ _run_hooks() {   # edge from [suffix]
       PATH="$HOOK_PATH" \
       VIGILANCE_STATE_DIR="$_sd" \
       $HOOK_TMO "$_h" "$_edge" "$_from" || _hrc=$?
+    if [ "$_hrc" = "$HOOK_NA" ]; then
+      # NOT APPLICABLE. Not a failure -- there is genuinely nothing here for
+      # this hook to do -- but emphatically not a success either, and the
+      # difference is what `verify` reports.
+      HOOKS_NA=$((HOOKS_NA + 1))
+      HOOKS_NA_NAMES="$HOOKS_NA_NAMES $(basename "$_h")"
+      continue
+    fi
+    if [ "$_hrc" -eq 0 ]; then
+      HOOKS_CHECKED=$((HOOKS_CHECKED + 1))
+    fi
     if [ "$_hrc" -ne 0 ]; then
       # 124 is timeout(1) saying it fired; 137 is the -k SIGKILL after a hook
       # that ignored the TERM. Named apart from an ordinary failure because the
@@ -917,7 +955,26 @@ cmd_verify() {   # [edge]
     if [ -n "$(_hooks_for "$_e" .verify)" ]; then
       _ran=1
       if _run_hooks "$_e" "$_from" .verify; then
-        echo "verify $_e: ok"
+        # SAY WHAT WAS ACTUALLY CHECKED. "ok" alone answers a question nobody
+        # asked: a tier where every hook DECLINED reads identically to one
+        # where every hook CONFIRMED. Naming the n/a hooks is what makes
+        # "nothing looked at the screen" visible at a glance.
+        if [ "${HOOKS_CHECKED:-0}" -eq 0 ]; then
+          # NOTHING COULD BE CHECKED, so this is not a verdict about the
+          # machine at all -- it is the absence of one, and it must not read as
+          # success. Exactly the state a desktop with no DPMS standby and no
+          # sysfs backlight was in while `verify sleep` said OK and a lit
+          # wallpaper sat on an OLED.
+          echo "verify $_e: NOTHING CHECKED -- ${HOOKS_NA:-0} hook(s) all"\
+" declined (${HOOKS_NA_NAMES# }). This edge has no working verifier, so its"\
+" state is unknown rather than good"
+          _vrc=1
+        elif [ "${HOOKS_NA:-0}" -gt 0 ]; then
+          echo "verify $_e: ok ($HOOKS_CHECKED checked, $HOOKS_NA n/a:"\
+" ${HOOKS_NA_NAMES# })"
+        else
+          echo "verify $_e: ok ($HOOKS_CHECKED checked)"
+        fi
       else
         echo "verify $_e: FAIL"
         _vrc=1
@@ -1142,10 +1199,21 @@ _rep_verify() {
     _r_info "verify n/a: nothing was asserted, so there is nothing to check"
   else
     _vout=$(cmd_verify 2>&1) && _vrc2=0 || _vrc2=1
+    # FOUR OUTCOMES, and they are not interchangeable. The old matcher looked
+    # for the substring "n/a" anywhere, which now also appears in a perfectly
+    # healthy "ok (3 checked, 1 n/a: ...)" -- so it has to match the SPECIFIC
+    # claims instead of a word that shows up in several of them.
     case "$_vout" in
-      *"n/a"*) _r_warn "$_vout" ;;
-      *) if [ "$_vrc2" = 0 ]; then _r_ok "${_vout:-verify clean}"
-         else _r_bad "verify reports drift: $_vout"; fi ;;
+      *"NOTHING CHECKED"*)
+        # Every wired hook declined. Not drift -- there is no verdict at all,
+        # which is worse than drift because it reads as calm.
+        _r_bad "$_vout" ;;
+      *"verify: n/a"*)
+        # No verify hooks for this edge: a wiring gap, not a machine fault.
+        _r_warn "$_vout" ;;
+      *)
+        if [ "$_vrc2" = 0 ]; then _r_ok "${_vout:-verify clean}"
+        else _r_bad "verify reports drift: $_vout"; fi ;;
     esac
   fi
 

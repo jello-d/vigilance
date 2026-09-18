@@ -301,6 +301,28 @@ it silently invisible to the ascent that should have woken it.
 .B 0
 Ok, including a no-op.
 .TP
+.B 78
+NOT APPLICABLE \(em a hook saying "there is nothing here for me to do". Distinct
+from 0 on purpose: exit 0 means BOTH "I did the work" and "not applicable",
+so nothing downstream can tell a tier where every hook CONFIRMED from one where
+every hook DECLINED. Measured consequence: on a desktop whose monitor has no
+DPMS standby and which has no sysfs backlight, both screen verifiers quietly
+declined and
+.B "verify sleep"
+reported OK \(em the screen was checked by nothing while the tier that exists to
+catch that reported green.
+.IP
+The runner counts these apart from success and failure.
+.B verify
+names them ("ok (3 checked, 1 n/a: panel-backlight)") and reports an edge where
+EVERY hook declined as
+.BR "NOTHING CHECKED" ,
+which is a FAIL: the state is unknown rather than good. An n/a raises no alert
+and does not degrade a crossing.
+.IP
+Using it is OPTIONAL. A hook that exits 0 is counted as having checked, exactly
+as before, so no existing integration changes behaviour.
+.TP
 .B 1
 Crossed, but one or more hooks failed (degraded, but it moved).
 .TP

@@ -104,8 +104,15 @@ _run wake || fail "the ascent FAILED with no panel backlight present"
 [ ! -s "$T/touched" ] || fail "the ascent reached a LEDS device"
 
 # --- 3. verify says n/a as well, rather than reporting drift ---------------
-_run lock verify || fail "verify reported drift about a panel backlight that
-does not exist on this machine"
+# 78 (n/a), NOT 0. There is no panel backlight here, so this verifier checked
+# NOTHING -- and exiting 0 for that is precisely what let an edge where every
+# screen checker had declined read exactly like one where every check passed.
+_vrc=0
+_run lock verify || _vrc=$?
+[ "$_vrc" = 78 ] || fail "a verifier with no device to check returned $_vrc,
+not 78. 0 would launder 'I could not look' into 'I looked and it is fine',
+which is the conflation the n/a contract exists to end; non-zero would cry wolf
+about hardware this machine does not have"
 
 # --- 4. WITH a panel backlight, it still does its job ----------------------
 # The fix must scope the hook, not disable it. Without this, "never touch
@@ -133,9 +140,16 @@ rm -f "$T/state/level"
 # passed until this loop existed.
 for _case in "sleep act" "wake act" "lock verify" "unlock verify"; do
   set -- $_case
-  _run "$1" "$2" \
-    || fail "the hook failed on the $1 edge ($2 tier) against a
-fallback-capable brightnessctl"
+  # 0 or 78 are both fine here: there is no backlight on this fixture, so a
+  # verify tier correctly declines (n/a) rather than confirming. What is being
+  # asserted below is that NO LEDS DEVICE WAS TOUCHED, whichever it returns.
+  _crc=0
+  _run "$1" "$2" || _crc=$?
+  case "$_crc" in
+    0|78) ;;
+    *) fail "the hook failed (rc=$_crc) on the $1 edge ($2 tier) against a
+fallback-capable brightnessctl" ;;
+  esac
   [ ! -s "$T/touched" ] || fail "reproduced the manifestor bug on the $1 edge
 ($2 tier): the hook fell through to the leds class and drove a keyboard LED.
 That is the failure that alerted on every wake for days, and it is per-tier --

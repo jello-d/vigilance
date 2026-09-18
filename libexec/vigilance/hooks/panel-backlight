@@ -63,6 +63,13 @@ if [ "$_intent" = none ]; then exit 0; fi
 BL="--class=backlight"
 
 if [ "${VIGILANCE_KIND:-act}" = verify ]; then
+  # NOT APPLICABLE, SAID OUT LOUD. A desktop has no panel backlight, so this
+  # verifier checks nothing -- and exiting 0 for that made a tier where every
+  # screen checker had declined read exactly like one where every check passed.
+  # 78 lets the runner count it apart from a real confirmation.
+  if ! brightnessctl $BL get >/dev/null 2>&1; then
+    exit 78
+  fi
   # shellcheck disable=SC2086
   hook_verify_level "$SAVE" "$_intent" $BL
   exit $?

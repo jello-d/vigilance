@@ -119,6 +119,19 @@ The verify tier is the one that earns the name. Without it an edge can log a
 clean crossing over hardware that never moved, which is exactly how a monitor
 once sat dark for two days behind a green light.
 
+A hook may exit **78** to say **not applicable** -- "there is nothing here for
+me to do". That is deliberately distinct from 0, because exit 0 means both "I
+did the work" and "not applicable", and nothing downstream can then tell a tier
+where every hook *confirmed* from one where every hook *declined*. On a desktop
+whose monitor has no DPMS standby and which has no panel backlight, both screen
+verifiers declined and `verify sleep` said OK: the screen was checked by
+nothing, and the tier that exists to catch exactly that reported green.
+
+So `verify` now names them -- `ok (3 checked, 1 n/a: panel-backlight)` -- and an
+edge where *every* hook declined is reported as `NOTHING CHECKED`, a FAIL: the
+state is unknown rather than good. Using 78 is optional; a hook that exits 0 is
+counted as having checked, so nothing existing changes behaviour.
+
 `block` hooks **fail open** by design: only an explicit exit 10 blocks an edge.
 A broken block hook must never be able to suppress a lock, because suppressing
 a lock is a security failure while allowing a redundant one is merely noise.
