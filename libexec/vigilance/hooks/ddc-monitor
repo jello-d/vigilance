@@ -89,31 +89,125 @@ esac
 # the whole pass stays around 2s against a 10s hook bound -- and a cached value
 # that outlives a monitor swap would write the wrong code at exactly the moment
 # the hardware changed, which is the failure this is fixing.
-_dark_value() {   # bus -> best supported off value, or "" if none
-  _caps=$(ddcutil --bus "$1" capabilities 2>/dev/null \
+# HOW to darken this bus, not merely which D6 code. A monitor either implements
+# DPMS standby or it does not, and those two answers need DIFFERENT MECHANISMS,
+# so the choice belongs here -- in one place, in one hook.
+#
+#   power:<code>  VCP D6, a real power state. Only 02 (standby) by default: it
+#                 is the one state that keeps the scaler listening.
+#   bright        VCP 10 (Luminance) driven to 0. NOT a power state, so it
+#                 triggers no OLED pixel-refresh and cannot wedge the panel.
+#                 The fallback for a monitor with no shallow standby -- exactly
+#                 what panel-backlight does for a laptop eDP, over DDC rather
+#                 than sysfs.
+#   (empty)       nothing this monitor can do; leave it on and say so.
+#
+# ONE HOOK, NOT TWO. A separate brightness hook would run its own `ddcutil
+# detect` over the same bus, split the save/restore state across two records,
+# and leave `verify` with two answers to "is this monitor dark". The methods are
+# mutually exclusive by capability, so they are one decision, not two.
+_dark_method() {   # bus -> "power:<code>" | "bright" | ""
+  _caps=$(ddcutil --bus "$1" capabilities 2>/dev/null)
+  _d6v=$(printf '%s\n' "$_caps" \
     | awk '/Feature: D6/ { f = 1; next }
            f && /^[[:space:]]*Feature:/ { f = 0 }
            f && /^[[:space:]]*[0-9A-Fa-f][0-9A-Fa-f]:/ {
              v = $1; sub(":", "", v); printf "%s ", tolower(v) }')
-  case " $_caps " in *" 02 "*) printf '02'; return 0 ;; esac
+  case " $_d6v " in *" 02 "*) printf 'power:02'; return 0 ;; esac
   if [ -n "${VIGILANCE_DDC_DEEP_OFF:-}" ]; then
     for _want in 03 04 05; do
-      case " $_caps " in *" $_want "*) printf '%s' "$_want"; return 0 ;; esac
+      case " $_d6v " in
+        *" $_want "*) printf 'power:%s' "$_want"; return 0 ;;
+      esac
     done
+  fi
+  if printf '%s\n' "$_caps" | grep -q "Feature: 10"; then
+    printf 'bright'; return 0
   fi
   return 0
 }
 
-# Why a bus is being skipped, so the report is actionable rather than mute.
+# WHY a bus is being left on, distinguishing the two very different cases. One
+# has a remedy the operator can choose; the other has none, and saying "set
+# VIGILANCE_DDC_DEEP_OFF" to someone whose panel offers no off codes at all
+# would be advice that cannot work.
 _no_dark_reason() {   # bus
-  _caps=$(ddcutil --bus "$1" capabilities 2>/dev/null | grep -c "Feature: D6")
-  if [ "$_caps" = 0 ]; then
-    printf 'it advertises no D6 power control at all'
-  else
-    printf 'it offers no DPMS STANDBY (02), only deeper off states with no'
-    printf ' guaranteed DDC wake channel. Set VIGILANCE_DDC_DEEP_OFF=1 only if'
-    printf ' you have verified this panel still answers DDC when off'
+  _nc=$(ddcutil --bus "$1" capabilities 2>/dev/null \
+    | awk '/Feature: D6/ { f = 1; next }
+           f && /^[[:space:]]*Feature:/ { f = 0 }
+           f && /^[[:space:]]*[0-9A-Fa-f][0-9A-Fa-f]:/ {
+             v = $1; sub(":", "", v); printf "%s ", tolower(v) }')
+  case " $_nc " in
+    *" 03 "*|*" 04 "*|*" 05 "*)
+      printf 'it offers no DPMS STANDBY (02) and no brightness control (VCP'
+      printf ' 10), only deeper off states with no guaranteed DDC wake channel.'
+      printf ' Set VIGILANCE_DDC_DEEP_OFF=1 only if you have verified this'
+      printf ' panel still answers DDC when off' ;;
+    *)
+      printf 'it advertises no D6 power control and no brightness control (VCP'
+      printf ' 10), so there is nothing to drive' ;;
+  esac
+}
+
+# --- the brightness fallback, with hooklib's save/restore discipline --------
+# Not hooklib itself: those helpers are brightnessctl-specific. The RULES are
+# reproduced deliberately, because each of them was paid for once already.
+_bright_save() { printf '%s/bright-%s' "${VIGILANCE_STATE_DIR:-/tmp}" "$1"; }
+
+_bright_get() {   # bus -> current luminance, or empty
+  ddcutil --bus "$1" getvcp 10 2>/dev/null \
+    | sed -n 's/.*current value = *\([0-9]*\).*/\1/p'
+}
+
+_bright_dark() {   # bus
+  _bs=$(_bright_save "$1")
+  # SAVE ONCE. This runs on `sleep` and again on `resume`; a second save would
+  # record the 0 just set, and restoring THAT leaves the panel black with the
+  # operator convinced the monitor died.
+  if [ -f "$_bs" ]; then return 0; fi
+  _cur=$(_bright_get "$1")
+  case "${_cur:-}" in
+    ''|*[!0-9]*)
+      echo "ddc-monitor: bus $1 would not report brightness; not dimming" >&2
+      return 0 ;;
+  esac
+  mkdir -p "$(dirname "$_bs")" 2>/dev/null || true
+  if ! printf '%s\n' "$_cur" > "$_bs" 2>/dev/null; then
+    echo "ddc-monitor: bus $1 cannot record its brightness; not dimming" >&2
+    return 1
   fi
+  if ! ddcutil --bus "$1" --noverify setvcp 10 0 >/dev/null 2>&1; then
+    rm -f "$_bs" 2>/dev/null || true
+    echo "ddc-monitor: bus $1 refused the dim to 0" >&2
+    return 1
+  fi
+  return 0
+}
+
+_bright_lit() {   # bus
+  _bs=$(_bright_save "$1")
+  if [ ! -f "$_bs" ]; then return 0; fi          # nobody dimmed it
+  _want=$(cat "$_bs" 2>/dev/null || true)
+  case "${_want:-}" in
+    ''|*[!0-9]*)
+      echo "ddc-monitor: bus $1 saved brightness '$_want' is not a number" >&2
+      return 1 ;;
+  esac
+  # An UNREADABLE monitor is n/a, not a failed restore -- the distinction
+  # hook_lit draws. Keeping a save for a panel that is gone fails every ascent
+  # forever, and the descent cannot clear it because _bright_dark
+  # short-circuits on the file existing.
+  if [ -z "$(_bright_get "$1")" ]; then
+    rm -f "$_bs" 2>/dev/null || true
+    return 0
+  fi
+  if ! ddcutil --bus "$1" --noverify setvcp 10 "$_want" >/dev/null 2>&1; then
+    echo "ddc-monitor: bus $1 would not return to brightness $_want; keeping"\
+" the record so the level is not lost" >&2
+    return 1
+  fi
+  rm -f "$_bs" 2>/dev/null || true
+  return 0
 }
 
 # VERIFY reads VCP D6 back instead of writing it. This is precisely the check
@@ -225,17 +319,57 @@ if [ "$_intent" = dark ] && [ "$_verify" != 1 ]; then
 fi
 
 for _bus in $_map; do
-  # Resolved per bus, by the same function on both tiers, so what verify
-  # expects is by construction what act wrote.
-  if [ "$_intent" = lit ]; then
-    _d6=01
-  else
-    _d6=$(_dark_value "$_bus")
-    if [ -z "$_d6" ]; then
-      echo "ddc-monitor: bus $_bus left on: $(_no_dark_reason "$_bus")" >&2
+  _meth=$(_dark_method "$_bus")
+  # A monitor we cannot darken is skipped ON THE WAY DOWN only. Going UP it
+  # still gets its 01: that write is cheap, universally implemented, and it is
+  # what recovers a panel something ELSE put to sleep -- its own button, a
+  # previous boot, a user poking the OSD. Skipping it on the ascent would have
+  # been a silent narrowing of what the lit intent means.
+  if [ -z "$_meth" ] && [ "$_intent" = dark ]; then
+    echo "ddc-monitor: bus $_bus left on: $(_no_dark_reason "$_bus")" >&2
+    continue
+  fi
+
+  # --- the brightness method, both tiers -----------------------------------
+  if [ "$_meth" = bright ]; then
+    if [ "$_verify" = 1 ]; then
+      _bs=$(_bright_save "$_bus")
+      _now=$(_bright_get "$_bus")
+      if [ -z "$_now" ]; then
+        if [ "$_intent" = lit ]; then
+          echo "ddc-monitor: bus $_bus commanded ON and will not answer" >&2
+          _rc=1
+        fi
+      elif [ "$_intent" = dark ] && [ "$_now" != 0 ]; then
+        echo "ddc-monitor: bus $_bus is at brightness $_now, expected 0" >&2
+        _rc=1
+      elif [ "$_intent" = lit ] && [ -f "$_bs" ]; then
+        # A save still outstanding at a LIT rung means the restore never
+        # happened: the panel is dim and the level it should return to is
+        # sitting in a file. Exactly hooklib's sharpest signal, per bus.
+        echo "ddc-monitor: bus $_bus holds a saved brightness at a lit rung,"\
+" so it was dimmed and never put back" >&2
+        _rc=1
+      fi
       continue
     fi
+    if [ "$_intent" = lit ]; then
+      _bright_lit "$_bus" || _rc=1
+    elif _bright_dark "$_bus"; then
+      if [ -n "$DARK_RECORD_OK" ]; then
+        printf '%s\n' "$_bus" >> "$DARK_RECORD" 2>/dev/null || DARK_RECORD_OK=
+      fi
+    else
+      _rc=1
+    fi
+    continue
   fi
+
+  # --- the power method ----------------------------------------------------
+  _d6=${_meth#power:}
+  if [ "$_intent" = lit ]; then _d6=01; fi
+  if [ -z "$_meth" ]; then _d6=01; fi     # ascent-only, per the note above
+
   if [ "$_verify" = 1 ]; then
     # 05 IS WRITE-ONLY BY SPEC, so it cannot be read back. Reporting drift
     # because a value is unreadable would fail every verify on a monitor that
@@ -244,20 +378,13 @@ for _bus in $_map; do
       echo "ddc-monitor: bus $_bus uses write-only D6=05; not readable" >&2
       continue
     fi
-    # sl=0xNN is the current power mode; 01 on, 02 standby.
     _got=$(ddcutil --bus "$_bus" getvcp d6 2>/dev/null \
       | sed -n 's/.*sl=0x0\([0-9]\).*/0\1/p')
     if [ -z "$_got" ]; then
-      # SILENCE MEANS DIFFERENT THINGS AT THE TWO ENDS OF THE LADDER, and
-      # treating them alike is what hid a dark monitor for an evening.
-      #
-      # At a DARK rung a monitor that will not answer is expected: several power
-      # states take the scaler down with the panel, so silence IS compliance.
-      # Failing there would cry wolf on a display doing as it was told.
-      #
-      # At a LIT rung it is the opposite. We just commanded this monitor ON and
-      # it will not speak, which is exactly the shape of a panel that is dark
-      # with no way back -- the failure this whole suite exists to catch.
+      # SILENCE MEANS OPPOSITE THINGS AT THE TWO ENDS OF THE LADDER. At a dark
+      # rung a monitor that will not answer is COMPLYING: several power states
+      # take the scaler down with the panel. At a lit rung the same silence is
+      # a panel that was told to come on and did not.
       if [ "$_intent" = lit ]; then
         echo "ddc-monitor: bus $_bus was commanded ON and does not answer;"\
 " it is unreachable over DDC and likely still dark" >&2
@@ -269,18 +396,15 @@ for _bus in $_map; do
       echo "ddc-monitor: bus $_bus is d6=$_got, expected $_d6" >&2
       _rc=1
     fi
-  elif ! ddcutil --bus "$_bus" --noverify setvcp d6 "$_d6" >/dev/null 2>&1; then
+    continue
+  fi
+
+  if ! ddcutil --bus "$_bus" --noverify setvcp d6 "$_d6" >/dev/null 2>&1; then
     echo "ddc-monitor: bus $_bus did not answer setvcp d6=$_d6" >&2
     _rc=1
   elif [ "$_intent" = dark ]; then
-    # Written only after the command was accepted, so the record holds what we
-    # actually put to sleep rather than what we intended to.
-    # The `||` here is BELT AND BRACES and is deliberately not claimed as
-    # covered: the reset above already gates this, so the append can only fail
-    # from something changing mid-run. It stays because the failure it guards
-    # is a `set -e` abort in the middle of the loop -- the exact bug this whole
-    # block exists to fix -- and the cost of being wrong is monitors that never
-    # got their command.
+    # The `||` is BELT AND BRACES and is deliberately not claimed as covered:
+    # the reset gates it, so it can only fire on a mid-run change.
     if [ -n "$DARK_RECORD_OK" ]; then
       printf '%s\n' "$_bus" >> "$DARK_RECORD" 2>/dev/null || DARK_RECORD_OK=
     fi

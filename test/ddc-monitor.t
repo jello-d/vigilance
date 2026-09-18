@@ -49,15 +49,33 @@ case "$*" in
     echo "   Feature: D6 (Power mode)"
     echo "      Values:"
     for _v in $_caps; do echo "         $_v: whatever"; done
+    # DDC_LUM_<bus> makes this panel advertise VCP 10, the brightness fallback.
+    eval "_lum=\${DDC_LUM_$_bus:-}"
+    if [ -n "$_lum" ]; then echo "   Feature: 10 (Brightness)"; fi
     echo "   Feature: DF (VCP Version)"
     exit 0 ;;
   *getvcp*)
+    # DDC_SILENT models a monitor whose scaler is down: it answers nothing.
+    # Expressed as a SWITCH on the one stub rather than by swapping in a second
+    # one -- a replacement fixture silently loses whatever the original could
+    # observe, which has now cost two debugging rounds in this file alone.
+    if [ -n "${DDC_SILENT:-}" ]; then exit 1; fi
+    case "$*" in
+      *" 10"*)
+        eval "_b=\${DDC_BRIGHT_$_bus:-}"
+        if [ -z "$_b" ]; then exit 1; fi
+        echo "VCP code 0x10 (Brightness): current value = $_b, max value = 100"
+        exit 0 ;;
+    esac
     eval "_cur=\${DDC_STATE_$_bus:-01}"
     echo "VCP code 0xd6 (Power mode): DPM: x (sl=0x$_cur)"
     exit 0 ;;
   *setvcp*)
-    printf '%s %s\n' "$_bus" "$(printf '%s' "$*" | awk '{print $NF}')" \
-      >> "$DDC_WRITES"
+    _val=$(printf '%s' "$*" | awk '{print $NF}')
+    case "$*" in
+      *" 10 "*) printf '%s lum=%s\n' "$_bus" "$_val" >> "$DDC_WRITES" ;;
+      *)        printf '%s %s\n' "$_bus" "$_val" >> "$DDC_WRITES" ;;
+    esac
     exit 0 ;;
 esac
 exit 0
@@ -256,40 +274,9 @@ ascent, so the next one would re-report a monitor that is demonstrably fine"
 export DDC_BUSES="4"
 export DDC_CAPS_4="01 02 03 04 05"
 unset DDC_STATE_4
-DDC_NOANSWER=1
-_act sleep >/dev/null 2>&1 || :
-
-# A dark rung, monitor silent: expected, not drift.
-cat > "$T/bin/ddcutil" <<'STUB'
-#!/bin/sh
-_bus=; _prev=
-for _a in "$@"; do
-  if [ "$_prev" = --bus ]; then _bus=$_a; fi
-  _prev=$_a
-done
-case "$*" in
-  *detect*) for _b in $DDC_BUSES; do
-              printf 'Display %s\n   I2C bus:  /dev/i2c-%s\n' "$_b" "$_b"
-            done; exit 0 ;;
-  *capabilities*) eval "_c=\${DDC_CAPS_$_bus:-}"
-            echo "   Feature: D6 (Power mode)"; echo "      Values:"
-            for _v in $_c; do echo "         $_v: x"; done
-            echo "   Feature: DF (VCP Version)"; exit 0 ;;
-  *getvcp*) exit 1 ;;                      # silent monitor
-  *setvcp*)
-    # RECORDS THE WRITE, like the main stub. Omitting it here made every
-    # _wrote check after this point read empty, so a later section reported
-    # "the monitor was never driven" about a stub that simply was not
-    # listening. A replacement fixture has to keep the observations the
-    # original one made.
-    printf '%s %s\n' "$_bus" "$(printf '%s' "$*" | awk '{print $NF}')" \
-      >> "$DDC_WRITES"
-    exit 0 ;;
-esac
-exit 0
-STUB
-chmod +x "$T/bin/ddcutil"
 rm -f "$T/state/dark-buses"
+DDC_SILENT=1; export DDC_SILENT
+
 _verify sleep || fail "a monitor silent at a DARK rung was reported as drift.
 Several power states take the scaler down with the panel, so silence there is
 compliance; failing on it cries wolf about a display doing as it was told"
@@ -297,6 +284,7 @@ compliance; failing on it cries wolf about a display doing as it was told"
 _verify wake && fail "a monitor silent at a LIT rung was accepted. It was just
 commanded ON and will not speak, which is the precise shape of a panel that is
 dark with no way back" || :
+DDC_SILENT=; export DDC_SILENT
 
 # --- 10. AN UNWRITABLE STATE DIR MUST NOT SUPPRESS THE ACTUATOR ------------
 # Found by running the hook for real with a state dir that could not be created.
@@ -338,5 +326,84 @@ the record its own safety check depends on. stderr goes nowhere under a
 keybind, so the exit status is the only thing that carries this"
 
 VIGILANCE_STATE_DIR=$T/state; export VIGILANCE_STATE_DIR
+
+# --- 11. THE BRIGHTNESS FALLBACK: darkening a panel with no shallow standby --
+# The gap this closes was found on a live box, by the screen simply not going
+# dark. manifestor's Dell advertises no D6=02, so the standby-only policy
+# correctly declines to power it down -- and `panel-backlight` is n/a because
+# an external monitor has no sysfs backlight device. Both hooks reported
+# themselves not-applicable, the edge returned 0, report stayed green, and a
+# static wallpaper sat on a QD-OLED indefinitely. A thing that cannot act
+# reporting clean, one more time.
+#
+# VCP 10 (Luminance) is NOT a power state. Driving it to 0 dims the panel
+# without any DPM transition, so it triggers no OLED pixel-refresh and cannot
+# wedge the scaler -- which is exactly why it is safe where D6 is not.
+#
+# IN THIS HOOK, NOT A SECOND ONE: two hooks on the same bus would each run their
+# own detect, split the save/restore record, and give `verify` two answers to
+# "is this monitor dark".
+export DDC_BUSES="5"
+export DDC_CAPS_5="01 04 05"            # no 02: power is off the table
+export DDC_LUM_5=1                      # but it DOES advertise VCP 10
+export DDC_BRIGHT_5=75
+rm -f "$T/state/bright-5" "$T/state/dark-buses"
+
+_act sleep || fail "the brightness fallback errored on the descent"
+grep -q "^5 lum=0$" "$DDC_WRITES" || fail "a panel with no shallow standby and
+working brightness control was not dimmed. Nothing else on such a box can
+darken it: ddc-monitor declines the power state and panel-backlight has no
+sysfs device, so without this the screen simply stays lit"
+grep -q "^5 02$" "$DDC_WRITES" && fail "the fallback still wrote a D6 power
+state; the whole point is that this panel must not be power-cycled" || :
+
+# The level it was at must be RECORDED, or the ascent has nothing to restore to
+# and the operator finds their monitor at brightness 0 convinced it is broken.
+[ "$(cat "$T/state/bright-5" 2>/dev/null)" = 75 ] \
+  || fail "the pre-dim brightness was not saved (got
+'$(cat "$T/state/bright-5" 2>/dev/null)')"
+
+# --- 12. SAVE ONCE: a second descent must not record the 0 ------------------
+# This hook runs on `sleep` AND again on `resume`. Without the guard the second
+# save records the 0 just written, and restoring THAT leaves the panel black
+# with the operator convinced the monitor died. hooklib learned this the hard
+# way; the rule is reproduced here rather than assumed.
+export DDC_BRIGHT_5=0                   # the panel is now dim, as we left it
+_act sleep || fail "a second descent errored"
+[ "$(cat "$T/state/bright-5" 2>/dev/null)" = 75 ] \
+  || fail "a second descent overwrote the saved brightness with
+'$(cat "$T/state/bright-5" 2>/dev/null)'. Restoring that returns the panel to
+black and looks exactly like a dead monitor"
+
+# --- 13. and the ASCENT puts the level back --------------------------------
+_act wake || fail "the ascent errored"
+grep -q "^5 lum=75$" "$DDC_WRITES" || fail "the ascent did not restore the
+saved brightness; the panel stays dim and the level is stranded in a file"
+[ ! -f "$T/state/bright-5" ] || fail "the save survived a successful restore,
+so the next descent would refuse to save and the real level is lost"
+
+# --- 14. VERIFY sees the brightness, both directions -----------------------
+export DDC_BRIGHT_5=0
+_verify sleep || fail "verify called a dimmed panel drift at a dark rung"
+export DDC_BRIGHT_5=75
+_verify sleep && fail "verify passed a panel at full brightness as DARK" || :
+
+# A save outstanding at a LIT rung is the sharpest signal there is: something
+# dimmed the panel and never put it back.
+printf '60\n' > "$T/state/bright-5"
+export DDC_BRIGHT_5=0
+_verify wake && fail "verify passed a lit rung while a saved brightness was
+still outstanding -- the panel is dim and the level it should return to is
+sitting in a file" || :
+rm -f "$T/state/bright-5"
+
+# --- 15. a panel with NEITHER mechanism is still left alone ----------------
+# The fallback must not become a licence to guess. No 02, no VCP 10 -> nothing.
+export DDC_BUSES="7"
+export DDC_CAPS_7="01"
+unset DDC_LUM_7
+_act sleep || fail "the hook errored on a panel with no mechanism at all"
+[ -z "$(_wrote 7)" ] || fail "a panel advertising neither D6 standby nor VCP 10
+was written '$(_wrote 7)' anyway"
 
 pass
