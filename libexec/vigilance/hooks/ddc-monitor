@@ -57,8 +57,10 @@ esac
 #   HP E243     D6: 01 02 03 04 05
 #   Dell AW2725Q D6: 01 04 05          <-- no 02
 #
-# So the hardcoded 02 did nothing on the QD-OLED, which is the panel with the
-# burn-in cost and therefore the one most worth powering down.
+# The hardcoded 02 was WORSE than a no-op on the QD-OLED. Observed live: the
+# panel went dark at the `sleep` edge, stopped answering DDC entirely, and could
+# not be brought back -- `setvcp d6 01` returns "DDC communication failed", so
+# there is no wake channel left. It needed a power cycle at the monitor.
 #
 # Preference is least-disruptive first: 02 keeps the scaler warm and wakes
 # fastest, 04 is a full DPM off, 05 is a write-only off. A monitor advertising
@@ -87,6 +89,21 @@ _dark_value() {   # bus -> best supported off value, or "" if none
 _verify=0
 if [ "${VIGILANCE_KIND:-act}" = verify ]; then _verify=1; fi
 
+# WHAT WE DROVE DARK, remembered across the edge.
+#
+# THE TRAP THIS CLOSES, observed on manifestor. A monitor commanded into a power
+# state it does not implement stopped answering DDC. `ddcutil detect` then
+# reclassifies it from "Display N" to "Invalid display" -- and the map below
+# deliberately EXCLUDES invalid displays, because that is where a non-DDC eDP
+# panel lives. So the dark monitor DROPPED OUT OF THE MAP: the ascent never sent
+# it 01, verify never checked it, the hook returned 0 because the one monitor it
+# could still see was fine, and every tier reported green with a panel dark and
+# nothing left to bring it back.
+#
+# A monitor that vanishes from the map is indistinguishable from one that was
+# never there -- UNLESS we wrote down that we put it to sleep. So we do.
+DARK_RECORD=${VIGILANCE_STATE_DIR:-/tmp}/dark-buses
+
 command -v ddcutil >/dev/null 2>&1 || exit 0
 
 # Map "i2c_bus" for every DDC/CI display. A laptop eDP appears in `ddcutil
@@ -103,6 +120,45 @@ _map=$(ddcutil detect --brief 2>/dev/null | awk '
 [ -n "$_map" ] || exit 0
 
 _rc=0
+
+# A MONITOR WE DROVE DARK THAT IS NO LONGER IN THE MAP IS DRIFT, NOT ABSENCE.
+# Checked at every LIT intent, before the loop, because by then it is precisely
+# the monitor the loop can no longer see.
+if [ "$_intent" = lit ] && [ -f "$DARK_RECORD" ]; then
+  # FLATTENED, because _map is newline-separated (one bus per awk print) and a
+  # `case` glob needs spaces around each entry to match one. Compared unflat it
+  # matched nothing and every restored monitor read as vanished -- a check that
+  # fires on the healthy path is worse than none, since it is the one people
+  # switch off.
+  _map_flat=" $(printf '%s ' $_map)"
+  _still=
+  while IFS= read -r _was; do
+    if [ -z "$_was" ]; then continue; fi
+    case "$_map_flat" in
+      *" $_was "*) continue ;;                 # back, and about to be lit
+    esac
+    echo "ddc-monitor: bus $_was was driven DARK and has now dropped off"\
+" DDC entirely. It cannot be woken over DDC and needs a power cycle at the"\
+" monitor: its D6 off code is not one this panel can return from" >&2
+    _rc=1
+    _still="$_still$_was
+"
+  done < "$DARK_RECORD"
+  # THE RECORD OUTLIVES A FAILED ASCENT, and only a still-missing bus stays in
+  # it. Clearing it here regardless would give the operator exactly ONE warning
+  # and then silence, while the panel stayed dark -- a thing that cannot report
+  # reporting clean, which is the failure mode this hook is fixing. A bus that
+  # came back drops out, so a recovered monitor stops being mentioned.
+  if [ "$_verify" != 1 ]; then
+    if [ -n "$_still" ]; then printf '%s' "$_still" > "$DARK_RECORD"
+    else rm -f "$DARK_RECORD" 2>/dev/null || true; fi
+  fi
+fi
+if [ "$_intent" = dark ] && [ "$_verify" != 1 ]; then
+  mkdir -p "$(dirname "$DARK_RECORD")" 2>/dev/null || true
+  : > "$DARK_RECORD"
+fi
+
 for _bus in $_map; do
   # Resolved per bus, by the same function on both tiers, so what verify
   # expects is by construction what act wrote.
@@ -127,10 +183,23 @@ for _bus in $_map; do
     _got=$(ddcutil --bus "$_bus" getvcp d6 2>/dev/null \
       | sed -n 's/.*sl=0x0\([0-9]\).*/0\1/p')
     if [ -z "$_got" ]; then
-      # A monitor that will not answer is NOT a verify failure: it may be
-      # unplugged or powered off at the wall, which is not drift we caused.
-      # Saying so is honest; failing would cry wolf on an absent display.
-      echo "ddc-monitor: bus $_bus did not answer getvcp d6 (absent?)" >&2
+      # SILENCE MEANS DIFFERENT THINGS AT THE TWO ENDS OF THE LADDER, and
+      # treating them alike is what hid a dark monitor for an evening.
+      #
+      # At a DARK rung a monitor that will not answer is expected: several power
+      # states take the scaler down with the panel, so silence IS compliance.
+      # Failing there would cry wolf on a display doing as it was told.
+      #
+      # At a LIT rung it is the opposite. We just commanded this monitor ON and
+      # it will not speak, which is exactly the shape of a panel that is dark
+      # with no way back -- the failure this whole suite exists to catch.
+      if [ "$_intent" = lit ]; then
+        echo "ddc-monitor: bus $_bus was commanded ON and does not answer;"\
+" it is unreachable over DDC and likely still dark" >&2
+        _rc=1
+      else
+        echo "ddc-monitor: bus $_bus silent at a dark rung (expected)" >&2
+      fi
     elif [ "$_got" != "$_d6" ]; then
       echo "ddc-monitor: bus $_bus is d6=$_got, expected $_d6" >&2
       _rc=1
@@ -138,6 +207,10 @@ for _bus in $_map; do
   elif ! ddcutil --bus "$_bus" --noverify setvcp d6 "$_d6" >/dev/null 2>&1; then
     echo "ddc-monitor: bus $_bus did not answer setvcp d6=$_d6" >&2
     _rc=1
+  elif [ "$_intent" = dark ]; then
+    # Written only after the command was accepted, so the record holds what we
+    # actually put to sleep rather than what we intended to.
+    printf '%s\n' "$_bus" >> "$DARK_RECORD"
   fi
 done
 

@@ -148,4 +148,95 @@ _act sleep || fail "one monitor with no off value failed the whole edge"
 [ "$(_wrote 4)" = 02 ] || fail "a usable monitor was skipped because another
 one on the same edge had nothing to write"
 
+# --- 7. THE LIVE FAILURE: a monitor driven dark that DROPS OFF DDC ----------
+# Observed on manifestor. The Dell was commanded into a power state it does not
+# implement, stopped answering DDC, and `ddcutil detect` reclassified it from
+# "Display N" to "Invalid display". The map EXCLUDES invalid displays -- that
+# exclusion exists so a non-DDC eDP panel is not driven -- so the dark monitor
+# DROPPED OUT OF THE MAP entirely.
+#
+# Everything downstream then agreed the machine was healthy: the ascent never
+# sent it 01, verify never checked it, and the hook returned 0 because the one
+# monitor it could still see was fine. One panel dark, nothing to bring it back,
+# and every tier green. That is the exact failure this suite exists to catch,
+# arriving through the one code path built to ignore a display.
+#
+# A vanished monitor is indistinguishable from one that was never there, UNLESS
+# we wrote down that we put it to sleep. So the dark intent records it.
+rm -f "$T/state/dark-buses"
+export DDC_BUSES="4 5"
+export DDC_CAPS_4="01 02 03 04 05"
+export DDC_CAPS_5="01 04 05"
+_act sleep || fail "setup: the dark edge failed"
+[ -f "$T/state/dark-buses" ] || fail "the dark edge did not record which buses
+it drove dark. Without that record a monitor that later vanishes cannot be told
+from one that was never present"
+
+# The Dell stops answering, so detect files it under "Invalid display" and the
+# map no longer contains it -- exactly what happened live.
+export DDC_BUSES="4"
+_act wake && fail "a monitor driven DARK vanished from the map and the ascent
+reported SUCCESS. That is one panel dark with nothing to bring it back, and
+every tier green -- the failure this whole project exists to prevent" || :
+
+# ...and it must say which bus, and that DDC cannot fix it. A reader who is
+# told only "something failed" still has to find the dark monitor themselves.
+# Called directly, not through _act: that helper redirects stderr into the
+# run-wide capture, so a `2>` on the call itself never sees the hook's output.
+: > "$DDC_WRITES"
+VIGILANCE_EDGE=wake VIGILANCE_KIND=act sh "$HOOK" wake 2>"$T/err" || :
+grep -q "bus 5" "$T/err" || fail "the vanished monitor was not named. A reader
+told only that something failed still has to find the dark panel themselves"
+grep -q "power cycle" "$T/err" || fail "the report did not say that DDC cannot
+recover it. Without that the operator retries the thing that cannot work"
+
+# --- 8. ...and the record CLEARS once the monitor is back ------------------
+# Otherwise the warning is permanent and becomes the line nobody reads.
+export DDC_BUSES="4 5"
+_act wake || fail "a monitor that came back was still reported as vanished"
+[ ! -f "$T/state/dark-buses" ] || fail "the dark record survived a successful
+ascent, so the next one would re-report a monitor that is demonstrably fine"
+
+# --- 9. SILENCE means opposite things at the two ends of the ladder --------
+# At a DARK rung a monitor that will not answer is COMPLYING: several power
+# states take the scaler down with the panel. At a LIT rung the same silence is
+# a panel that was told to come on and did not. Treating them alike is what let
+# an evening pass with one screen dark.
+export DDC_BUSES="4"
+export DDC_CAPS_4="01 02 03 04 05"
+unset DDC_STATE_4
+DDC_NOANSWER=1
+_act sleep >/dev/null 2>&1 || :
+
+# A dark rung, monitor silent: expected, not drift.
+cat > "$T/bin/ddcutil" <<'STUB'
+#!/bin/sh
+_bus=; _prev=
+for _a in "$@"; do
+  if [ "$_prev" = --bus ]; then _bus=$_a; fi
+  _prev=$_a
+done
+case "$*" in
+  *detect*) for _b in $DDC_BUSES; do
+              printf 'Display %s\n   I2C bus:  /dev/i2c-%s\n' "$_b" "$_b"
+            done; exit 0 ;;
+  *capabilities*) eval "_c=\${DDC_CAPS_$_bus:-}"
+            echo "   Feature: D6 (Power mode)"; echo "      Values:"
+            for _v in $_c; do echo "         $_v: x"; done
+            echo "   Feature: DF (VCP Version)"; exit 0 ;;
+  *getvcp*) exit 1 ;;                      # silent monitor
+  *setvcp*) exit 0 ;;
+esac
+exit 0
+STUB
+chmod +x "$T/bin/ddcutil"
+rm -f "$T/state/dark-buses"
+_verify sleep || fail "a monitor silent at a DARK rung was reported as drift.
+Several power states take the scaler down with the panel, so silence there is
+compliance; failing on it cries wolf about a display doing as it was told"
+
+_verify wake && fail "a monitor silent at a LIT rung was accepted. It was just
+commanded ON and will not speak, which is the precise shape of a panel that is
+dark with no way back" || :
+
 pass
