@@ -23,7 +23,7 @@ set -eu
 harness_init lock-blank
 
 HOOK=$HERE/libexec/vigilance/hooks/lock-blank
-mkdir -p "$T/bin"
+mkdir -p "$T/bin" "$T/state"
 
 cat > "$T/bin/pgrep" <<'EOF'
 #!/bin/sh
@@ -43,7 +43,8 @@ export LOCKER_UP=1 PKILL_FAIL=
 
 _run() {   # <edge> [kind]
   : > "$SIGNALS"
-  VIGILANCE_EDGE="$1" VIGILANCE_KIND="${2:-act}" sh "$HOOK" "$1" 2>>"$T/stderr"
+  VIGILANCE_EDGE="$1" VIGILANCE_KIND="${2:-act}" \
+    VIGILANCE_STATE_DIR="$T/state" sh "$HOOK" "$1" 2>>"$T/stderr"
 }
 _sent() { cat "$SIGNALS" 2>/dev/null; }
 
@@ -79,15 +80,90 @@ state -- it would alert on every such edge"
 [ -z "$(_sent)" ] || fail "a signal was sent with no locker running"
 LOCKER_UP=1; export LOCKER_UP
 
-# --- 4. VERIFY asserts NOTHING, deliberately --------------------------------
-# swaylock exposes no way to ask what it is painting. A verify tier that
-# "confirmed" the blank would be asserting something it cannot observe, which is
-# precisely the false green this project exists to catch. Saying nothing is the
-# honest answer; the act tier is idempotent, so re-asserting is the remedy.
-_run sleep verify || fail "the verify tier failed"
+# --- 4. VERIFY MEASURES THE PIXELS ------------------------------------------
+# swaylock exposes no way to ask what it is painting -- but the compositor can
+# see the surface, so a grab plus ImageMagick turns "is it black" into a number.
+# SANDBOXED through VIGILANCE_SCREEN_LUMA: without it this tier would measure
+# the DEVELOPER'S OWN SCREEN, which is the mistake behind seven past defects
+# here, arriving in the one hook whose job is to look at a display.
+VIGILANCE_SCREEN_LUMA=0; export VIGILANCE_SCREEN_LUMA
+_run sleep verify || fail "verify called a genuinely black surface drift"
 [ -z "$(_sent)" ] || fail "the verify tier SENT A SIGNAL. Verify must observe,
 not actuate: a tier that changes the thing it is checking cannot be trusted to
 report on it"
+
+# ...and a surface still EMITTING at a dark rung is the finding.
+VIGILANCE_SCREEN_LUMA=0.2665
+_run sleep verify && fail "verify passed a lock surface emitting light at a
+dark rung. That is a lit wallpaper burning into an OLED all night, which is the
+whole reason this hook exists" || :
+
+# THE ALPHA TRAP, pinned as a regression. ImageMagick's %[fx:mean] averages ALL
+# channels including alpha, so an opaque all-black frame reads 0.25 rather than
+# 0. The first version of this check called a pitch-black screen "not black"
+# for exactly that reason and contradicted a human looking at it. If the
+# measurement ever stops excluding alpha, 0.25 is what it will report -- so
+# 0.25 must read as EMITTING, and the fix is to measure with -alpha off.
+VIGILANCE_SCREEN_LUMA=0.25
+_run sleep verify && fail "verify accepted 0.25 as black. That is precisely
+what an opaque black frame reads when alpha is averaged in, so accepting it
+would restore the bug where a working blank measured as broken" || :
+VIGILANCE_SCREEN_LUMA=0; export VIGILANCE_SCREEN_LUMA
+
+# --- 4z. THE MEASUREMENT ITSELF, against a real image -----------------------
+# Everything above tests the THRESHOLD through VIGILANCE_SCREEN_LUMA, which
+# short-circuits the pipeline -- so the alpha handling, the thing that actually
+# produced a wrong verdict, would go untested. Here grim is stubbed to emit a
+# known opaque-black RGBA frame and the REAL magick measures it.
+#
+# The trap, reproduced exactly:
+#     -colorspace Gray            0.5   <- alpha averaged in
+#     -alpha off -colorspace Gray 0     <- the truth
+#
+# A screengrab always carries an alpha channel, so this is not a corner case;
+# it is what every capture looks like.
+if command -v magick >/dev/null 2>&1; then
+  unset VIGILANCE_SCREEN_LUMA
+  magick -size 8x8 xc:black -alpha set PNG32:"$T/black.png" 2>/dev/null
+  printf '#!/bin/sh\ncat %s\n' "$T/black.png" > "$T/bin/grim"
+  chmod +x "$T/bin/grim"
+  _run sleep verify || fail "the REAL measurement called an opaque all-black
+frame 'emitting'. That is the alpha channel being averaged into the mean, which
+reads 0.5 on a black RGBA frame -- the bug that made a pitch-black screen
+measure as lit and contradicted a human looking straight at it"
+  rm -f "$T/bin/grim"
+  VIGILANCE_SCREEN_LUMA=0; export VIGILANCE_SCREEN_LUMA
+fi
+
+# --- 4a. A CAPTURE THAT FAILS is n/a, not drift -----------------------------
+# A greeter, a tty, a session with no compositor: there is no display to grab.
+# Asserting about a surface we cannot see is precisely what this hook was
+# rewritten to stop doing, so an unmeasurable screen must say nothing.
+unset VIGILANCE_SCREEN_LUMA
+printf '#!/bin/sh\nexit 0\n' > "$T/bin/grim"      # succeeds, emits nothing
+printf '#!/bin/sh\nexit 0\n' > "$T/bin/magick"
+chmod +x "$T/bin/grim" "$T/bin/magick"
+_run sleep verify || fail "an unmeasurable screen was reported as drift. A
+greeter or a tty has no display to grab, and a hook that cannot see must not
+claim -- that is the whole reason this tier was rewritten"
+rm -f "$T/bin/grim" "$T/bin/magick"
+VIGILANCE_SCREEN_LUMA=0; export VIGILANCE_SCREEN_LUMA
+
+# --- 4b. a LIT rung is checked against the RECORD, not the pixels -----------
+# A legitimately dark wallpaper cannot be told from a stuck blank by looking,
+# and failing on that would cry wolf at anyone whose lock screen is black. What
+# IS unambiguous is our own marker surviving: we blanked and never restored.
+_run sleep                     # act: blank, marker dropped
+_run wake                      # act: restore, marker cleared
+_run wake verify || fail "verify flagged a lit rung after the restore had
+actually run. The marker was cleared, so there is nothing to report"
+
+# ...and a restore that never happened IS the finding.
+_run sleep                     # blank, marker dropped
+_run wake verify && fail "verify passed a lit rung with the blank marker still
+outstanding. We blanked and never restored, so the screen is black while the
+machine believes it is showing a prompt" || :
+_run wake                      # tidy up: clear the marker
 
 # --- 5. an edge with no darkness intent is a no-op --------------------------
 # `lock` is a LIT rung -- the screen is on, showing the locker. Blanking there

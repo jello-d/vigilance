@@ -50,13 +50,70 @@ if ! pgrep -x "$LOCKER" >/dev/null 2>&1; then
   exit 0
 fi
 
-# VERIFY CANNOT SEE THE SURFACE. swaylock exposes no way to ask what it is
-# painting, so the honest answer is that this tier has nothing to assert: a
-# claim it cannot check would be exactly the false green this project exists to
-# catch. The ACT tier is idempotent (set_blanked is a no-op when already there),
-# so a re-assert costs nothing and is the real remedy.
+MARK=${VIGILANCE_STATE_DIR:-/tmp}/blanked
+
+# VERIFY BY LOOKING AT THE PIXELS. swaylock exposes no way to ask what it is
+# painting -- but it is not the only thing that can see the surface. The
+# compositor can, through wlr-screencopy, and grim plus ImageMagick turn that
+# into a number. This is a measurement of what the display is ACTUALLY
+# EMITTING, not a proxy for it, which makes it the strongest verifier here.
+#
+# MEASURE WITH THE ALPHA CHANNEL OFF. `%[fx:mean]` averages ALL channels
+# including alpha, so an opaque all-black frame reads 0.25 rather than 0 -- the
+# alpha is 1.0 and gets averaged in. The first version of this check called a
+# genuinely pitch-black screen "not black" for exactly that reason, and
+# disagreed with a human looking straight at it. A measurement that contradicts
+# the eyes is usually the measurement.
+#
+# SAMPLE THE WHOLE SURFACE. A corner crop reads near-zero on a dark wallpaper
+# and would pass on a lit screen; the blank is a claim about the whole surface,
+# so `grim -s` downscales the whole thing rather than cropping part of it.
+# OVERRIDABLE, like every other host probe in this package. Without it a test
+# of this tier would measure the DEVELOPER'S OWN SCREEN -- the single mistake
+# that produced seven past defects here, arriving in the one hook whose whole
+# job is to look at a display.
+_luma() {   # -> mean luminance 0..1, or empty if it cannot be measured
+  if [ -n "${VIGILANCE_SCREEN_LUMA:-}" ]; then
+    printf '%s' "$VIGILANCE_SCREEN_LUMA"
+    return 0
+  fi
+  timeout 25 grim -s 0.05 - 2>/dev/null \
+    | timeout 25 magick - -alpha off -colorspace Gray -format '%[fx:mean]' \
+        info: 2>/dev/null
+}
+
 if [ "${VIGILANCE_KIND:-act}" = verify ]; then
-  exit 0
+  # A LIT rung is checked against the RECORD, not the pixels: a legitimately
+  # dark wallpaper is indistinguishable from a stuck blank, and failing on that
+  # would cry wolf at anyone whose lock screen happens to be black. What IS
+  # drift is our own marker surviving: we blanked and never restored.
+  if [ "$_intent" = lit ]; then
+    if [ -f "$MARK" ]; then
+      echo "lock-blank: the surface was blanked and never restored (marker"\
+" outstanding at a lit rung)" >&2
+      exit 1
+    fi
+    exit 0
+  fi
+  # A DARK rung IS checked against the pixels, because that is the claim.
+  if [ -z "${VIGILANCE_SCREEN_LUMA:-}" ] \
+     && { ! command -v grim >/dev/null 2>&1 \
+          || ! command -v magick >/dev/null 2>&1; }; then
+    exit 0                                  # nothing to measure with: n/a
+  fi
+  _l=$(_luma)
+  if [ -z "$_l" ]; then
+    # No capture is n/a rather than drift: a greeter or a tty has no display to
+    # grab, and asserting about a surface we cannot see is the thing this hook
+    # was rewritten to stop doing.
+    exit 0
+  fi
+  case "$_l" in
+    0|0.00*) exit 0 ;;                      # black, as claimed
+  esac
+  echo "lock-blank: the lock surface is emitting light at a dark rung (mean"\
+" luminance $_l, want ~0). The screen is not blank." >&2
+  exit 1
 fi
 
 if [ "$_intent" = dark ]; then _sig=USR2; else _sig=RTMIN; fi
@@ -72,5 +129,15 @@ if [ "$_intent" = dark ]; then _sig=USR2; else _sig=RTMIN; fi
 if ! pkill -"$_sig" -x "$LOCKER" 2>/dev/null; then
   echo "lock-blank: could not signal $LOCKER ($_sig)" >&2
   exit 1
+fi
+
+# The marker is what a LIT verify checks: a legitimately black wallpaper cannot
+# be told from a stuck blank by looking, but our own record of having blanked
+# and not restored is unambiguous.
+mkdir -p "$(dirname "$MARK")" 2>/dev/null || true
+if [ "$_intent" = dark ]; then
+  printf '%s\n' "$(date +%s)" > "$MARK" 2>/dev/null || true
+else
+  rm -f "$MARK" 2>/dev/null || true
 fi
 exit 0
