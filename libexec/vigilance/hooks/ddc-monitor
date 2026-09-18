@@ -62,9 +62,28 @@ esac
 # not be brought back -- `setvcp d6 01` returns "DDC communication failed", so
 # there is no wake channel left. It needed a power cycle at the monitor.
 #
-# Preference is least-disruptive first: 02 keeps the scaler warm and wakes
-# fastest, 04 is a full DPM off, 05 is a write-only off. A monitor advertising
-# none of them is left alone rather than guessed at.
+# ONLY 02, AND THAT IS THE WHOLE SAFETY RULE.
+#
+# D6 is not a scale of "more off", it is a set of states with different WAKE
+# CHANNELS. 02 is DPMS STANDBY: shallow, the scaler stays listening, and 01
+# brings it back. 03/04/05 are suspend, full off, and "turn off display" -- none
+# of them promises the monitor is still listening to I2C afterwards, and if it
+# is not there is NO WAY BACK over DDC.
+#
+# That is not theoretical. The Dell AW2725Q advertises 01/04/05 with NO 02 at
+# all, and when it was driven into an off state it stopped answering DDC
+# entirely: `setvcp d6 01` returned "DDC communication failed" and it needed a
+# power cycle at the monitor.
+#
+# So a panel that offers no shallow standby is a panel with no DDC-recoverable
+# off state, and the absence of 02 is itself the signal. Leave it alone and let
+# the compositor-side true-black cover it -- on an OLED, black genuinely is off.
+#
+# This is the ladder's own invariant applied to a peripheral: nothing may be put
+# into a dark state unless its way back is armed. A deeper code is available
+# with VIGILANCE_DDC_DEEP_OFF=1 for an operator who has VERIFIED on their own
+# hardware that the monitor still answers DDC there. Default off, because the
+# cost of being wrong is a dark panel and a walk to the power button.
 #
 # NOT CACHED. `capabilities` measured 310ms per bus, the same as a getvcp, so
 # the whole pass stays around 2s against a 10s hook bound -- and a cached value
@@ -76,10 +95,25 @@ _dark_value() {   # bus -> best supported off value, or "" if none
            f && /^[[:space:]]*Feature:/ { f = 0 }
            f && /^[[:space:]]*[0-9A-Fa-f][0-9A-Fa-f]:/ {
              v = $1; sub(":", "", v); printf "%s ", tolower(v) }')
-  for _want in 02 04 05; do
-    case " $_caps " in *" $_want "*) printf '%s' "$_want"; return 0 ;; esac
-  done
+  case " $_caps " in *" 02 "*) printf '02'; return 0 ;; esac
+  if [ -n "${VIGILANCE_DDC_DEEP_OFF:-}" ]; then
+    for _want in 03 04 05; do
+      case " $_caps " in *" $_want "*) printf '%s' "$_want"; return 0 ;; esac
+    done
+  fi
   return 0
+}
+
+# Why a bus is being skipped, so the report is actionable rather than mute.
+_no_dark_reason() {   # bus
+  _caps=$(ddcutil --bus "$1" capabilities 2>/dev/null | grep -c "Feature: D6")
+  if [ "$_caps" = 0 ]; then
+    printf 'it advertises no D6 power control at all'
+  else
+    printf 'it offers no DPMS STANDBY (02), only deeper off states with no'
+    printf ' guaranteed DDC wake channel. Set VIGILANCE_DDC_DEEP_OFF=1 only if'
+    printf ' you have verified this panel still answers DDC when off'
+  fi
 }
 
 # VERIFY reads VCP D6 back instead of writing it. This is precisely the check
@@ -167,7 +201,7 @@ for _bus in $_map; do
   else
     _d6=$(_dark_value "$_bus")
     if [ -z "$_d6" ]; then
-      echo "ddc-monitor: bus $_bus advertises no D6 off value; leaving it" >&2
+      echo "ddc-monitor: bus $_bus left on: $(_no_dark_reason "$_bus")" >&2
       continue
     fi
   fi

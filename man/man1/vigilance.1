@@ -265,6 +265,37 @@ correct machine turned red is how a report stops being read. The remedies are to
 order the provider first, lower
 .BR VIGILANCE_HOOK_TIMEOUT ,
 or drop a hook.
+.SS Monitor power, and why only standby
+The
+.I ddc\-monitor
+plugin powers displays down over DDC/MCCS VCP feature D6. It uses ONLY
+.B 02
+(DPMS standby), and only on a monitor that advertises it.
+.PP
+D6 is not a scale of "more off", it is a set of states with different WAKE
+CHANNELS. 02 is shallow: the scaler keeps listening and
+.B 01
+brings the panel back. 03, 04 and 05 are suspend, full off, and "turn off
+display"; none of them promises the monitor is still answering I2C afterwards,
+and if it is not there is NO WAY BACK over DDC.
+.PP
+Observed: a Dell AW2725Q advertising 01/04/05 and no 02 was driven into an off
+state, stopped answering DDC entirely, and needed a power cycle at the monitor.
+A panel offering no shallow standby therefore has no DDC\-recoverable off
+state, and the absence of 02 is itself the signal. Such a monitor is left on
+and the reason is reported; compositor\-side true black covers it, which on
+OLED genuinely is off.
+.PP
+.B VIGILANCE_DDC_DEEP_OFF=1
+permits 03/04/05 on panels lacking 02, for an operator who has VERIFIED on their
+own hardware that the monitor still answers DDC when off. It never overrides 02
+where that exists.
+.PP
+A monitor that WAS driven dark and then disappears from
+.BR ddcutil (1)
+detect is reported as drift rather than absence: a dark panel that stops
+answering DDC is reclassified as an invalid display, which would otherwise make
+it silently invisible to the ascent that should have woken it.
 .SH EXIT STATUS
 .TP
 .B 0

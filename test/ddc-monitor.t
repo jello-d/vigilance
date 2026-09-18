@@ -89,10 +89,40 @@ _act sleep || fail "the hook failed against two healthy monitors"
 [ "$(_wrote 4)" = 02 ] || fail "bus 4 advertises standby (02) and got
 '$(_wrote 4)'. Standby is preferred when offered: it keeps the scaler warm and
 wakes fastest"
-[ "$(_wrote 5)" = 04 ] || fail "bus 5 does NOT advertise 02 and was written
-'$(_wrote 5)'. This is the live bug: writing an unimplemented code is not an
-error the monitor reports -- setvcp --noverify returns 0 -- so the OLED stayed
-lit while the edge logged a clean crossing"
+# ...and bus 5 is LEFT ALONE. It offers no shallow standby, only deeper off
+# states, and none of those promises the monitor is still listening to I2C
+# afterwards. This exact panel proved it: driven off, it stopped answering DDC
+# and needed a power cycle. The absence of 02 IS the signal.
+[ -z "$(_wrote 5)" ] || fail "bus 5 offers no DPMS standby (02) and was written
+'$(_wrote 5)' anyway. Deeper D6 codes carry no guaranteed DDC wake channel, and
+this is the panel that proved it -- it stopped answering DDC entirely and needed
+a power cycle at the monitor. Nothing may be put into a dark state unless its
+way back is armed"
+
+# The skip must be EXPLAINED, or an operator sees one monitor sleeping and the
+# other not, with nothing saying why.
+: > "$DDC_WRITES"
+VIGILANCE_EDGE=sleep VIGILANCE_KIND=act sh "$HOOK" sleep 2>"$T/err" || :
+grep -q "bus 5" "$T/err" || fail "the skipped monitor was not named"
+grep -q "STANDBY" "$T/err" || fail "the reason for skipping was not given, so
+the operator cannot tell a deliberate policy from a broken monitor"
+grep -q "VIGILANCE_DDC_DEEP_OFF" "$T/err" || fail "the escape hatch was not
+named, so an operator who HAS verified their panel has no way to find it"
+
+# --- 1b. the DEEP-OFF opt-in, for hardware the operator has verified -------
+# The default is conservative because being wrong costs a walk to the power
+# button. An operator who has checked their own panel can still have it.
+: > "$DDC_WRITES"
+VIGILANCE_DDC_DEEP_OFF=1 VIGILANCE_EDGE=sleep VIGILANCE_KIND=act \
+  sh "$HOOK" sleep 2>>"$T/stderr" \
+  || fail "the deep-off opt-in errored"
+[ "$(_wrote 5)" = 04 ] || fail "with VIGILANCE_DDC_DEEP_OFF=1 the monitor was
+still not powered down; the opt-in does nothing and the operator has no way to
+use hardware they have verified"
+[ "$(_wrote 4)" = 02 ] || fail "the opt-in changed the value for a monitor that
+DOES offer standby. 02 is preferred whenever it exists: it is the only state
+with a guaranteed wake channel, so the opt-in must only affect panels without
+one"
 
 # --- 2. the ASCENT is 01 everywhere, which every monitor implements ---------
 _act wake || fail "the hook failed bringing the monitors back"
@@ -104,17 +134,19 @@ _act wake || fail "the hook failed bringing the monitors back"
 # dark value it would report drift on bus 5 forever, on a monitor that did
 # exactly as it was told -- and a verifier that cries wolf is one you stop
 # reading.
-export DDC_STATE_4=02 DDC_STATE_5=04
+export DDC_STATE_4=02 DDC_STATE_5=01
 _verify sleep || fail "verify reported drift on monitors sitting in precisely
-the state the act tier put them in. verify must resolve the expected value the
-same way act did, per bus"
+the state the act tier put them in. Bus 4 was told 02 and is at 02; bus 5 was
+deliberately NOT powered down, so it being ON is correct, not drift"
 
-# ...and it still catches a monitor that did NOT obey.
-export DDC_STATE_5=01
-_verify sleep && fail "verify passed a monitor still powered ON at the sleep
-rung. Loosening the comparison to make case 3 pass would blind the one check
-that proved a monitor had been dark for two days" || :
-export DDC_STATE_5=04
+# ...and it still catches a monitor that WAS driven and did NOT obey. Asserted
+# on bus 4, the one actually driven: bus 5 is skipped by policy now, so a
+# disobedient-monitor case there would be testing nothing.
+export DDC_STATE_4=01
+_verify sleep && fail "verify passed a monitor that was commanded to standby
+and is still powered ON. Loosening the comparison to make the case above pass
+would blind the one check that proved a monitor had been dark for two days" || :
+export DDC_STATE_4=02
 
 # --- 4. a WRITE-ONLY code cannot be read back, and that is not drift -------
 # MCCS marks 05 write-only. A monitor offering only 01 and 05 does as it is
@@ -122,12 +154,26 @@ export DDC_STATE_5=04
 # verify forever on a panel behaving correctly.
 export DDC_BUSES="6"
 export DDC_CAPS_6="01 05"
+
+# By DEFAULT such a panel is left alone: 05 is "turn off display", the deepest
+# state of all, with no promise it is still listening afterwards.
 _act sleep || fail "the hook failed on a monitor offering only 01 and 05"
-[ "$(_wrote 6)" = 05 ] || fail "a monitor offering only 01 and 05 was written
-'$(_wrote 6)'; 05 is the only off code it has"
-_verify sleep || fail "verify reported drift for a write-only D6 value. It
-cannot be read back by definition, so this fails every verify on a monitor that
-is doing exactly as instructed"
+[ -z "$(_wrote 6)" ] || fail "a monitor whose only off code is the write-only
+05 was powered down by default. That is the deepest state in the table and the
+least likely to leave a wake channel"
+
+# The write-only case is only reachable through the opt-in, and THERE it must
+# not be reported as drift: 05 cannot be read back by definition, so failing on
+# it would fail every verify on a panel doing exactly as instructed.
+: > "$DDC_WRITES"
+VIGILANCE_DDC_DEEP_OFF=1 VIGILANCE_EDGE=sleep VIGILANCE_KIND=act \
+  sh "$HOOK" sleep 2>>"$T/stderr" || fail "deep-off opt-in errored on a 01/05
+monitor"
+[ "$(_wrote 6)" = 05 ] || fail "with the opt-in set, a monitor offering only 01
+and 05 was written '$(_wrote 6)'; 05 is the only off code it has"
+VIGILANCE_DDC_DEEP_OFF=1 _verify sleep || fail "verify reported drift for a
+write-only D6 value. It cannot be read back by definition, so this fails every
+verify on a monitor that is doing exactly as instructed"
 
 # --- 5. a monitor with NO off value is LEFT ALONE -------------------------
 # Guessing a code at a panel that advertises none is how the original bug
@@ -163,10 +209,14 @@ one on the same edge had nothing to write"
 #
 # A vanished monitor is indistinguishable from one that was never there, UNLESS
 # we wrote down that we put it to sleep. So the dark intent records it.
+# Bus 5 advertises 02 HERE, so it is actually driven. A panel that offers no
+# standby is now left alone entirely and could never reach this state -- which
+# is the point of the policy above. The risk that remains is a monitor that DOES
+# offer standby and still drops off DDC, and that is what this covers.
 rm -f "$T/state/dark-buses"
 export DDC_BUSES="4 5"
 export DDC_CAPS_4="01 02 03 04 05"
-export DDC_CAPS_5="01 04 05"
+export DDC_CAPS_5="01 02 04 05"
 _act sleep || fail "setup: the dark edge failed"
 [ -f "$T/state/dark-buses" ] || fail "the dark edge did not record which buses
 it drove dark. Without that record a monitor that later vanishes cannot be told
@@ -193,6 +243,7 @@ recover it. Without that the operator retries the thing that cannot work"
 # --- 8. ...and the record CLEARS once the monitor is back ------------------
 # Otherwise the warning is permanent and becomes the line nobody reads.
 export DDC_BUSES="4 5"
+export DDC_CAPS_5="01 02 04 05"
 _act wake || fail "a monitor that came back was still reported as vanished"
 [ ! -f "$T/state/dark-buses" ] || fail "the dark record survived a successful
 ascent, so the next one would re-report a monitor that is demonstrably fine"
