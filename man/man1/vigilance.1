@@ -140,6 +140,27 @@ A greeter session needs no configuration of its own: it simply has no user root,
 so it gets the machine hooks and nothing else. The machine scope is the LOWER
 layer, so it comes up first and goes down last, exactly as systemd orders units:
 descent runs user 10\(en90 then machine 10\(en90, and ascent reverses both.
+.SS Can enforcement ever act?
+.B report
+carries an
+.B enforcement
+section saying, for the wiring actually present, whether
+.B VIGILANCE_ENFORCE=force
+could ever cross an edge. ARMED IS NOT REACHABLE, which is the "enabled is not
+working" lesson one layer out.
+.PP
+Measured on both live boxes and true of neither by accident: every declared
+deadline is IDLE\-anchored, and enforce refuses those because it cannot read
+last\-input time. The only non\-dark forceable edge is
+.BR lock ,
+whose deadline is idle\-anchored too. So the force policy is structurally
+unreachable as wired \- not untried, UNREACHABLE \- and nothing said so. An
+operator reading this page would reasonably believe they have a backstop they
+do not have; the real cover for those edges is the audit tier.
+.PP
+INFO rather than WARN, because nothing is broken: an idle\-anchored deadline
+genuinely cannot be enforced. A warning that is permanently on is how a report
+stops being read.
 .SS Coverage: edges that act and cannot be checked
 .B vigilant report
 carries a

@@ -126,4 +126,67 @@ it to FAIL would turn every partially-wired box red and train the reader to
 ignore the section" ;;
 esac
 
+# --- 7. CAN ENFORCEMENT EVER ACT? -------------------------------------------
+# "Armed" is not "reachable", the same shape as the "enabled is not working"
+# lesson one layer out. Measured on both live boxes: every declared deadline is
+# IDLE-anchored, enforce refuses those (it cannot read last-input time), and
+# the only non-dark forceable edge is `lock` -- whose deadline is idle-anchored
+# too. So VIGILANCE_ENFORCE=force is structurally UNREACHABLE as wired, and
+# nothing said so. An operator reading the man page would reasonably believe
+# they have a backstop they do not have.
+_duehook() {   # edge name "<secs> <anchor>"
+  mkdir -p "$VIGILANCE_HOOK_ROOT/$1.due.d"
+  printf '#!/bin/sh\necho "%s"\n' "$3" > "$VIGILANCE_HOOK_ROOT/$1.due.d/$2"
+  chmod +x "$VIGILANCE_HOOK_ROOT/$1.due.d/$2"
+}
+go open
+
+_duehook lock 10-idle "480 idle"
+_out=$(_report)
+case $(_section "$_out" enforcement) in
+  *"idle-anchored"*) ;;
+  *) printf '%s\n' "$_out" >&2
+     fail "an idle-anchored deadline was not named as unenforceable" ;;
+esac
+case $(_section "$_out" enforcement) in
+  *"NO edge can be forced"*) ;;
+  *) fail "with every deadline idle-anchored, report did not say that
+enforcement is inert. That is the live state of both boxes, and believing you
+have a backstop you do not have is worse than knowing you have none" ;;
+esac
+
+# --- 8. ...and a RUNG-anchored deadline on a LIT edge IS reachable ----------
+# Without this, "always says inert" would pass case 7 while telling every
+# correctly-armed box the same lie in the other direction.
+_duehook lock 10-idle "100 rung"
+_out=$(_report)
+case $(_section "$_out" enforcement) in
+  *"'lock' is enforceable"*) ;;
+  *) printf '%s\n' "$_out" >&2
+     fail "a rung-anchored deadline on the LIT lock edge was not reported as
+enforceable. enforce can genuinely act there, and saying otherwise hides the
+one backstop that does work" ;;
+esac
+case $(_section "$_out" enforcement) in
+  *"NO edge can be forced"*) fail "a box WITH a reachable force path was still
+told enforcement is inert" ;;
+esac
+
+# --- 9. a DARK edge is never reachable, however it is anchored --------------
+# Nothing may enter a dark rung unless it arms its own way back, and a forced
+# descent arms nothing. The report must not offer it as a backstop.
+_duehook sleep 10-rung "100 rung"
+go lock
+_out=$(_report)
+case $(_section "$_out" enforcement) in
+  *"'sleep' is a DARK rung"*) ;;
+  *) printf '%s\n' "$_out" >&2
+     fail "a rung-anchored deadline on the DARK sleep edge was not reported as
+never-forced. Offering it as a backstop would promise a descent that vigilant
+correctly refuses to make" ;;
+esac
+case $(_section "$_out" enforcement) in
+  *"'sleep' is enforceable"*) fail "a DARK edge was reported as enforceable" ;;
+esac
+
 pass

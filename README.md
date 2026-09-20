@@ -494,6 +494,14 @@ a silent skip. `mutants.t` runs with the normal suite and re-checks that every
 target line still exists, so rewording a guarded line fails in seconds instead
 of quietly disarming a mutation nobody runs until next month.
 
+`report` also asks whether **enforcement can ever act**. Armed is not
+reachable: on both live boxes every declared deadline is idle-anchored, enforce
+refuses those (it cannot read last-input time), and the only non-dark forceable
+edge is `lock` -- whose deadline is idle-anchored too. So
+`VIGILANCE_ENFORCE=force` is structurally unreachable as wired, and nothing
+said so. It reports INFO, not WARN: nothing is broken, and the audit tier is
+the intended cover.
+
 `vigilant plan` ends with a **wiring fingerprint** over scope, edge, tier, hook
 name and resolved target. Identical on two boxes means identical wiring; if it
 differs, diff the `plan` output to see how. Boxes drifting apart silently is

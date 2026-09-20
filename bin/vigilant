@@ -1533,6 +1533,52 @@ _rep_coverage() {
   return 0
 }
 
+# CAN ENFORCEMENT EVER ACT? "Armed" is not "reachable", which is the same
+# shape as the "enabled is not working" lesson one layer out.
+#
+# Measured on both live boxes: every declared deadline is IDLE-anchored, and
+# enforce refuses those because it cannot read last-input time. The only
+# non-dark forceable edge is `lock`, whose deadline is idle-anchored too. So
+# VIGILANCE_ENFORCE=force is structurally unreachable as wired -- not untried,
+# UNREACHABLE -- and nothing said so. An operator reading "enforce" in the
+# man page would reasonably believe they have a backstop they do not have.
+#
+# INFO, never WARN. Nothing here is broken: an idle-anchored deadline genuinely
+# cannot be enforced, and the audit tier is the intended cover. A warning that
+# is permanently on is how a report stops being read.
+_rep_enforce() {
+  echo "-- enforcement --"
+  _ef=0
+  for _er in open lock; do
+    _ee=$(_next_down "$_er")
+    if [ -z "$_ee" ]; then continue; fi
+    if [ "$(_intent_of "$_ee")" = dark ]; then
+      _r_info "from '$_er': '$_ee' is a DARK rung, never forced (it would"\
+" descend with no armed way back)"
+      continue
+    fi
+    _ed=$(_due_for "$_ee" "$_er")
+    if [ -z "$_ed" ]; then
+      _r_info "from '$_er': '$_ee' declares no deadline; nothing to enforce"
+      continue
+    fi
+    _ea=$(printf '%s' "$_ed" | awk '{print $2}')
+    if [ "$_ea" = idle ]; then
+      _r_info "from '$_er': '$_ee' is idle-anchored; enforce cannot read"\
+" last-input, so it reports and never acts"
+      continue
+    fi
+    _r_ok "from '$_er': '$_ee' is enforceable ($(printf '%s' "$_ed" \
+      | awk '{print $1}')s, $_ea-anchored)"
+    _ef=1
+  done
+  if [ "$_ef" = 0 ]; then
+    _r_info "NO edge can be forced with this wiring, so"\
+" VIGILANCE_ENFORCE=force is inert here. The backstop is the audit tier."
+  fi
+  return 0
+}
+
 _rep_verify() {
   if [ -z "$_have_record" ]; then
     _r_info "verify n/a: nothing was asserted, so there is nothing to check"
@@ -1973,6 +2019,7 @@ cmd_report() {
   _rep_coherence
   _rep_verify
   _rep_coverage
+  _rep_enforce
   _rep_machinery
   _rep_actuators
   _rep_budget

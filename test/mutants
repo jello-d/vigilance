@@ -157,3 +157,21 @@ f bin/vigilant
 t plan
 -     done; } | sort | cksum | tr -d ' '
 +     done; } | cksum | tr -d ' '
+
+= enforce-reach-ignores-idle-anchor
+f bin/vigilant
+t coverage
+-     if [ "$_ea" = idle ]; then
++     if false; then
+
+= enforce-reach-offers-dark-rungs
+f bin/vigilant
+t coverage
+-     if [ "$(_intent_of "$_ee")" = dark ]; then
++     if false; then
+
+= enforce-reach-never-says-inert
+f bin/vigilant
+t coverage
+-   if [ "$_ef" = 0 ]; then
++   if false; then
