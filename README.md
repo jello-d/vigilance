@@ -494,6 +494,13 @@ a silent skip. `mutants.t` runs with the normal suite and re-checks that every
 target line still exists, so rewording a guarded line fails in seconds instead
 of quietly disarming a mutation nobody runs until next month.
 
+`vigilant plan` ends with a **wiring fingerprint** over scope, edge, tier, hook
+name and resolved target. Identical on two boxes means identical wiring; if it
+differs, diff the `plan` output to see how. Boxes drifting apart silently is
+documented history here rather than a worry, and the target is in the hash
+deliberately: two boxes agreeing on the *name* of a hook that points at
+different code is the shape the shadowed `/usr/local` binaries took.
+
 ## License
 
 Apache-2.0.

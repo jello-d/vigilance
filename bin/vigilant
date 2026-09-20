@@ -972,6 +972,48 @@ _plan_gaps() {   # -> 0 clean, 1 a wired machine hook is invisible to greeter
   return "$_pg"
 }
 
+# A WIRING FINGERPRINT, so two boxes can be compared rather than eyeballed.
+#
+# Boxes diverging silently is a documented failure here, not a hypothesis: the
+# shared rules file ran at 124 lines on one machine and 145 on the other,
+# undetected, with the missing block including a hard rule. Wiring is more
+# exposed than that, because it is assembled per box by an integrator and
+# nothing ever compared the results.
+#
+# CANONICAL, so equality means something: sorted, and built from scope + edge +
+# tier + hook name + the RESOLVED target. The target is included deliberately
+# -- two boxes agreeing on the name of a hook that points at different code is
+# precisely the drift worth catching, and it is the shape the shadowed
+# /usr/local binaries took.
+#
+# The hash says THAT they differ; `vigilant plan` diffs between boxes to say
+# HOW, which is the half a checksum cannot give you.
+_plan_fingerprint() {
+  { for _fe in lock unlock sleep wake suspend resume audit alert; do
+      for _ft in "" .verify .report .block .due; do
+        case "$_fe" in
+          audit|alert) if [ -n "$_ft" ]; then continue; fi ;;
+        esac
+        for _fs in user machine; do
+          if [ "$_fs" = user ]; then _fr=$HOOK_ROOT
+          else _fr=$MACHINE_HOOK_ROOT; fi
+          _fl=$(_hooks_in "$_fr" "$_fe" "$_ft" asc)
+          if [ -z "$_fl" ]; then continue; fi
+          _fifs=$IFS; IFS='
+'
+          for _fh in $_fl; do
+            IFS=$_fifs
+            printf '%s %s%s %s -> %s\n' "$_fs" "$_fe" "$_ft" \
+              "$(basename "$_fh")" "$(readlink -f "$_fh" 2>/dev/null)"
+            IFS='
+'
+          done
+          IFS=$_fifs
+        done
+      done
+    done; } | sort | cksum | tr -d ' '
+}
+
 cmd_plan() {   # [edge]
   echo "== plan: what runs, as whom, in what order =="
   echo ""
@@ -1001,6 +1043,13 @@ cmd_plan() {   # [edge]
     _plan_row "$_pt" "session:" "${_pboth:- (nothing)}"
     _plan_row "" "greeter:" "${_pm:- (nothing)}"
   done
+  # Only for a FULL plan: a fingerprint over the edges you happened to ask
+  # about would compare unequal for two boxes that agree entirely.
+  if [ -z "${1:-}" ]; then
+    printf '\nwiring fingerprint: %s\n' "$(_plan_fingerprint)"
+    echo "  identical on two boxes means identical wiring, targets included."
+    echo "  if they differ, diff the output of 'vigilant plan' to see how."
+  fi
   _plan_gaps || return 1
   return 0
 }

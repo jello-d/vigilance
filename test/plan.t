@@ -227,4 +227,44 @@ log records. It runs no hook and crosses no edge, so it must leave the forensic
 record untouched -- an offline verb that logs pollutes the audit tier that
 reads it"
 
+# --- 9. THE WIRING FINGERPRINT ---------------------------------------------
+# Two boxes diverging silently is documented history here, not a worry: the
+# shared rules file ran at 124 lines on one machine and 145 on the other,
+# undetected, and the missing block contained a hard rule. Nothing has ever
+# compared the wiring, which is assembled per box by an integrator.
+_fp() { "$VIGILANT" plan 2>/dev/null | sed -n 's/^wiring fingerprint: //p'; }
+
+_a=$(_fp)
+[ -n "$_a" ] || fail "plan emitted no wiring fingerprint"
+[ "$_a" = "$(_fp)" ] || fail "the fingerprint changed between two runs of the
+SAME wiring. An unstable one compares unequal for boxes that agree, which is
+worse than none: it trains you to ignore the difference"
+
+# A NEW HOOK MUST MOVE IT, or it certifies agreement it never checked.
+_hook "$MACH" sleep.d 90-extra
+_b=$(_fp)
+[ "$_a" != "$_b" ] || fail "adding a wired hook did not change the
+fingerprint. It would report two differently-wired boxes as identical"
+
+# THE SHARPEST CASE: same hook NAME, different TARGET. Two boxes agreeing on
+# the name of a hook that points at different code is exactly the drift worth
+# catching, and it is the shape the shadowed /usr/local binaries took -- the
+# name was right on both and one resolved to a stale copy.
+ln -sf "$T/open/real-hook" "$MACH/sleep.d/90-extra"
+_c=$(_fp)
+[ "$_b" != "$_c" ] || fail "repointing a hook at different code left the
+fingerprint unchanged. Name-only comparison is what let a stale system copy
+shadow the live one while every check agreed the wiring was correct"
+rm -f "$MACH/sleep.d/90-extra"
+[ "$(_fp)" = "$_a" ] || fail "removing the extra hook did not restore the
+original fingerprint; it is order- or history-dependent rather than canonical"
+
+# NOT emitted for a single edge: a fingerprint over the edges you happened to
+# ask about would compare unequal for two boxes that agree entirely.
+case "$("$VIGILANT" plan sleep 2>/dev/null || true)" in
+  *"wiring fingerprint"*) fail "a single-edge plan emitted a fingerprint. It
+covers only what was asked for, so comparing two of them says nothing about
+whether the boxes agree" ;;
+esac
+
 pass
