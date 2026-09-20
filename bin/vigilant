@@ -475,7 +475,7 @@ _hooks_for() {   # edge [suffix]
     # Coming UP: the lower layer first, each scope unwinding its own order.
     _hooks_in "$MACHINE_HOOK_ROOT" "$1" "${2:-}" desc
     _hooks_in "$HOOK_ROOT" "$1" "${2:-}" desc
-  elif [ "$1" = alert ] || [ "$1" = audit ]; then
+  elif [ "$1" = alert ] || [ "$1" = audit ] || [ "$1" = idle ]; then
     # NEITHER IS A LADDER EDGE, so say so explicitly rather than letting them
     # fall through to the descent branch and be ordered as if they were one.
     # `audit` landed in that branch by accident; the order it produced happened
@@ -935,10 +935,10 @@ _plan_edge() {   # edge
 
 _plan_gaps() {   # -> 0 clean, 1 a wired machine hook is invisible to greeter
   _pg=0
-  for _pge in lock unlock sleep wake suspend resume audit alert; do
+  for _pge in lock unlock sleep wake suspend resume audit alert idle; do
     for _pgt in "" .verify .report .block .due; do
       case "$_pge" in
-        audit|alert) if [ -n "$_pgt" ]; then continue; fi ;;
+        audit|alert|idle) if [ -n "$_pgt" ]; then continue; fi ;;
       esac
       _pgl=$(_hooks_in "$MACHINE_HOOK_ROOT" "$_pge" "$_pgt" asc)
       if [ -z "$_pgl" ]; then continue; fi
@@ -989,7 +989,7 @@ _plan_gaps() {   # -> 0 clean, 1 a wired machine hook is invisible to greeter
 # The hash says THAT they differ; `vigilant plan` diffs between boxes to say
 # HOW, which is the half a checksum cannot give you.
 _plan_fingerprint() {
-  { for _fe in lock unlock sleep wake suspend resume audit alert; do
+  { for _fe in lock unlock sleep wake suspend resume audit alert idle; do
       for _ft in "" .verify .report .block .due; do
         case "$_fe" in
           audit|alert) if [ -n "$_ft" ]; then continue; fi ;;
@@ -1036,7 +1036,7 @@ cmd_plan() {   # [edge]
   # imply they are keyed by it, which is the exact confusion that let an audit
   # hook in <edge>.audit.d read as wired while nothing would ever run it.
   printf '\ncross-cutting (not per-edge)\n'
-  for _pt in audit alert; do
+  for _pt in audit alert idle; do
     _pu=$(_plan_names "$HOOK_ROOT" "$_pt" "" asc)
     _pm=$(_plan_names "$MACHINE_HOOK_ROOT" "$_pt" "" asc mark)
     _pboth=$_pm$_pu
@@ -1075,9 +1075,11 @@ KINDS=". .verify .report .due .block"
 
 # CROSS-CUTTING TIERS, which were invisible to this command entirely.
 #
-# `audit.d` and `alert.d` are not keyed by edge. An audit hook NAMES the edge in
-# its output (one journal source reports events for several different edges),
-# and an alert is not about a single edge at all.
+# `audit.d`, `alert.d` and `idle.d` are not keyed by edge. An audit hook NAMES
+# the edge in its output (one journal source reports events for several
+# different edges), an alert is not about a single edge at all, and idle time
+# is a property of the SEAT rather than of any edge -- several deadlines on
+# different edges all read the same clock.
 #
 # THE BUG THIS FIXES WAS IN BOTH DIRECTIONS AT ONCE. `.audit` was in KINDS, so
 # `hooks` looked in `<edge>.audit.d` and cheerfully reported a hook there as
@@ -1090,7 +1092,7 @@ KINDS=". .verify .report .due .block"
 # Listing them under every edge would be a lie; listing them nowhere hid two
 # whole tiers. So they get their own section.
 _hooks_cross() {
-  for _ck in audit alert; do
+  for _ck in audit alert idle; do
     echo "$_ck.d:"
     _cl=$(_hooks_for "$_ck")
     if [ -z "$_cl" ]; then echo "  (none)"; continue; fi
@@ -1533,49 +1535,51 @@ _rep_coverage() {
   return 0
 }
 
-# CAN ENFORCEMENT EVER ACT? "Armed" is not "reachable", which is the same
-# shape as the "enabled is not working" lesson one layer out.
+# CAN AN OVERDUE EDGE BE DETECTED AT ALL? "Armed" is not "reachable", which is
+# the "enabled is not working" lesson one layer out.
 #
-# Measured on both live boxes: every declared deadline is IDLE-anchored, and
-# enforce refuses those because it cannot read last-input time. The only
-# non-dark forceable edge is `lock`, whose deadline is idle-anchored too. So
-# VIGILANCE_ENFORCE=force is structurally unreachable as wired -- not untried,
-# UNREACHABLE -- and nothing said so. An operator reading "enforce" in the
-# man page would reasonably believe they have a backstop they do not have.
+# This used to ask whether FORCING could ever act; forcing is retired, so the
+# question is now the one that matters: for each deadline, is anything able to
+# tell whether it has passed? An idle-anchored deadline needs an idle source
+# (idle.d); a rung-anchored one is always measurable. A deadline nobody can
+# measure is not a deadline, it is a sentence in a config file.
 #
-# INFO, never WARN. Nothing here is broken: an idle-anchored deadline genuinely
-# cannot be enforced, and the audit tier is the intended cover. A warning that
-# is permanently on is how a report stops being read.
-_rep_enforce() {
-  echo "-- enforcement --"
-  _ef=0
-  for _er in open lock; do
-    _ee=$(_next_down "$_er")
-    if [ -z "$_ee" ]; then continue; fi
-    if [ "$(_intent_of "$_ee")" = dark ]; then
-      _r_info "from '$_er': '$_ee' is a DARK rung, never forced (it would"\
-" descend with no armed way back)"
-      continue
-    fi
-    _ed=$(_due_for "$_ee" "$_er")
-    if [ -z "$_ed" ]; then
-      _r_info "from '$_er': '$_ee' declares no deadline; nothing to enforce"
-      continue
-    fi
-    _ea=$(printf '%s' "$_ed" | awk '{print $2}')
-    if [ "$_ea" = idle ]; then
-      _r_info "from '$_er': '$_ee' is idle-anchored; enforce cannot read"\
-" last-input, so it reports and never acts"
-      continue
-    fi
-    _r_ok "from '$_er': '$_ee' is enforceable ($(printf '%s' "$_ed" \
-      | awk '{print $1}')s, $_ea-anchored)"
-    _ef=1
-  done
-  if [ "$_ef" = 0 ]; then
-    _r_info "NO edge can be forced with this wiring, so"\
-" VIGILANCE_ENFORCE=force is inert here. The backstop is the audit tier."
+# The live answer before idle.d existed was "none of them", on both boxes.
+_rep_deadlines() {
+  echo "-- deadlines --"
+  _dclock=$(_idle_secs)
+  if [ -n "$_dclock" ]; then
+    _r_ok "idle clock: ${_dclock}s since last input"
+  else
+    _r_info "idle clock: none wired (idle.d); idle-anchored deadlines cannot"\
+" be measured here"
   fi
+  for _dr in open lock; do
+    _de=$(_next_down "$_dr")
+    if [ -z "$_de" ]; then continue; fi
+    _dd=$(_due_for "$_de" "$_dr")
+    if [ -z "$_dd" ]; then
+      _r_info "from '$_dr': '$_de' declares no deadline"
+      continue
+    fi
+    _da=$(printf '%s' "$_dd" | awk '{print $2}')
+    _ds=$(printf '%s' "$_dd" | awk '{print $1}')
+    if [ "$_da" != idle ]; then
+      _r_ok "from '$_dr': '$_de' ${_ds}s $_da-anchored, measurable"
+      continue
+    fi
+    if [ -n "$_dclock" ]; then
+      _r_ok "from '$_dr': '$_de' ${_ds}s idle-anchored, measurable"
+      continue
+    fi
+    # THE SLIVER NOTHING ELSE COVERS, said plainly. A wedged idle timer is
+    # running, correctly armed and silent: it passes the argv check, logs no
+    # event for audit, and leaves the machine at a rung it genuinely matches.
+    # Without an idle clock nothing in this suite can see it, and it is the
+    # failure this package was created for.
+    _r_warn "from '$_dr': '$_de' is ${_ds}s idle-anchored and NOTHING can"\
+" measure it; a silently wedged idle timer would go unnoticed"
+  done
   return 0
 }
 
@@ -2019,7 +2023,7 @@ cmd_report() {
   _rep_coherence
   _rep_verify
   _rep_coverage
-  _rep_enforce
+  _rep_deadlines
   _rep_machinery
   _rep_actuators
   _rep_budget
@@ -2124,6 +2128,58 @@ cmd_rescue() {
 _audit_covered() {   # -> 0 if ANY audit source is wired
   [ -n "$(_hooks_for audit)" ]
 }
+# --- the idle clock --------------------------------------------------------
+# THE ONE MEASUREMENT THIS SUITE HAS NEVER HAD, and the reason a whole tier was
+# inert. The deadline that matters -- "the screen should have locked by now" --
+# is expressed in IDLE time, and vigilant could not read idle time. The only
+# clock it had was time-since-entering-the-rung, which on an actively used
+# machine over-reports: measured from rung entry it once called `lock` 1616s
+# overdue while the machine was being typed on.
+#
+# So `idle` was refused outright, and refusing it made the SOON question
+# unanswerable, which made `enforce` unreachable. Three layers of machinery
+# resting on one missing number.
+#
+# IT IS A HOOK, not a built-in, for the reason everything here is a hook: the
+# answer is compositor-specific. Wayfire advertises ext_idle_notifier_v1; a
+# greeter running sway may answer differently; a headless box cannot answer at
+# all. vigilance ships the extension POINT and the integrator supplies the
+# mechanism.
+#
+# CONTRACT: print seconds-idle on stdout and exit 0. Exit 78 for "I cannot
+# tell" -- which is NOT zero, because zero means "input one second ago" and is
+# the single most dangerous wrong answer here: it would silently reset every
+# deadline forever and report a healthy machine.
+_idle_secs() {   # -> seconds since last seat input, or empty if unknowable
+  _il=$(_hooks_for idle)
+  if [ -z "$_il" ]; then return 0; fi
+  _imin=
+  _iifs=$IFS; IFS='
+'
+  for _ih in $_il; do
+    IFS=$_iifs
+    if [ -z "$_ih" ]; then continue; fi
+    _io=$RUN_DIR/idle.$$
+    _irc=0
+    # Through a FILE, not $(...): a command substitution waits for the pipe to
+    # close rather than for the hook to exit, so a source leaving a child on
+    # stdout defeats the bound entirely. Measured at 21s against a 2s timeout.
+    $HOOK_TMO "$_ih" > "$_io" 2>/dev/null || _irc=$?
+    _iv=$(cat "$_io" 2>/dev/null | head -1 | tr -dc '0-9')
+    rm -f "$_io"
+    if [ "$_irc" != 0 ] || [ -z "$_iv" ]; then continue; fi
+    # THE MINIMUM, deliberately. Several sources should agree; when they do not,
+    # the one reporting the LEAST idle time is the one that saw input most
+    # recently, and believing it is what prevents a stale source manufacturing
+    # a false "overdue" against a machine somebody is sitting at.
+    if [ -z "$_imin" ] || [ "$_iv" -lt "$_imin" ]; then _imin=$_iv; fi
+    IFS='
+'
+  done
+  IFS=$_iifs
+  printf '%s' "$_imin"
+}
+
 _due_for() {   # edge from -> "seconds [anchor]", or empty for no opinion
   _dl=$(_hooks_for "$1" .due)
   if [ -z "$_dl" ]; then return 0; fi
@@ -2198,6 +2254,20 @@ cmd_due() {   # [edge]
   fi
   _d=$(printf '%s' "$_draw" | awk '{print $1}')
   _anch=$(printf '%s' "$_draw" | awk '{print $2}')
+  # AN IDLE ANCHOR IS ANSWERABLE when something can answer it. `due` only ever
+  # reports, so this adds the measured number and nothing else; the finding
+  # itself belongs to enforce, which is what runs on a timer.
+  if [ "$_anch" = idle ]; then
+    _idle=$(_idle_secs)
+    if [ -n "$_idle" ]; then
+      if [ "$_idle" -le $((_d + GRACE)) ]; then
+        echo "due $_e: ${_d}s after last input; idle ${_idle}s, not due yet"
+      else
+        echo "due $_e: ${_d}s after last input; idle ${_idle}s, OVERDUE"
+      fi
+      return 0
+    fi
+  fi
   if [ "$_anch" = idle ]; then
     # NAME WHAT IS ACTUALLY WATCHING IT. "see audit for these edges" read as
     # reassurance while no audit source for them existed.
@@ -2297,11 +2367,40 @@ cmd_enforce() {
   fi
   _d=$(printf '%s' "$_draw" | awk '{print $1}')
   _anch=$(printf '%s' "$_draw" | awk '{print $2}')
-  # An IDLE-anchored deadline cannot be enforced: the clock starts at the last
-  # input and vigilant has no way to read that, so "overdue" would just mean
-  # "this rung has been held a while" -- which on an actively used machine is
-  # normal. Measured from rung entry it called `lock` 1616s overdue while the
-  # machine was being typed on, and the timer would have alerted every minute.
+  # An idle-anchored deadline starts at the last INPUT. vigilant could not read
+  # that, so "overdue" meant only "this rung has been held a while" -- which on
+  # an actively used machine is normal: measured from rung entry it called
+  # `lock` 1616s overdue while the machine was being typed on, and the timer
+  # would have alerted every minute, forever, about nothing.
+  #
+  # AN idle.d SOURCE MAKES IT MEASURABLE. The refusal further down is kept for
+  # when nothing can answer, because a guess there is worse than an abstention.
+  if [ "$_anch" = idle ]; then
+    _idle=$(_idle_secs)
+    if [ -n "$_idle" ]; then
+      if [ "$_idle" -le $((_d + GRACE)) ]; then
+        echo "enforce: $_e not due yet (idle ${_idle}s of $((_d + GRACE))s)"
+        return "$_erc"
+      fi
+      if _blocked "$_e" "$_from"; then
+        _log "OVERDUE $_e: idle ${_idle}s of ${_d}s, but blocked; holding off"
+        echo "enforce: $_e overdue but blocked; holding off"
+        return "$_erc"
+      fi
+      # THE FINDING THIS TIER EXISTS FOR, finally expressible: the seat has
+      # been quiet past the deadline and the edge did not happen. A WEDGED
+      # idle timer is running, correctly armed and silent -- it passes the
+      # argv check, logs no event for audit to reconcile, and leaves the
+      # machine at a rung it genuinely matches. Nothing else here can see it,
+      # and it is the failure that created this package.
+      _log "OVERDUE $_e: seat idle ${_idle}s against a ${_d}s deadline and"\
+" the edge has not fired"
+      _alert overdue "$_e should have fired ${_idle}s into a ${_d}s idle"\
+" deadline; the primary mechanism for it is not working"
+      echo "enforce: $_e OVERDUE (idle ${_idle}s of ${_d}s); reported"
+      return 1
+    fi
+  fi
   if [ "$_anch" = idle ]; then
     if _audit_covered; then
       echo "enforce: $_e is idle-anchored; not enforceable here, left to audit"
@@ -2341,46 +2440,32 @@ cmd_enforce() {
 # HEALTHY state.
 # This decides "what, if anything, do we do about it?" -- and is the only part
 # that can change the machine.
+# THE REPORTING HALF. It used to have an ACTING half too, behind
+# VIGILANCE_ENFORCE=force, and that is RETIRED (2026-09-20).
+#
+# WHY IT WENT. It was unreachable by construction, and it had been superseded
+# without anyone noticing. Unreachable: only two edges are enforcement targets,
+# `sleep` is refused outright because a forced descent into a dark rung arms no
+# way back, and `lock` was refused because its deadline is idle-anchored -- so
+# the intersection of "forceable" and "measurable" was empty, and the force
+# path was tested code that could never run in production.
+#
+# SUPERSEDED: it was designed before five mechanisms grew up around it, and
+# every failure it would have acted on is now caught closer to the cause. A
+# misarmed idle timer is caught by report reading /proc/<pid>/cmdline; a failing
+# provider by hook-failure alerting; a lock that did not take by `verify` and
+# locker-up; continuous drift by the standing recheck; the past by audit.
+#
+# What was left uncovered was one sliver -- the idle timer alive, correctly
+# armed, and silently not firing -- and that wants DETECTING, not forcing.
+# Detection is now possible because the idle clock exists (see _idle_secs), and
+# forcing would have added an actuator on the security path driven by a
+# measurement, for nothing the alert does not already give.
 _enforce_act() {   # edge elapsed deadline
   _e=$1; _el=$2; _d=$3
-  case "${VIGILANCE_ENFORCE:-report}" in
-    force)
-      # NEVER FORCE A DESCENT INTO A DARK RUNG, even under the force policy.
-      #
-      # The invariant this protects: nothing may put the machine into a dark
-      # rung unless it arms its own way back. Every dark descent that runs
-      # today comes from a swayidle pairing its `timeout` with a `resume`, so
-      # activity brings the screen back. A forced descent has no such pairing --
-      # swayidle would not know the machine was dark, so input would produce
-      # nothing and recovery would need a keybind.
-      #
-      # That is not hypothetical. It is exactly how `vigilance-resume` used to
-      # blank an active user's screen for 32 seconds, and the disguise the
-      # blackout kept reappearing in.
-      #
-      # `lock` is still forceable, and it is the case worth having: "the screen
-      # should have locked and did not" is the security-relevant failure.
-      # Forcing the peripherals dark only buys power, and not at this price.
-      #
-      # Asked of _intent_of rather than a list of rung names, so a new rung
-      # inherits the rule instead of quietly escaping it.
-      if [ "$(_intent_of "$_e")" = dark ]; then
-        _log "OVERDUE $_e by $((_el - _d))s; NOT forced: a forced descent"\
-" into a dark rung would have no armed ascent"
-        echo "enforce: $_e overdue, but forcing it would go dark with nothing"\
-" armed to bring it back; reported only"
-        return 1
-      fi
-      _log "ENFORCING $_e: overdue by $((_el - _d))s, forcing it"
-      echo "enforce: forcing $_e (overdue by $((_el - _d))s)"
-      cmd_go "$_e" only
-      return $? ;;
-    *)
-      _log "OVERDUE $_e by $((_el - _d))s; reported, not forced"\
-" (VIGILANCE_ENFORCE=force to act)"
-      echo "enforce: $_e OVERDUE by $((_el - _d))s; reported, not forced"
-      return 1 ;;
-  esac
+  _log "OVERDUE $_e by $((_el - _d))s; reported"
+  echo "enforce: $_e OVERDUE by $((_el - _d))s; reported"
+  return 1
 }
 
 # --- audit: did every external event actually produce its edge? --------------

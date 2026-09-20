@@ -11,10 +11,17 @@
 # `systemctl --user status` after the alert has scrolled away. Do not paper
 # over with SuccessExitStatus.
 #
-# Default policy is report-only: it logs and alerts, and does NOT cross it.
-# Forcing is VIGILANCE_ENFORCE=force, and it is opt-in on purpose -- never force
-# a descent without a reliable ascent, because vigilant cannot see input while
-# locked and a forced blank could land mid-password.
+# IT REPORTS AND NEVER ACTS. There was once an acting half behind
+# VIGILANCE_ENFORCE=force; it is RETIRED (2026-09-20) and the knob does
+# nothing. It was unreachable by construction -- `sleep` refused as a dark rung
+# and `lock` refused as idle-anchored, so forceable and measurable never
+# intersected -- and superseded besides, since every failure it would have
+# acted on is now caught closer to the cause.
+#
+# Two questions run here every minute, and both are observations: is the
+# machine still in the state it claims, and has any deadline passed. The second
+# only became answerable when `idle.d` gave vigilant a clock; before that a
+# silently wedged idle timer was invisible to the entire suite.
 [Unit]
 Description=vigilance: supervise a declared edge deadline
 After=default.target

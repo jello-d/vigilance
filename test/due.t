@@ -80,35 +80,43 @@ _backdate lock 700
 "$VIGILANT" enforce >/dev/null 2>>"$T/stderr" || true
 grep -q "^overdue " "$T/alerts" || fail "an overdue edge raised no alert"
 
-# --- FORCING IS OPT-IN, and never crosses into a DARK rung ------------------
-# Two rules, and the second is the invariant the blackouts kept violating:
-# NOTHING MAY PUT THE MACHINE INTO A DARK RUNG UNLESS IT ARMS ITS OWN WAY BACK.
+# --- ENFORCE NEVER CROSSES AN EDGE ------------------------------------------
+# Forcing is RETIRED (2026-09-20), and this is the mechanical form of that --
+# the same shape as dpms.t asserting no edge ever issues `wlopm --off`, because
+# a capitalised warning in a comment is not a guarantee.
 #
-# Every dark descent that runs today comes from a swayidle pairing its `timeout`
-# with a `resume`, so activity brings the screen back. A FORCED descent has no
-# such pairing: swayidle would not know the machine was dark, input would do
-# nothing, and recovery would need a keybind. That is how the resume unit used
-# to blank an active user's screen for 32 seconds.
+# WHY IT WENT. It was unreachable by construction: only two edges are targets,
+# `sleep` was refused outright (a forced descent into a dark rung arms no way
+# back), and `lock` was refused because its deadline is idle-anchored. The
+# intersection of forceable and measurable was empty, so it was tested code
+# that could never run in production. And it had been superseded without
+# anyone noticing -- every failure it would have acted on is now caught closer
+# to the cause, leaving one sliver (the idle timer alive, armed, and silently
+# not firing) that wants DETECTING rather than forcing.
 #
-# `lock` stays forceable, and it is the case worth having -- "the screen should
-# have locked and did not" is the security-relevant failure.
+# THE STALE-ENVIRONMENT CASE IS THE POINT. A box that once set
+# VIGILANCE_ENFORCE=force in a unit or a shell profile must not keep acting on
+# it: a retired knob that still works somewhere is worse than one that never
+# existed, because nobody is looking for it any more.
 duehook lock 10-rung "100 rung"
 _backdate open 900
-VIGILANCE_ENFORCE=force "$VIGILANT" enforce >/dev/null 2>>"$T/stderr" \
-  || fail "the force policy did not cross the LIT lock edge"
-expect_depth lock
-
-# ...and the dark one is refused even under force.
-_backdate lock 700
-_out=$(VIGILANCE_ENFORCE=force "$VIGILANT" enforce 2>>"$T/stderr") \
-  && fail "forcing a descent into a DARK rung reported success; it must refuse
-and still report the drift"
+_out=$("$VIGILANT" enforce 2>>"$T/stderr") \
+  && fail "enforce reported success on an OVERDUE edge. Overdue is a finding,
+so it must be reported as one"
+expect_depth open
 case "$_out" in
-  *"nothing armed to bring it back"*) ;;
+  *OVERDUE*) ;;
   *) printf '%s\n' "$_out" >&2
-     fail "enforce did not say why it refused to force a dark descent" ;;
+     fail "enforce did not report the edge overdue" ;;
 esac
-expect_depth lock          # refused: still at lock, NOT sleep
+
+# The DARK direction too, and from the rung where it is the next target.
+_backdate lock 700
+go lock
+_backdate lock 700
+"$VIGILANT" enforce >/dev/null 2>>"$T/stderr" || true
+expect_depth lock          # NOT sleep: nothing may descend into a dark rung
+go open
 rm -f "$VIGILANCE_HOOK_ROOT"/lock.due.d/10-rung
 
 # --- a BLOCK stops enforcement ----------------------------------------------
@@ -122,7 +130,7 @@ printf '#!/bin/sh\necho "inhibited"\nexit 10\n' \
   > "$VIGILANCE_HOOK_ROOT/sleep.block.d/10-inhibit"
 chmod +x "$VIGILANCE_HOOK_ROOT/sleep.block.d/10-inhibit"
 _backdate lock 700
-_out=$(VIGILANCE_ENFORCE=force "$VIGILANT" enforce 2>>"$T/stderr") \
+_out=$("$VIGILANT" enforce 2>>"$T/stderr") \
   || fail "a blocked enforcement should hold off, not fail"
 # Must be the BLOCK that stopped it, not the dark-rung refusal: both would leave
 # the depth alone, so assert on the reason.
@@ -140,7 +148,7 @@ rm -f "$VIGILANCE_HOOK_ROOT/sleep.block.d/10-inhibit"
 # instead of riding it, which this design refuses on principle.
 duehook suspend 10-fake 10
 _backdate sleep 9999
-_out=$(VIGILANCE_ENFORCE=force "$VIGILANT" enforce 2>>"$T/stderr") \
+_out=$("$VIGILANT" enforce 2>>"$T/stderr") \
   || fail "enforce errored at rung sleep"
 case "$_out" in
   *"nothing below 'sleep' is an enforcement target"*) ;;
@@ -150,48 +158,83 @@ transition, nor set peripherals for an S3 that is not happening" ;;
 esac
 expect_depth sleep
 
-# --- an IDLE-ANCHORED deadline is reported but NEVER enforced ---------------
+# --- an IDLE-ANCHORED deadline needs an IDLE CLOCK --------------------------
 # The first cut had no anchor, so every deadline was measured from rung entry.
-# But swayidle's timers start at the last INPUT, which vigilant cannot observe
-# (logind gives IdleHint=no and IdleSinceHint=0 on this stack). On a machine
-# being actively typed on, `lock` read 1616s OVERDUE and the enforce timer would
-# have alerted every minute, forever, about nothing.
+# But swayidle's timers start at the last INPUT, which vigilant could not
+# observe (logind gives IdleHint=no and IdleSinceHint=0 on this stack). On a
+# machine being actively typed on, `lock` read 1616s OVERDUE and the enforce
+# timer would have alerted every minute, forever, about nothing.
 #
-# So an idle anchor is reported and deliberately not acted on. This is the
-# cry-wolf failure this project keeps having to unlearn, caught on a live box.
+# So an idle anchor was refused outright -- and refusing it made the SOON
+# question unanswerable, which left a whole tier inert. The answer is not to
+# guess, it is to MEASURE: an `idle.d` source reports seconds since last input,
+# and only when one exists does the deadline become a claim rather than a hope.
 : > "$RECORD"
 go open
 rm -f "$VIGILANCE_HOOK_ROOT"/lock.due.d/* 2>/dev/null || true
 duehook lock 10-idle "480 idle"
 _backdate open 9999
+_idle() {   # seconds | "" to remove | "na" to decline
+  rm -rf "$VIGILANCE_HOOK_ROOT/idle.d"
+  [ -n "$1" ] || return 0
+  mkdir -p "$VIGILANCE_HOOK_ROOT/idle.d"
+  if [ "$1" = na ]; then
+    printf '#!/bin/sh\nexit 78\n' > "$VIGILANCE_HOOK_ROOT/idle.d/10-src"
+  else
+    printf '#!/bin/sh\necho %s\n' "$1" > "$VIGILANCE_HOOK_ROOT/idle.d/10-src"
+  fi
+  chmod +x "$VIGILANCE_HOOK_ROOT/idle.d/10-src"
+}
+
+# NO CLOCK: declines, exactly as before. 9999s at the rung says nothing about
+# whether anyone was sitting there.
+_idle ""
 _out=$("$VIGILANT" due 2>>"$T/stderr")
 case "$_out" in
   *"NOT enforceable"*) ;;
-  *) printf '%s
-' "$_out" >&2
+  *) printf '%s\n' "$_out" >&2
      fail "an idle-anchored deadline was not flagged unenforceable" ;;
 esac
-_out=$(VIGILANCE_ENFORCE=force "$VIGILANT" enforce 2>>"$T/stderr") \
-  || fail "enforce reported drift for an idle-anchored deadline 9999s past its
-nominal time; it cannot know whether the machine was busy"
-case "$_out" in
-  *"idle-anchored"*) ;;
-  *) printf '%s
-' "$_out" >&2; fail "enforce did not say why it declined" ;;
-esac
-expect_depth open          # and it must NOT have crossed, even under force
-
-# ONE idle hook is enough to make the whole deadline unenforceable: we cannot
-# tell a busy machine from an idle one, so acting on the rung-anchored sibling
-# would still be a guess.
-duehook lock 20-rung "600 rung"
-_out=$(VIGILANCE_ENFORCE=force "$VIGILANT" enforce 2>>"$T/stderr") \
-  || fail "a rung-anchored sibling re-enabled enforcement"
-case "$_out" in
-  *"idle-anchored"*) ;;
-  *) fail "mixing anchors lost the idle veto" ;;
-esac
+_out=$("$VIGILANT" enforce 2>>"$T/stderr") \
+  || fail "enforce reported drift for an idle-anchored deadline with no clock;
+it cannot know whether the machine was busy"
 expect_depth open
+
+# A CLOCK THAT SAYS THE SEAT IS BUSY: still not overdue, however long the rung
+# has been held. This is the cry-wolf case, and it is the one that matters --
+# 10s of idle against a 480s deadline on a machine somebody is using.
+_idle 10
+_out=$("$VIGILANT" enforce 2>>"$T/stderr") \
+  || fail "a machine idle for only 10s against a 480s deadline was reported
+overdue. That is someone sitting at the keyboard, and alerting on it every
+minute is how the enforce timer got stopped by hand once already"
+expect_depth open
+
+# A CLOCK THAT SAYS THE SEAT IS QUIET PAST THE DEADLINE: overdue, at last.
+# THE FINDING THIS TIER EXISTS FOR. A wedged idle timer is running, correctly
+# armed and silent: it passes the argv check, logs no event for audit to
+# reconcile, and leaves the machine at a rung it genuinely matches. Nothing
+# else in this suite can see it, and it is the failure that created this
+# package -- "it WEDGES on this Wayfire build".
+_idle 900
+_out=$("$VIGILANT" enforce 2>>"$T/stderr") \
+  && fail "the seat was idle 900s against a 480s deadline and the edge had not
+fired, and enforce reported success. A silently wedged idle timer is the one
+failure nothing else here can see"
+case "$_out" in
+  *OVERDUE*) ;;
+  *) printf '%s\n' "$_out" >&2; fail "enforce did not name it OVERDUE" ;;
+esac
+expect_depth open          # DETECTED, never acted on: forcing is retired
+
+# ...and a source that DECLINES is not a clock. 78 means "I cannot tell", and
+# reading it as a number would mean 0 -- "input one second ago" -- which is the
+# single most dangerous wrong answer here: it silently resets every deadline
+# forever and reports a healthy machine.
+_idle na
+_out=$("$VIGILANT" enforce 2>>"$T/stderr") \
+  || fail "an idle source that DECLINED (78) was treated as a working clock"
+rm -rf "$VIGILANCE_HOOK_ROOT/idle.d"
 rm -f "$VIGILANCE_HOOK_ROOT"/lock.due.d/*
 
 # --- MAX across hooks, not first or min -------------------------------------

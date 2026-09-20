@@ -126,67 +126,77 @@ it to FAIL would turn every partially-wired box red and train the reader to
 ignore the section" ;;
 esac
 
-# --- 7. CAN ENFORCEMENT EVER ACT? -------------------------------------------
-# "Armed" is not "reachable", the same shape as the "enabled is not working"
-# lesson one layer out. Measured on both live boxes: every declared deadline is
-# IDLE-anchored, enforce refuses those (it cannot read last-input time), and
-# the only non-dark forceable edge is `lock` -- whose deadline is idle-anchored
-# too. So VIGILANCE_ENFORCE=force is structurally UNREACHABLE as wired, and
-# nothing said so. An operator reading the man page would reasonably believe
-# they have a backstop they do not have.
+# --- 7. CAN AN OVERDUE EDGE BE DETECTED AT ALL? -----------------------------
+# The deadline that matters is expressed in IDLE time, and vigilant could not
+# read idle time, so `idle` was refused outright -- which made the SOON
+# question unanswerable and a whole tier inert. A deadline nobody can measure
+# is not a deadline, it is a sentence in a config file, and nothing said so.
 _duehook() {   # edge name "<secs> <anchor>"
   mkdir -p "$VIGILANCE_HOOK_ROOT/$1.due.d"
   printf '#!/bin/sh\necho "%s"\n' "$3" > "$VIGILANCE_HOOK_ROOT/$1.due.d/$2"
   chmod +x "$VIGILANCE_HOOK_ROOT/$1.due.d/$2"
 }
+_idlesrc() {   # seconds | "" to remove | "na" to decline
+  rm -rf "$VIGILANCE_HOOK_ROOT/idle.d"
+  [ -n "$1" ] || return 0
+  mkdir -p "$VIGILANCE_HOOK_ROOT/idle.d"
+  if [ "$1" = na ]; then printf '#!/bin/sh\nexit 78\n' > "$_ISRC"
+  else printf '#!/bin/sh\necho %s\n' "$1" > "$_ISRC"; fi
+  chmod +x "$_ISRC"
+}
+_ISRC=$VIGILANCE_HOOK_ROOT/idle.d/10-src
 go open
 
 _duehook lock 10-idle "480 idle"
+_idlesrc ""
 _out=$(_report)
-case $(_section "$_out" enforcement) in
-  *"idle-anchored"*) ;;
+case $(_section "$_out" deadlines) in
+  *"NOTHING can measure it"*) ;;
   *) printf '%s\n' "$_out" >&2
-     fail "an idle-anchored deadline was not named as unenforceable" ;;
-esac
-case $(_section "$_out" enforcement) in
-  *"NO edge can be forced"*) ;;
-  *) fail "with every deadline idle-anchored, report did not say that
-enforcement is inert. That is the live state of both boxes, and believing you
-have a backstop you do not have is worse than knowing you have none" ;;
+     fail "an idle-anchored deadline with no idle source was not reported as
+unmeasurable. That is the live state of both boxes: a silently WEDGED idle
+timer is running, correctly armed, logs no event for audit to reconcile, and
+leaves the machine at a rung it genuinely matches -- so nothing in this suite
+can see it, and it is the failure this package was created for" ;;
 esac
 
-# --- 8. ...and a RUNG-anchored deadline on a LIT edge IS reachable ----------
-# Without this, "always says inert" would pass case 7 while telling every
-# correctly-armed box the same lie in the other direction.
+# --- 8. wire an idle source and the deadline becomes measurable -------------
+# A check whose remedy does not clear its own verdict is one you learn to
+# scroll past; this suite has shipped that once already in the budget check.
+_idlesrc 42
+_out=$(_report)
+case $(_section "$_out" deadlines) in
+  *"idle clock: 42s"*) ;;
+  *) printf '%s\n' "$_out" >&2
+     fail "a wired idle source was not reported as the clock" ;;
+esac
+case $(_section "$_out" deadlines) in
+  *"NOTHING can measure it"*) fail "wiring an idle source did not clear the
+unmeasurable finding" ;;
+esac
+
+# --- 8b. a source that DECLINES is not a clock ------------------------------
+# 78 means "I cannot tell". Treating it as an answer would be the exact
+# conflation the n/a contract exists to break -- and here the wrong answer is
+# worse than usual, because a missing number read as 0 means "input one second
+# ago", which silently resets every deadline forever.
+_idlesrc na
+_out=$(_report)
+case $(_section "$_out" deadlines) in
+  *"NOTHING can measure it"*) ;;
+  *) printf '%s\n' "$_out" >&2
+     fail "an idle source that DECLINED (78) was treated as a working clock" ;;
+esac
+
+# --- 9. a RUNG-anchored deadline never needed a clock -----------------------
+_idlesrc ""
 _duehook lock 10-idle "100 rung"
 _out=$(_report)
-case $(_section "$_out" enforcement) in
-  *"'lock' is enforceable"*) ;;
+case $(_section "$_out" deadlines) in
+  *"100s rung-anchored, measurable"*) ;;
   *) printf '%s\n' "$_out" >&2
-     fail "a rung-anchored deadline on the LIT lock edge was not reported as
-enforceable. enforce can genuinely act there, and saying otherwise hides the
-one backstop that does work" ;;
-esac
-case $(_section "$_out" enforcement) in
-  *"NO edge can be forced"*) fail "a box WITH a reachable force path was still
-told enforcement is inert" ;;
-esac
-
-# --- 9. a DARK edge is never reachable, however it is anchored --------------
-# Nothing may enter a dark rung unless it arms its own way back, and a forced
-# descent arms nothing. The report must not offer it as a backstop.
-_duehook sleep 10-rung "100 rung"
-go lock
-_out=$(_report)
-case $(_section "$_out" enforcement) in
-  *"'sleep' is a DARK rung"*) ;;
-  *) printf '%s\n' "$_out" >&2
-     fail "a rung-anchored deadline on the DARK sleep edge was not reported as
-never-forced. Offering it as a backstop would promise a descent that vigilant
-correctly refuses to make" ;;
-esac
-case $(_section "$_out" enforcement) in
-  *"'sleep' is enforceable"*) fail "a DARK edge was reported as enforceable" ;;
+     fail "a rung-anchored deadline was not reported measurable. It needs no
+idle clock at all, so reporting it as unmeasurable would be crying wolf" ;;
 esac
 
 pass

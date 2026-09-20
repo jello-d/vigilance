@@ -389,7 +389,7 @@ from its own autostart. Enabling it against a target would start swayidle into a
 void.
 
 Supervision is **report-only** by default, so enabling the timers cannot cross
-an edge on its own. `VIGILANCE_ENFORCE=force` lets `enforce` act, and even then
+an edge on its own. `enforce` reports and never acts, and even before that
 it will never force a descent into a **dark** rung, because such a descent has
 nothing armed to bring the machine back. Not caution in the abstract: it
 is exactly how the resume unit once blanked an active user's screen for 32
@@ -494,13 +494,28 @@ a silent skip. `mutants.t` runs with the normal suite and re-checks that every
 target line still exists, so rewording a guarded line fails in seconds instead
 of quietly disarming a mutation nobody runs until next month.
 
-`report` also asks whether **enforcement can ever act**. Armed is not
-reachable: on both live boxes every declared deadline is idle-anchored, enforce
-refuses those (it cannot read last-input time), and the only non-dark forceable
-edge is `lock` -- whose deadline is idle-anchored too. So
-`VIGILANCE_ENFORCE=force` is structurally unreachable as wired, and nothing
-said so. It reports INFO, not WARN: nothing is broken, and the audit tier is
-the intended cover.
+`report` carries a **deadlines** section asking, per deadline, whether anything
+can measure it. The deadline that matters is expressed in *idle* time, and
+vigilant could not read idle time -- its only clock was time-since-entering-the-
+rung, which over-reports on a machine in use (it once called `lock` 1616s
+overdue while the machine was being typed on). So an idle anchor was refused
+outright, which made the SOON question unanswerable and left a whole tier
+inert. `idle.d` is that missing number: a cross-cutting source that prints
+seconds since last input, or exits **78** for "I cannot tell". 78 is not 0 --
+0 means "input one second ago", so reading a missing answer as a number would
+silently reset every deadline forever. With several sources the **minimum**
+wins, so a stale one cannot manufacture a false overdue against a machine
+somebody is sitting at.
+
+**Forcing is retired.** `VIGILANCE_ENFORCE=force` does nothing. It was
+unreachable by construction (`sleep` refused as a dark rung, `lock` refused as
+idle-anchored -- the intersection of forceable and measurable was empty), and
+it had been superseded: every failure it would have acted on is now caught
+closer to the cause. One sliver remained, and it is the failure that created
+this package -- the idle timer alive, correctly armed, and silently not firing.
+A wedged timer passes the argv check, logs no event for `audit`, and leaves the
+machine at a rung it genuinely matches. That wants *detecting*, which the idle
+clock now makes possible.
 
 `vigilant plan` ends with a **wiring fingerprint** over scope, edge, tier, hook
 name and resolved target. Identical on two boxes means identical wiring; if it

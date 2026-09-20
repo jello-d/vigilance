@@ -158,20 +158,38 @@ t plan
 -     done; } | sort | cksum | tr -d ' '
 +     done; } | cksum | tr -d ' '
 
-= enforce-reach-ignores-idle-anchor
+= deadlines-ignores-idle-clock
 f bin/vigilant
 t coverage
--     if [ "$_ea" = idle ]; then
+-     if [ -n "$_dclock" ]; then
 +     if false; then
 
-= enforce-reach-offers-dark-rungs
+= deadlines-never-warns-unmeasurable
 f bin/vigilant
 t coverage
--     if [ "$(_intent_of "$_ee")" = dark ]; then
-+     if false; then
+-     if [ "$_da" != idle ]; then
++     if true; then
 
-= enforce-reach-never-says-inert
+= idle-source-ignores-decline
 f bin/vigilant
-t coverage
--   if [ "$_ef" = 0 ]; then
-+   if false; then
+t due coverage
+-     if [ "$_irc" != 0 ] || [ -z "$_iv" ]; then continue; fi
++     if [ -z "$_iv" ]; then _iv=0; fi
+
+= idle-source-takes-max-not-min
+f bin/vigilant
+t due
+-     if [ -z "$_imin" ] || [ "$_iv" -lt "$_imin" ]; then _imin=$_iv; fi
++     if [ -z "$_imin" ] || [ "$_iv" -gt "$_imin" ]; then _imin=$_iv; fi
+
+= enforce-still-forces
+f bin/vigilant
+t due
+-   _log "OVERDUE $_e by $((_el - _d))s; reported"
++   cmd_go "$_e" only
+
+= enforce-idle-overdue-not-detected
+f bin/vigilant
+t due
+-       echo "enforce: $_e OVERDUE (idle ${_idle}s of ${_d}s); reported"
++       echo "enforce: $_e fine"

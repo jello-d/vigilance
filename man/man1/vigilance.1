@@ -140,27 +140,72 @@ A greeter session needs no configuration of its own: it simply has no user root,
 so it gets the machine hooks and nothing else. The machine scope is the LOWER
 layer, so it comes up first and goes down last, exactly as systemd orders units:
 descent runs user 10\(en90 then machine 10\(en90, and ascent reverses both.
-.SS Can enforcement ever act?
+.SS The idle clock, and the deadline nobody could measure
+The deadline that matters \- "the screen should have locked by now" \- is
+expressed in IDLE time, and vigilant could not read idle time. Its only clock
+was time\-since\-entering\-the\-rung, which OVER\-reports on a machine in use:
+measured from rung entry it once called
+.B lock
+1616s overdue while the machine was being typed on.
+.PP
+So an idle anchor was refused outright, and refusing it made the SOON question
+unanswerable, which left a whole tier inert. Three layers of machinery resting
+on one missing number.
+.PP
+.I idle.d
+is that number. It is CROSS\-CUTTING, like
+.IR audit.d " and " alert.d ,
+because idle time is a property of the SEAT rather than of any edge: several
+deadlines on different edges all read one clock. A source prints seconds since
+last input and exits 0, or exits 78 for "I cannot tell".
+.PP
+78 IS NOT 0 HERE, and the distinction is sharper than usual: 0 means "input one
+second ago", so reading a missing answer as a number would silently reset every
+deadline forever and report a perfectly healthy machine. When several sources
+answer, the MINIMUM wins \- the one that saw input most recently is the one
+that stops a stale source manufacturing a false overdue against a machine
+somebody is sitting at.
+.PP
 .B report
-carries an
-.B enforcement
-section saying, for the wiring actually present, whether
-.B VIGILANCE_ENFORCE=force
-could ever cross an edge. ARMED IS NOT REACHABLE, which is the "enabled is not
-working" lesson one layer out.
+carries a
+.B deadlines
+section saying, per deadline, whether anything can measure it. A deadline
+nobody can measure is not a deadline, it is a sentence in a config file.
+.SS What forcing was, and why it is gone
+.B enforce
+once had an acting half behind
+.BR VIGILANCE_ENFORCE=force .
+It is RETIRED (2026\-09\-20) and the knob does nothing.
 .PP
-Measured on both live boxes and true of neither by accident: every declared
-deadline is IDLE\-anchored, and enforce refuses those because it cannot read
-last\-input time. The only non\-dark forceable edge is
-.BR lock ,
-whose deadline is idle\-anchored too. So the force policy is structurally
-unreachable as wired \- not untried, UNREACHABLE \- and nothing said so. An
-operator reading this page would reasonably believe they have a backstop they
-do not have; the real cover for those edges is the audit tier.
+It was unreachable by construction: only two edges are enforcement targets,
+.B sleep
+is refused outright because a forced descent into a dark rung arms no way back,
+and
+.B lock
+was refused because its deadline is idle\-anchored. The intersection of
+forceable and measurable was empty, so it was tested code that could never run
+in production.
 .PP
-INFO rather than WARN, because nothing is broken: an idle\-anchored deadline
-genuinely cannot be enforced. A warning that is permanently on is how a report
-stops being read.
+It had also been superseded without anyone noticing. Every failure it would
+have acted on is now caught closer to the cause: a misarmed idle timer by
+.B report
+reading
+.IR /proc/<pid>/cmdline ,
+a failing provider by hook\-failure alerting, a lock that did not take by
+.B verify
+and
+.IR locker\-up ,
+continuous drift by the standing recheck, and the past by
+.BR audit .
+.PP
+What remained uncovered was ONE sliver, and it is the failure that created this
+package: the idle timer alive, correctly armed, and silently not firing. A
+wedged timer passes the argv check, logs no event for
+.B audit
+to reconcile, and leaves the machine at a rung it genuinely matches. That wants
+DETECTING, not forcing \- and detecting it is exactly what the idle clock makes
+possible. Forcing would have added an actuator on the security path driven by a
+measurement, for nothing the alert does not already give.
 .SS Coverage: edges that act and cannot be checked
 .B vigilant report
 carries a
@@ -482,10 +527,9 @@ SYSTEM suspend-lock unit (Before=sleep.target); needs root.
 SYSTEM resume unit (After=suspend.target); needs root.
 .TP
 .I systemd/vigilance-enforce.timer
-The supervision loop, every minute. Report-only unless
-.B VIGILANCE_ENFORCE=force
-is set; even then it will never force a descent into a DARK rung, because
-nothing would be armed to bring the machine back.
+The supervision loop, every minute. It REPORTS and never acts: it re\-asks
+whether the machine still matches the rung it claims, and whether any deadline
+has passed. Forcing is retired; see "What forcing was, and why it is gone".
 .TP
 .I systemd/vigilance-audit.timer
 The forensic pass, daily and
