@@ -358,6 +358,20 @@ A monitor that WAS driven dark and then disappears from
 detect is reported as drift rather than absence: a dark panel that stops
 answering DDC is reclassified as an invalid display, which would otherwise make
 it silently invisible to the ascent that should have woken it.
+.SH TESTING
+Two substrates run the same scenarios
+.RB ( "sh test/run" " and " "sh test/vm/run" ),
+and the stub one stubs ACTUATORS but never the trust root: a stubbed
+.BR systemctl (1)
+lies, and a lying stub is how a green test coexists with a broken box.
+.PP
+.B sh test/mutate
+is the third tier and asks whether the guards BITE. Each record in
+.I test/mutants
+removes one guard and names the tests that must notice; a guard nothing kills
+is decorative. The driver asserts the mutation LANDED, that the result still
+PARSES, and that the named tests were green beforehand, because every failure
+of this discipline here has been in the instrument rather than the subject.
 .SH EXIT STATUS
 .TP
 .B 0

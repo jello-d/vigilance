@@ -1,0 +1,137 @@
+#!/bin/sh
+# test/mutate - break each guard on purpose and assert a test NOTICES.
+#
+# The suite proves the code does what the tests say. This proves the TESTS say
+# anything at all: a guard no mutation can kill is decorative, and decorative
+# guards are how "everything is green" and "nothing is checked" became the same
+# sentence in this project more than once.
+#
+# It is deliberately paranoid about ITSELF, because every failure of this
+# discipline here has been in the instrument rather than the subject:
+#
+#   1. THE MUTATION MUST LAND. A pattern that matches nothing leaves the file
+#      untouched, the test passes, and that reads as "the guard does not bite".
+#      Exact whole-line matching, and an absent line is a hard ERROR.
+#   2. THE RESULT MUST STILL PARSE. A mutation that produces invalid shell
+#      kills every test it touches and proves nothing whatsoever. That is not
+#      hypothetical: it happened while writing this file.
+#   3. THE BASELINE MUST BE GREEN. "The test failed" only means the mutation
+#      did it if the test passed before. Otherwise a pre-existing failure is
+#      read as coverage.
+#
+# Usage: sh test/mutate [name ...]      (default: the whole corpus)
+set -eu
+
+HERE=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+CORPUS=$HERE/test/mutants
+T=$(mktemp -d)
+trap 'rm -rf "$T"' EXIT INT HUP TERM
+
+PASS=0; FAIL=0; ERR=0
+
+_parses() {   # file -> 0 if it still parses under ITS OWN shell
+  case "$(head -1 "$1")" in
+    *bash) bash -n "$1" 2>/dev/null ;;
+    *)     dash -n "$1" 2>/dev/null ;;
+  esac
+}
+
+# Exact whole-line replace/delete of the FIRST match, via awk so there is no
+# pattern syntax to clash with. `||`, `*`, `/` and `$` are all just characters.
+_edit() {   # file old new -> 0 if a line was changed
+  awk -v old="$2" -v new="$3" '
+    !done && $0 == old { done = 1; if (new != "") print new; next }
+    { print }
+    END { exit(done ? 0 : 1) }' "$1" > "$1.mut" || return 1
+  mv -f "$1.mut" "$1"
+}
+
+_run_one() {   # name file tests old new
+  _n=$1; _f=$2; _ts=$3; _old=$4; _new=$5
+  rm -rf "$T/tree"; mkdir -p "$T/tree"
+  # A COPY, not an in-place edit with a restore: an interrupted run must never
+  # be able to leave a deliberately broken vigilant in the working tree.
+  (cd "$HERE" && tar cf - --exclude=.git .) | (cd "$T/tree" && tar xf -)
+
+  if ! _edit "$T/tree/$_f" "$_old" "$_new"; then
+    printf 'ERROR %-32s the line is not in %s\n' "$_n" "$_f"
+    printf '      looked for: [%s]\n' "$_old"
+    printf '      A stale mutation leaves the file untouched, so the test\n'
+    printf '      passes and that reads as "the guard does not bite".\n'
+    ERR=$((ERR + 1)); return
+  fi
+  if ! _parses "$T/tree/$_f"; then
+    printf 'ERROR %-32s mutated %s no longer parses\n' "$_n" "$_f"
+    printf '      Invalid code kills every test and proves nothing.\n'
+    ERR=$((ERR + 1)); return
+  fi
+
+  _killed=0; _base=0
+  for _t in $_ts; do
+    if [ ! -f "$HERE/test/$_t.t" ]; then
+      printf 'ERROR %-32s names test "%s", which does not exist\n' "$_n" "$_t"
+      ERR=$((ERR + 1)); return
+    fi
+    # BASELINE FIRST. A test already failing for an unrelated reason would
+    # otherwise be counted as having caught this.
+    if ! sh "$HERE/test/$_t.t" >/dev/null 2>&1; then _base=1; continue; fi
+    if ! sh "$T/tree/test/$_t.t" >/dev/null 2>&1; then _killed=1; fi
+  done
+  if [ "$_base" = 1 ] && [ "$_killed" = 0 ]; then
+    printf 'ERROR %-32s a named test fails on the UNMUTATED tree\n' "$_n"
+    ERR=$((ERR + 1)); return
+  fi
+  if [ "$_killed" = 1 ]; then
+    printf 'killed   %s\n' "$_n"; PASS=$((PASS + 1))
+  else
+    printf 'SURVIVED %-32s (%s)\n' "$_n" "$_ts"
+    printf '         Nothing noticed this guard being removed, so the guard\n'
+    printf '         is not actually covered by the test that claims it.\n'
+    FAIL=$((FAIL + 1))
+  fi
+}
+
+[ -f "$CORPUS" ] || { echo "mutate: no corpus at $CORPUS" >&2; exit 2; }
+
+# Blocks, dispatched on a two-character prefix. Read with IFS empty and -r so
+# leading whitespace in a mutated line survives exactly: the indentation IS
+# part of an exact whole-line match.
+_flush() {
+  [ -n "${M_N:-}" ] || return 0
+  _sel=1
+  if [ "$ARGC" -gt 0 ]; then
+    _sel=0
+    for _a in $ARGV; do [ "$_a" = "$M_N" ] && _sel=1; done
+  fi
+  [ "$_sel" = 1 ] && _run_one "$M_N" "$M_F" "$M_T" "$M_O" "${M_P:-}"
+  M_N=; M_F=; M_T=; M_O=; M_P=
+}
+
+ARGC=$#; ARGV="$*"
+M_N=; M_F=; M_T=; M_O=; M_P=
+while IFS= read -r _line; do
+  case "$_line" in
+    '= '*) _flush; M_N=${_line#??} ;;
+    'f '*) M_F=${_line#??} ;;
+    't '*) M_T=${_line#??} ;;
+    '- '*) M_O=${_line#??} ;;
+    '+ '*) M_P=${_line#??} ;;
+  esac
+done < "$CORPUS"
+_flush
+
+echo ""
+printf '%d killed, %d SURVIVED, %d corpus errors\n' \
+  "$PASS" "$FAIL" "$ERR"
+if [ "$FAIL" != 0 ] || [ "$ERR" != 0 ]; then
+  echo "mutate: FAILED -- a guard nothing kills is not a guard"
+  exit 1
+fi
+if [ "$PASS" = 0 ]; then
+  # The verdict rule the suite already applies to itself: a run that reached no
+  # conclusion is a failure, not a pass. Otherwise an empty corpus or a filter
+  # that matched nothing reports success.
+  echo "mutate: FAILED -- no mutations ran at all"
+  exit 1
+fi
+echo "mutate: ok"

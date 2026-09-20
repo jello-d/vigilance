@@ -470,6 +470,30 @@ mistaken for full coverage.
 This is not theoretical. Every bug in this suite's history was a wiring error,
 not a logic error, and each one survived a green stub run.
 
+### The third tier: do the guards actually bite?
+
+    sh test/mutate           break each guard on purpose (~70s)
+    sh test/mutate <name>    just one
+
+`test/mutants` is a corpus: each record removes one guard and names the tests
+that must notice. A guard nothing can kill is decorative, and decorative guards
+are how "everything is green" and "nothing is checked" became the same sentence
+here more than once.
+
+It is paranoid about **itself**, because every failure of this discipline has
+been in the instrument rather than the subject: a pattern that matched nothing
+(so the file was untouched and the pass read as "the guard does not bite"), a
+`sed` delimiter that clashed with `||`, and a mutation that produced unbalanced
+shell and so "killed" on a syntax error while proving nothing. So the driver
+asserts the mutation **landed**, that the result still **parses**, and that the
+named tests were **green beforehand** -- then, and only then, that one dies.
+
+Matching is exact and whole-line: no regex, nothing to clash with the `||`, `*`
+and `$` these lines are full of, and an absent line is a hard error rather than
+a silent skip. `mutants.t` runs with the normal suite and re-checks that every
+target line still exists, so rewording a guarded line fails in seconds instead
+of quietly disarming a mutation nobody runs until next month.
+
 ## License
 
 Apache-2.0.

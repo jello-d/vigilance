@@ -1,0 +1,147 @@
+# test/mutants - the corpus: each record breaks ONE guard on purpose, and
+# names the test(s) that must notice.
+#
+# WHY THIS IS A FILE AND NOT A HABIT. Every defect this project has found was
+# found by someone remembering to apply a discipline, and the discipline that
+# matters most -- "confirm the guard actually bites" -- has failed repeatedly,
+# always in my own hands rather than the code's:
+#
+#   a search string that never matched, so the file was untouched and the test
+#   correctly passed, which read as "the guard does not bite";
+#   a sed delimiter that clashed with `||`, so the mutation never applied;
+#   a SIGKILL backstop that looked covered because the test hook died politely
+#   on SIGTERM, making plain `timeout` and `-k` indistinguishable;
+#   a mutation that produced UNBALANCED SHELL, so it "killed" on a syntax
+#   error and proved nothing at all.
+#
+# So the driver asserts the mutation LANDED, that the result still PARSES, that
+# the named tests pass BEFORE it, and only then that one dies. A guard nothing
+# kills is decorative, and this file turns that from a thing to remember into a
+# thing that fails.
+#
+# FORMAT, one record per block, blank line between:
+#
+#   = <name>
+#   f <file, repo-relative>
+#   t <test names, space separated, without the .t>
+#   - <the exact line to remove>
+#   + <the line to put in its place; omit the whole line to just delete>
+#
+# Matching is EXACT and whole-line, first occurrence: no regex, no delimiters,
+# nothing to clash with `||` or `*` or a slash. Two of the failures above were
+# pattern-syntax accidents, and an exact match can only be right or absent --
+# and absent is a hard ERROR, never a silent skip. Leading whitespace after the
+# two-character prefix is significant and is preserved exactly.
+
+= verify-empty-tier-exits-0
+f bin/vigilant
+t verify coverage greeter
+-     _vrc=$HOOK_NA
++     :
+
+= recheck-78-is-drift
+f bin/vigilant
+t standing-recheck coverage
+-     "$HOOK_NA") return 0 ;;
+
+= coverage-never-reports
+f bin/vigilant
+t coverage
+-   _uo=$(_unverified_edges)
++   _uo=
+
+= coverage-ignores-machine-scope
+f bin/vigilant
+t coverage
+-     for _uer in "$HOOK_ROOT" "$MACHINE_HOOK_ROOT"; do
++     for _uer in "$HOOK_ROOT"; do
+
+= coverage-flags-idle-edges
+f bin/vigilant
+t coverage
+-     if [ "$_uea" -gt 0 ] && [ "$_uev" = 0 ]; then
++     if [ "$_uev" = 0 ]; then
+
+= coverage-counts-non-executables
+f bin/vigilant
+t coverage
+-         if [ -x "$_ueh" ]; then _uev=$((_uev + 1)); fi
++         if [ -e "$_ueh" ]; then _uev=$((_uev + 1)); fi
+
+= plan-hides-absent-hooks
+f bin/vigilant
+t plan
+-     if [ -n "$_pu" ]; then _plan_row "" "absent :" "$_pu"; fi
++     :
+
+= plan-ascent-uses-descent-order
+f bin/vigilant
+t plan
+-     if _is_ascent "$_pe"; then _pfirst=$_pm; _psecond=$_pu
++     if false; then _pfirst=$_pm; _psecond=$_pu
+
+= plan-gaps-never-fail
+f bin/vigilant
+t plan
+-   _plan_gaps || return 1
++   _plan_gaps >/dev/null 2>&1 || true
+
+= plan-reach-always-yes
+f bin/vigilant
+t plan
+-     if ! _plan_bit "$_pr_p" "$_pr_g"; then PLAN_WHY=$_pr_p; return 1; fi
++     :
+
+= plan-reach-only-last-component
+f bin/vigilant
+t plan
+-   _pr_p=""; _pr_rest=${_pr_t#/}
++   _pr_p=""; _pr_rest=$(basename "$_pr_t")
+
+= plan-ignores-acls
+f bin/vigilant
+t plan
+-     if getfacl -p "$1" 2>/dev/null | grep -q "^user:$GREETER_USER:..x"
++     if false
+
+= screen-dark-accepts-lit
+f libexec/vigilance/hooks/screen-dark
+t screen-dark
+- if hook_luma_is_dark "$_l"; then
++ if true; then
+
+= screen-dark-judges-lit-rungs
+f libexec/vigilance/hooks/screen-dark
+t screen-dark
+- if [ "$_intent" != dark ]; then
++ if false; then
+
+= screen-dark-unmeasurable-passes
+f libexec/vigilance/hooks/screen-dark
+t screen-dark
+-   exit 78
++   exit 0
+
+= luma-counts-alpha
+f libexec/vigilance/hooklib.sh
+t screen-dark lock-blank
+-         | timeout 25 magick - -alpha off -colorspace Gray \
++         | timeout 25 magick - -colorspace Gray \
+
+= hook-bound-removed
+f bin/vigilant
+t hook-bounds
+-   HOOK_TMO="timeout -k 2 $HOOK_TIMEOUT"
++   HOOK_TMO=
+
+= hook-bound-loses-sigkill
+f bin/vigilant
+t hook-bounds
+-   HOOK_TMO="timeout -k 2 $HOOK_TIMEOUT"
++   HOOK_TMO="timeout $HOOK_TIMEOUT"
+
+= ascent-becomes-blockable
+f bin/vigilant
+t block rescue
+-   if _is_descent "$1" && _blocked "$1" "$2"; then
++   if _blocked "$1" "$2"; then
