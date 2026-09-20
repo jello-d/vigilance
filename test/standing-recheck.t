@@ -1,0 +1,164 @@
+#!/bin/sh
+# test/standing-recheck.t - verification as a STANDING question, not an event.
+#
+# THE GAP. Verification only ever happened when an edge was crossed. So a
+# machine that reached a rung correctly and then DRIFTED out of it went
+# unnoticed until the next crossing -- at `sleep`, possibly hours. And a
+# mechanism that never worked at all was asked exactly once, at the moment it
+# was least likely to have failed yet.
+#
+# Every miss in this project's history had that shape: a single green verdict at
+# crossing time, and then nothing ever asked again. So the supervision timer,
+# which already runs every minute, now re-asks "is the machine still where it
+# says it is" on every pass. Two independent paths to one truth: the edge-time
+# verify says a crossing went well, this says the state is STILL true.
+#
+# IT IS ONLY SAFE BECAUSE ALERTS DEDUP. Without onset-deduplication a persistent
+# fault would notify every minute, and the enforce timer would be switched off
+# by hand -- which is not hypothetical, it happened on a live box, and every
+# subsequent report was green because nothing was running.
+set -eu
+. "$(dirname "$0")/lib.sh"
+. "$(dirname "$0")/scenario.sh"
+scenario_init standing-recheck
+
+mkdir -p "$VIGILANCE_HOOK_ROOT/sleep.verify.d" "$VIGILANCE_HOOK_ROOT/alert.d"
+cat > "$VIGILANCE_HOOK_ROOT/alert.d/10-sink" <<EOF
+#!/bin/sh
+printf '%s\n' "\$1" >> $T/alerts
+EOF
+chmod +x "$VIGILANCE_HOOK_ROOT/alert.d/10-sink"
+_verifier() { printf '#!/bin/sh\nexit %s\n' "$1" \
+                > "$VIGILANCE_HOOK_ROOT/sleep.verify.d/10-probe"
+              chmod +x "$VIGILANCE_HOOK_ROOT/sleep.verify.d/10-probe"; }
+_enforce() { _r=0; "$VIGILANT" enforce >/dev/null 2>>"$T/stderr" || _r=$?
+             printf '%s' "$_r"; }
+_alerts() { wc -l < "$T/alerts" 2>/dev/null | tr -d ' '; }
+
+# The dedup IS the subject here, so turn it back on: scenario_init disables it
+# so ordinary tests can assert on alerts without depending on what an earlier
+# case raised.
+VIGILANCE_ALERT_COOLDOWN=3600; export VIGILANCE_ALERT_COOLDOWN
+
+go sleep
+
+# --- 1. a healthy rung is quiet --------------------------------------------
+# The first requirement of any standing check: it must say nothing when there
+# is nothing to say, or it becomes noise and then it becomes disabled.
+: > "$T/alerts"
+_verifier 0
+[ "$(_enforce)" = 0 ] || fail "a healthy rung made the supervision pass fail.
+A standing check that cries on a correct machine is one that gets turned off"
+[ "$(_alerts)" = 0 ] || fail "a healthy rung raised an alert"
+
+# --- 2. DRIFT between crossings is found ------------------------------------
+# The whole point: nothing crossed an edge here. The machine reached `sleep`
+# legitimately and then stopped matching it, which used to be invisible until
+# the next crossing hours later.
+: > "$T/alerts"
+_verifier 1
+[ "$(_enforce)" != 0 ] || fail "the machine stopped matching the rung it claims
+and the supervision pass reported success. Nothing crossed an edge, so nothing
+else would have asked -- that is the window every miss in this project has
+lived in"
+# The DRIFT alert specifically, not just "an alert". A failing verify hook also
+# raises hook-failed from inside the runner, so counting alerts cannot tell
+# whether the standing check reported anything of its own -- and a test that
+# cannot tell passes with that alert deleted.
+grep -q '^drift$' "$T/alerts" || fail "the standing check raised no DRIFT alert
+of its own. hook-failed says which hook returned non-zero; drift says the
+machine is no longer in the state it claims, which is the finding here"
+grep -q "STILL-DRIFTED" "$VIGILANCE_LOG" \
+  || fail "the drift was not recorded in the log under a name the audit tier
+can find"
+
+# --- 3. REPEATS ARE DEDUPED, or the timer gets switched off -----------------
+# This is what makes checking every minute safe at all. A live box had its
+# enforce timer stopped by hand to quiet a storm, and it stayed stopped.
+: > "$T/alerts"
+for _i in 1 2 3 4 5 6; do _enforce >/dev/null; done
+[ "$(_alerts)" -le 1 ] || fail "six passes over the SAME unchanged fault raised
+$(_alerts) notifications. A notifier that fires every minute about a fact that
+has not changed is one people silence -- and the timer goes with it"
+
+# --- 4. ...but the LOG is never suppressed ---------------------------------
+# Throttling is a courtesy to the human, never a gap in the record: the log is
+# the audit tier's input, and a thinned record would make the forensic pass
+# lie about how long something was broken.
+# Count the ALERT lines, which is what suppression actually touches. Counting
+# STILL-DRIFTED instead proved nothing: that is written by the recheck before
+# _alert is ever called, so it survives however badly the log is throttled.
+_n=$(grep -c "^.*ALERT \[" "$VIGILANCE_LOG")
+[ "$_n" -ge 6 ] || fail "the log holds only $_n ALERT records for seven
+observations. Suppression must be about NOTIFYING, never about recording: the
+audit tier reads this to say how long a fault lasted, and a thinned log makes
+the forensic pass understate it"
+grep -q "logged, not notified" "$VIGILANCE_LOG" || fail "a suppressed repeat
+was not marked as such in the log; a reader cannot tell a quiet period from an
+unobserved one"
+
+# --- 5. the cooldown is a knob, and 0 disables it --------------------------
+: > "$T/alerts"
+for _i in 1 2 3; do
+  VIGILANCE_ALERT_COOLDOWN=0 "$VIGILANT" enforce >/dev/null 2>&1 || true
+done
+[ "$(_alerts)" -ge 3 ] || fail "with the cooldown disabled, repeats were still
+suppressed; an operator debugging a notifier has no way to see every event"
+
+# --- 6. a DIFFERENT fault still gets through -------------------------------
+# Dedup keyed too broadly would swallow a new problem because an old one is
+# still open, which is worse than the storm it prevents.
+: > "$T/alerts"
+_verifier 4                       # a different failing exit == a different msg
+[ "$(_enforce)" != 0 ] || fail "a second, different fault was not reported"
+[ "$(_alerts)" != 0 ] || fail "a DIFFERENT fault was swallowed because an
+earlier one was still within its cooldown. Dedup must key on the fault, not on
+the subsystem, or one open problem hides every later one"
+
+# --- 6b. the verdict survives the NOT-DUE-YET path -------------------------
+# Every early return in the enforcement path has to carry the standing check's
+# finding, and "not due yet" is the one a healthy machine takes most often. A
+# drift discovered on a pass that then returns 0 for an unrelated reason is a
+# drift thrown away.
+# AT `lock`, NOT `sleep`. The enforcement target is the edge BELOW the current
+# rung, and below `sleep` is `suspend` -- which is deliberately excluded as a
+# target, so `sleep` never reaches the not-due-yet path at all. `lock` has
+# `sleep` below it, which is enforceable.
+go open
+go lock
+mkdir -p "$VIGILANCE_HOOK_ROOT/sleep.due.d" \
+         "$VIGILANCE_HOOK_ROOT/lock.verify.d"
+cat > "$VIGILANCE_HOOK_ROOT/sleep.due.d/10-far" <<'DUE'
+#!/bin/sh
+echo 99999
+DUE
+printf '#!/bin/sh\nexit 1\n' > "$VIGILANCE_HOOK_ROOT/lock.verify.d/10-probe"
+chmod +x "$VIGILANCE_HOOK_ROOT/sleep.due.d/10-far" \
+         "$VIGILANCE_HOOK_ROOT/lock.verify.d/10-probe"
+_out=$("$VIGILANT" enforce 2>&1) || _r6=$?
+case "$_out" in
+  *"not due yet"*) ;;
+  *) printf '%s\n' "$_out" >&2
+     fail "setup wrong: this case is meant to take the not-due-yet path" ;;
+esac
+[ "${_r6:-0}" != 0 ] || fail "drift was found and then discarded by the
+not-due-yet return. That is the path a healthy machine takes on almost every
+pass, so a finding lost there is a finding lost nearly always"
+rm -rf "$VIGILANCE_HOOK_ROOT/sleep.due.d" \
+       "$VIGILANCE_HOOK_ROOT/lock.verify.d"
+go sleep
+
+# --- 7. it runs even when there is NO deadline to enforce ------------------
+# The recheck and the deadline logic answer different questions. Every early
+# return in the enforcement path -- no target, no deadline, not due yet,
+# blocked -- would otherwise skip the standing check entirely, which is most
+# of the time on a healthy machine.
+rm -rf "$VIGILANCE_HOOK_ROOT/sleep.due.d"
+: > "$T/alerts"
+_verifier 1
+[ "$(_enforce)" != 0 ] || fail "with no deadline declared, the standing recheck
+was skipped. 'Is anything overdue' and 'is the machine still where it says it
+is' are different questions, and the second one must not depend on the first
+having an answer"
+
+pass

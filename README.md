@@ -217,6 +217,7 @@ An integrator chooses which run on which edge, because that is policy:
     hooks/panel-backlight  the built-in panel backlight
     hooks/lock-blank       paint the LOCK SURFACE black, and restore it
     hooks/sway-dpms        power outputs off/on -- SWAY sessions only
+    hooks/screen-dark      VERIFY the screen is actually dark, mechanism-blind
     hooks/kbd-backlight    the keyboard backlight (vendor LED, discovered)
     hooks/mute-leds        the mute / mic-mute indicator LEDs
     hooks/logind-hint      SetLockedHint, so the rest of the desktop knows
@@ -301,6 +302,18 @@ explicitly unblank. Hence:
   OLED a black pixel is an off pixel, so this is a real power-down of the
   emitting surface without a power state the panel may not return from. It
   changes what is drawn, never whether the session is locked.
+
+- **`screen-dark` is the only check that asks the RUNG'S question.** Every other
+  verifier asks about its own mechanism, and each can be satisfied or n/a on its
+  own terms while the thing the rung MEANS goes unexamined. That is not
+  theoretical: a lit screen survived four separate green verdicts -- an
+  unimplemented `D6` code, a monitor that vanished from its own map, a user
+  session with no darkening mechanism, and a greeter with none either -- and
+  every hook was individually correct each time. The failure lived in the gap
+  *between* per-device checks, which is exactly where a per-device check cannot
+  look. This one measures what the display emits and compares it to what the
+  rung claims. Keep both: the device checks say WHICH mechanism failed, this
+  says THAT the machine is lying.
 
 - **`sway-dpms` is how a GREETER goes dark, and it is safe in machine scope
   because it cannot act outside sway.** A greeter has no locker, so `lock-blank`

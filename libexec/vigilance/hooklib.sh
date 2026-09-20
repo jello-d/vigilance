@@ -92,6 +92,60 @@ hook_have_brightnessctl() {
   command -v brightnessctl >/dev/null 2>&1
 }
 
+# WHAT THE SCREEN IS ACTUALLY EMITTING, independent of every mechanism.
+#
+# This is the only OUTCOME measurement in the suite. Every other verifier asks
+# about its own device -- "did my I2C bus take the command", "is my sysfs
+# backlight at 0" -- and when no device is applicable they all decline and the
+# rung's actual claim goes unexamined. That is how a lit screen survived four
+# separate green verdicts: an unimplemented D6 code, a monitor that vanished
+# from its own map, a user session with no darkening mechanism, and a greeter
+# with none either. Each hook was individually satisfied or n/a every time.
+#
+# A grab answers the question the RUNG is about rather than the question a
+# device is about, so it holds however the darkening was supposed to happen --
+# or was not wired at all.
+#
+# ALPHA OFF, and it is not optional: %[fx:mean] averages ALL channels, and a
+# screengrab always carries alpha, so an opaque black frame reads 0.25 rather
+# than 0. That measurement once called a pitch-black screen "not black" and
+# contradicted a human looking straight at it.
+#
+# THE WHOLE SURFACE, not a crop: a 160x160 corner reads near zero on a dark
+# wallpaper, so a corner-sampling check passes on a lit screen.
+#
+# OVERRIDABLE, or a test of any caller measures the DEVELOPER'S own screen --
+# the mistake behind seven past defects here.
+hook_screen_luma() {   # -> mean luminance 0..1, or empty if unmeasurable
+  if [ -n "${VIGILANCE_SCREEN_LUMA:-}" ]; then
+    printf '%s' "$VIGILANCE_SCREEN_LUMA"
+    return 0
+  fi
+  command -v grim >/dev/null 2>&1   || return 0
+  command -v magick >/dev/null 2>&1 || return 0
+  # ALWAYS RETURNS 0. A caller writes `_l=$(hook_screen_luma)` under `set -e`,
+  # and an assignment from a command substitution that FAILS aborts the caller
+  # outright -- so a grab that could not run would kill the hook before it ever
+  # reached its own "nothing to measure" branch. Observed exactly that: the
+  # unmeasurable case exited 1 instead of declining with 78, which would have
+  # read as drift on every headless box.
+  _sl=$(timeout 25 grim -s 0.05 - 2>/dev/null \
+        | timeout 25 magick - -alpha off -colorspace Gray \
+            -format '%[fx:mean]' info: 2>/dev/null) || _sl=
+  printf '%s' "$_sl"
+  return 0
+}
+
+# Is a luminance reading dark enough to call black? Named so every caller uses
+# the SAME threshold: two checks disagreeing about what "dark" means is its own
+# source of false verdicts.
+hook_luma_is_dark() {   # <luma>
+  case "$1" in
+    0|0.00*) return 0 ;;
+    *)       return 1 ;;
+  esac
+}
+
 # hook_dark <save-file> [brightnessctl-selector...]
 hook_dark() {
   _sf=$1; shift

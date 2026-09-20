@@ -284,8 +284,41 @@ EOF
 # never affect the outcome it is reporting on, so failures here are swallowed
 # after being logged: the machine's state must not depend on whether we
 # managed to complain about it.
+# ALERT ON THE ONSET, NOT ON THE STATE. An identical alert raised again while
+# the same condition persists is not new information, and a notifier that fires
+# every minute about an unchanged fact is one people silence. That is not a
+# guess: the enforce timer on a live box was STOPPED BY HAND to quiet an alert
+# storm and then simply stayed stopped, with every subsequent report green.
+#
+# So a repeat of the SAME alert within the cooldown is logged and not notified.
+# The LOG IS NEVER SUPPRESSED -- the forensic record has to stay complete, and
+# it is the audit tier's input. Only the human-facing notification is throttled.
+#
+# Keyed on kind AND message, so a different fault about the same subsystem still
+# gets through; the state lives in RUN_DIR, so a reboot re-arms everything,
+# which is the right default for "is this still true".
+ALERT_COOLDOWN=${VIGILANCE_ALERT_COOLDOWN:-3600}
+
+_alert_repeat() {   # kind message -> 0 if this is a suppressible repeat
+  if [ "$ALERT_COOLDOWN" = 0 ]; then return 1; fi
+  _ak=$(printf '%s %s' "$1" "$2" | cksum | tr -d ' ')
+  _af=$RUN_DIR/alerts/$_ak
+  mkdir -p "$RUN_DIR/alerts" 2>/dev/null || return 1
+  if [ -f "$_af" ]; then
+    _aw=$(cat "$_af" 2>/dev/null || echo 0)
+    case "$_aw" in ''|*[!0-9]*) _aw=0 ;; esac
+    if [ $(( $(date +%s) - _aw )) -lt "$ALERT_COOLDOWN" ]; then return 0; fi
+  fi
+  printf '%s\n' "$(date +%s)" > "$_af" 2>/dev/null || true
+  return 1
+}
+
 _alert() {   # kind message
   _log "ALERT [$1] $2"
+  if _alert_repeat "$1" "$2"; then
+    _log "  (repeat within ${ALERT_COOLDOWN}s; logged, not notified)"
+    return 0
+  fi
   _al=$(_hooks_for alert)
   if [ -z "$_al" ]; then return 0; fi
   while IFS= read -r _ah; do
@@ -1850,6 +1883,35 @@ cmd_due() {   # [edge]
 # has been pressed in anger exactly never, so forcing stays opt-in until an
 # ascent has been proven on the box in question. An alert that names the failure
 # already buys the charter's goal; forcing buys convenience on top of it.
+# THE STANDING RE-CHECK. Verification used to happen only when an edge was
+# crossed, so a machine that reached a rung correctly and then DRIFTED out of it
+# went unnoticed until the next crossing -- which, at `sleep`, might be hours.
+# Worse, a mechanism that never worked at all was only ever asked once, at the
+# moment it was least likely to have failed yet.
+#
+# This runs on the supervision timer, so the question "is the machine still
+# where it says it is" gets asked every minute instead of once. It is the
+# second, independent path to the same truth: the edge-time verify says a
+# crossing went well, this says the state is STILL true.
+#
+# Safe to run this often only because alerts now dedup on onset -- without that
+# a persistent fault would notify every minute, and the enforce timer would be
+# switched off by hand exactly as it was once before.
+#
+# It REPORTS, it does not act. Acting on a drifted rung is cmd_go's business and
+# is gated by the enforcement policy below; this only refuses to let the drift
+# be silent.
+_enforce_recheck() {   # from
+  _rv=$(cmd_verify 2>&1) || _rvrc=$?
+  case "${_rvrc:-0}" in
+    0) return 0 ;;
+  esac
+  echo "enforce: $_rv"
+  _log "STILL-DRIFTED at '$1': $_rv"
+  _alert drift "the machine is at '$1' but no longer matches it: $_rv"
+  return 1
+}
+
 cmd_enforce() {
   mkdir -p "$RUN_DIR" "$STATE_ROOT"
   _from=$(_depth)
@@ -1858,15 +1920,20 @@ cmd_enforce() {
     echo "enforce: no depth record; nothing is overdue"
     return 0
   fi
+  # Asked FIRST, and unconditionally: whether a deadline exists is a separate
+  # question from whether the machine is still in the state it claims, and
+  # every early return below would otherwise skip it.
+  _erc=0
+  _enforce_recheck "$_from" || _erc=1
   _e=$(_next_down "$_from")
   if [ -z "$_e" ]; then
     echo "enforce: nothing below '$_from' is an enforcement target"
-    return 0
+    return "$_erc"
   fi
   _draw=$(_due_for "$_e" "$_from")
   if [ -z "$_draw" ]; then
     echo "enforce: $_e has no declared deadline; nothing to enforce"
-    return 0
+    return "$_erc"
   fi
   _d=$(printf '%s' "$_draw" | awk '{print $1}')
   _anch=$(printf '%s' "$_draw" | awk '{print $2}')
@@ -1878,7 +1945,7 @@ cmd_enforce() {
   if [ "$_anch" = idle ]; then
     if _audit_covered; then
       echo "enforce: $_e is idle-anchored; not enforceable here, left to audit"
-      return 0
+      return "$_erc"
     fi
     # UNWATCHED, and that is worth saying once rather than silently returning 0
     # every minute. Not an alert: it is a wiring gap, not an event, and alerting
@@ -1890,7 +1957,7 @@ cmd_enforce() {
   _el=$(( $(date +%s) - _at ))
   if [ "$_el" -le $((_d + GRACE)) ]; then
     echo "enforce: $_e not due yet (${_el}s of $((_d + GRACE))s)"
-    return 0
+    return "$_erc"
   fi
 
   # OVERDUE. Ask whether something is legitimately preventing it before
@@ -1899,7 +1966,7 @@ cmd_enforce() {
   if _blocked "$_e" "$_from"; then
     _log "OVERDUE $_e by $((_el - _d))s, but blocked; holding off"
     echo "enforce: $_e overdue but blocked; holding off"
-    return 0
+    return "$_erc"
   fi
 
   _alert overdue "$_e is ${_el}s into a ${_d}s deadline and has not fired;"\

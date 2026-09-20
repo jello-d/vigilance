@@ -68,19 +68,8 @@ MARK=${VIGILANCE_STATE_DIR:-/tmp}/blanked
 # SAMPLE THE WHOLE SURFACE. A corner crop reads near-zero on a dark wallpaper
 # and would pass on a lit screen; the blank is a claim about the whole surface,
 # so `grim -s` downscales the whole thing rather than cropping part of it.
-# OVERRIDABLE, like every other host probe in this package. Without it a test
-# of this tier would measure the DEVELOPER'S OWN SCREEN -- the single mistake
-# that produced seven past defects here, arriving in the one hook whose whole
-# job is to look at a display.
-_luma() {   # -> mean luminance 0..1, or empty if it cannot be measured
-  if [ -n "${VIGILANCE_SCREEN_LUMA:-}" ]; then
-    printf '%s' "$VIGILANCE_SCREEN_LUMA"
-    return 0
-  fi
-  timeout 25 grim -s 0.05 - 2>/dev/null \
-    | timeout 25 magick - -alpha off -colorspace Gray -format '%[fx:mean]' \
-        info: 2>/dev/null
-}
+# The measurement lives in hooklib now: `screen-dark` needs the same one, and
+# two checks disagreeing about what "black" means would be its own bug.
 
 if [ "${VIGILANCE_KIND:-act}" = verify ]; then
   # A LIT rung is checked against the RECORD, not the pixels: a legitimately
@@ -101,16 +90,14 @@ if [ "${VIGILANCE_KIND:-act}" = verify ]; then
           || ! command -v magick >/dev/null 2>&1; }; then
     exit 0                                  # nothing to measure with: n/a
   fi
-  _l=$(_luma)
+  _l=$(hook_screen_luma)
   if [ -z "$_l" ]; then
     # No capture is n/a rather than drift: a greeter or a tty has no display to
     # grab, and asserting about a surface we cannot see is the thing this hook
     # was rewritten to stop doing.
     exit 0
   fi
-  case "$_l" in
-    0|0.00*) exit 0 ;;                      # black, as claimed
-  esac
+  if hook_luma_is_dark "$_l"; then exit 0; fi
   echo "lock-blank: the lock surface is emitting light at a dark rung (mean"\
 " luminance $_l, want ~0). The screen is not blank." >&2
   exit 1

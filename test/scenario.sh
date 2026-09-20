@@ -66,6 +66,14 @@ scenario_init() {   # <name>
   # difference it was not testing. Default to "a session exists" (the ordinary
   # case); the scenario that tests the no-session path sets it empty per call.
   export VIGILANCE_SESSION=1
+  # ALERT DEDUP OFF IN SCENARIOS. Production suppresses a repeat of the SAME
+  # alert within a cooldown, so a notifier does not fire every minute about an
+  # unchanged fact. That is time-dependent behaviour, and a test asserting "this
+  # raised an alert" would pass or fail depending on what an EARLIER case in the
+  # same file happened to raise -- a test whose verdict depends on its
+  # neighbours is not a test. Scenarios see every alert; test/standing-recheck.t
+  # turns the cooldown back on where the dedup itself is the subject.
+  export VIGILANCE_ALERT_COOLDOWN=0
   # And the SLEEP UNIT'S BUDGET, which the edge-budget check compares the hook
   # count against. Unset, it asks the real systemd what lock-on-sleep's
   # TimeoutStartSec is -- a host read, and one that is absent entirely on a box

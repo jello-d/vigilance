@@ -1,0 +1,71 @@
+#!/bin/sh
+# screen-dark - VERIFY-ONLY: is the screen actually emitting at a dark rung?
+#
+# THE ONE CHECK THAT ASKS THE RUNG'S QUESTION rather than a device's. Every
+# other verifier in this suite asks about its own mechanism -- "did my I2C bus
+# take the command", "is my sysfs backlight at 0", "are my compositor's outputs
+# off" -- and each is satisfied or n/a on its own terms. Nothing asserted the
+# thing the rung actually MEANS.
+#
+# That is not a theoretical gap. A lit screen survived four separate green
+# verdicts:
+#
+#   a D6 code the panel does not implement      ddc-monitor was satisfied
+#   a monitor that vanished from its own map    it was not in the map to check
+#   a user session with no darkening mechanism  every hook declined
+#   a greeter with none either                  every hook declined
+#
+# In all four the machine said `sleep` and the screen was lit, and every hook
+# was individually correct. The failure lived in the gap BETWEEN them, which is
+# precisely where a per-device check cannot look.
+#
+# So this one is mechanism-blind on purpose. It does not know or care whether
+# the darkening was meant to come from DDC, DPMS, a backlight, or a painted
+# lock surface -- it measures what the display is emitting and compares that to
+# what the rung claims. It holds when a mechanism is broken, when one was never
+# wired, and when the hook that owned it declined.
+#
+# DEFENSE IN DEPTH, not a replacement. The per-device verifiers say WHICH
+# mechanism failed, which is what you need to fix it. This one says THAT the
+# machine is lying, which is what you need to know at all. Keep both.
+set -eu
+
+_self=$(readlink -f "$0")
+. "$(dirname "$_self")/../hooklib.sh"
+
+# VERIFY ONLY. It actuates nothing: there is no "make the screen dark" here,
+# because choosing a mechanism is exactly what this hook refuses to do.
+if [ "${VIGILANCE_KIND:-act}" != verify ]; then
+  exit 0
+fi
+
+edge=${1:-${VIGILANCE_EDGE:-}}
+_intent=$(hook_intent "$edge")
+
+# A LIT rung is deliberately NOT asserted. A legitimately black wallpaper, a
+# dark theme, a screen showing a mostly-black terminal -- none of those is
+# drift, and failing on them would make this the crying-wolf check that gets
+# switched off. The claim worth making is one-directional: at a DARK rung the
+# screen must not be emitting.
+if [ "$_intent" != dark ]; then
+  exit 0
+fi
+
+_l=$(hook_screen_luma)
+if [ -z "$_l" ]; then
+  # NOTHING TO MEASURE: no compositor to grab from (a greeter over ssh, a tty,
+  # a headless box), or no grim/magick. Saying n/a is the honest answer, and
+  # saying it with 78 is what keeps an edge where nothing could be checked from
+  # reading like one where everything passed.
+  exit 78
+fi
+
+if hook_luma_is_dark "$_l"; then
+  exit 0
+fi
+
+echo "screen-dark: the machine is at a DARK rung ($edge) and the display is"\
+" still emitting (mean luminance $_l, want ~0). Whatever was supposed to"\
+" darken it did not -- and every per-device verifier can still be green while"\
+" this is true, because each one only knows about its own mechanism." >&2
+exit 1
