@@ -475,7 +475,8 @@ _hooks_for() {   # edge [suffix]
     # Coming UP: the lower layer first, each scope unwinding its own order.
     _hooks_in "$MACHINE_HOOK_ROOT" "$1" "${2:-}" desc
     _hooks_in "$HOOK_ROOT" "$1" "${2:-}" desc
-  elif [ "$1" = alert ] || [ "$1" = audit ] || [ "$1" = idle ]; then
+  elif [ "$1" = alert ] || [ "$1" = audit ] || [ "$1" = idle ] \
+       || [ "$1" = watchdog ]; then
     # NEITHER IS A LADDER EDGE, so say so explicitly rather than letting them
     # fall through to the descent branch and be ordered as if they were one.
     # `audit` landed in that branch by accident; the order it produced happened
@@ -935,10 +936,12 @@ _plan_edge() {   # edge
 
 _plan_gaps() {   # -> 0 clean, 1 a wired machine hook is invisible to greeter
   _pg=0
-  for _pge in lock unlock sleep wake suspend resume audit alert idle; do
+  for _pge in lock unlock sleep wake suspend resume audit alert idle \
+               watchdog; do
     for _pgt in "" .verify .report .block .due; do
       case "$_pge" in
-        audit|alert|idle) if [ -n "$_pgt" ]; then continue; fi ;;
+        audit|alert|idle|watchdog)
+          if [ -n "$_pgt" ]; then continue; fi ;;
       esac
       _pgl=$(_hooks_in "$MACHINE_HOOK_ROOT" "$_pge" "$_pgt" asc)
       if [ -z "$_pgl" ]; then continue; fi
@@ -989,7 +992,8 @@ _plan_gaps() {   # -> 0 clean, 1 a wired machine hook is invisible to greeter
 # The hash says THAT they differ; `vigilant plan` diffs between boxes to say
 # HOW, which is the half a checksum cannot give you.
 _plan_fingerprint() {
-  { for _fe in lock unlock sleep wake suspend resume audit alert idle; do
+  { for _fe in lock unlock sleep wake suspend resume audit alert idle \
+              watchdog; do
       for _ft in "" .verify .report .block .due; do
         case "$_fe" in
           audit|alert) if [ -n "$_ft" ]; then continue; fi ;;
@@ -1036,7 +1040,7 @@ cmd_plan() {   # [edge]
   # imply they are keyed by it, which is the exact confusion that let an audit
   # hook in <edge>.audit.d read as wired while nothing would ever run it.
   printf '\ncross-cutting (not per-edge)\n'
-  for _pt in audit alert idle; do
+  for _pt in audit alert idle watchdog; do
     _pu=$(_plan_names "$HOOK_ROOT" "$_pt" "" asc)
     _pm=$(_plan_names "$MACHINE_HOOK_ROOT" "$_pt" "" asc mark)
     _pboth=$_pm$_pu
@@ -1092,7 +1096,7 @@ KINDS=". .verify .report .due .block"
 # Listing them under every edge would be a lie; listing them nowhere hid two
 # whole tiers. So they get their own section.
 _hooks_cross() {
-  for _ck in audit alert idle; do
+  for _ck in audit alert idle watchdog; do
     echo "$_ck.d:"
     _cl=$(_hooks_for "$_ck")
     if [ -z "$_cl" ]; then echo "  (none)"; continue; fi
@@ -2325,6 +2329,70 @@ cmd_due() {   # [edge]
 # It REPORTS, it does not act. Acting on a drifted rung is cmd_go's business and
 # is gated by the enforcement policy below; this only refuses to let the drift
 # be silent.
+# --- watchdog: is the SUPERVISING MACHINERY itself alive? -------------------
+#
+# WHY THIS IS NOT AN audit.d HOOK, which is the obvious place to reach for. The
+# audit contract is `<epoch> <edge> <note>` and means "this event happened; did
+# its edge follow?". It is EVENT-DRIVEN. A watchdog is the inverse: nothing
+# happened when something should have, so there is no event to report and no
+# timestamp to reconcile. Squeezing it in would mean emitting a fake event, and
+# a forensic tier fed invented events is worse than no watchdog at all.
+#
+# HOW IT CAN WORK AT ALL. A wedged daemon is RUNNING: the process is alive, the
+# argv is right, the unit is active. Every liveness check in this suite passes.
+# Catching that needs two things, and neither is an idle clock:
+#
+#   1. A HEARTBEAT IT CANNOT AVOID EMITTING WHEN HEALTHY. swayidle-mgr arms a
+#      short observational timeout, so a healthy timer emits on every brief
+#      pause -- turning a rare event (a full idle-lock, which can legitimately
+#      not happen all day) into a frequent one. Only then is silence evidence.
+#
+#   2. AN OBSERVER THAT CANNOT SHARE ITS FATE. That is the part people get
+#      wrong. The heartbeat SHOULD share fate with the thing under test -- that
+#      is exactly why it stops when the thing stops. What must be independent
+#      is whoever LOOKS at it, and we already have that: a systemd timer, which
+#      is the trust root this project already leans on everywhere else.
+#
+# So the shape is the classic one: the subject emits, a separate timer reads,
+# and silence past a threshold is the finding. A hook exits 0 for healthy, 1
+# for "the thing I watch is not doing its job", 78 for "I cannot tell".
+#
+# Alert dedup on onset is what makes running it every minute safe; without it a
+# persistent fault notifies sixty times an hour, and the timer gets stopped by
+# hand, which has already happened once on a live box.
+_run_watchdogs() {   # -> 0 healthy or unknown, 1 something is not doing its job
+  _wl=$(_hooks_for watchdog)
+  if [ -z "$_wl" ]; then return 0; fi
+  _wrc=0
+  _wifs=$IFS; IFS='
+'
+  for _wh in $_wl; do
+    IFS=$_wifs
+    if [ -z "$_wh" ]; then continue; fi
+    _wo=$RUN_DIR/.wd.$$
+    _whrc=0
+    _wsd=$STATE_ROOT/$(basename "$_wh")
+    mkdir -p "$_wsd" 2>/dev/null || true
+    VIGILANCE_KIND=watchdog VIGILANCE_STATE_DIR="$_wsd" \
+      PATH="$HOOK_PATH" $HOOK_TMO "$_wh" >"$_wo" 2>/dev/null || _whrc=$?
+    _wmsg=$(head -1 "$_wo" 2>/dev/null || true)
+    rm -f "$_wo" 2>/dev/null || true
+    case "$_whrc" in
+      0|"$HOOK_NA") ;;
+      *)
+        _wrc=1
+        _log "WATCHDOG $(basename "$_wh"): ${_wmsg:-not doing its job}"
+        echo "watchdog $(basename "$_wh"): ${_wmsg:-not doing its job}"
+        _alert watchdog "${_wmsg:-$(basename "$_wh") reports its subject is"\
+" not doing its job}" ;;
+    esac
+    IFS='
+'
+  done
+  IFS=$_wifs
+  return "$_wrc"
+}
+
 _enforce_recheck() {   # from
   _rv=$(cmd_verify 2>&1) || _rvrc=$?
   case "${_rvrc:-0}" in
@@ -2355,6 +2423,10 @@ cmd_enforce() {
   # every early return below would otherwise skip it.
   _erc=0
   _enforce_recheck "$_from" || _erc=1
+  # UNCONDITIONAL, for the same reason the standing recheck is: whether a
+  # deadline exists is a different question from whether the machinery that
+  # would meet it is alive, and every early return below would skip it.
+  _run_watchdogs || _erc=1
   _e=$(_next_down "$_from")
   if [ -z "$_e" ]; then
     echo "enforce: nothing below '$_from' is an enforcement target"

@@ -48,6 +48,21 @@ Update the record to the line as it reads now."
   M_N=; M_F=; M_T=; M_O=
 }
 
+# MALFORMED PREFIXES FIRST, because they fail SILENTLY in the worst direction.
+# The format is a two-character prefix, and a code line starting at column 0
+# invites writing "-if [ ... ]" instead of "- if [ ... ]". The driver then sees
+# no old line at all -- or worse, no NEW line, which turns an intended replace
+# into a DELETE: a different mutation than the one written down, possibly still
+# valid shell, possibly still killing a test, and wrong about what it proved.
+# Four records in this file were written that way.
+_bad=$(grep -n '^[-+][^ ]' "$CORPUS" | grep -v '^[0-9]*:--' || true)
+[ -z "$_bad" ] || fail "record line(s) missing the space after the prefix:
+
+$_bad
+
+'- x' is a target line; '-x' is not parsed as one at all. A '+' written that
+way is worse than a '-': it silently becomes a DELETE instead of a replace."
+
 while IFS= read -r _line; do
   case "$_line" in
     '= '*) _check; M_N=${_line#??} ;;

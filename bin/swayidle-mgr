@@ -31,6 +31,17 @@ set -eu
 _conf=${SWAYIDLE_CONF:-${XDG_CONFIG_HOME:-$HOME/.config}/vigilance/idle.conf}
 [ -r "$_conf" ] && . "$_conf"
 
+# THE HEARTBEAT. A wedged swayidle is RUNNING: the process is alive, its argv
+# is correct, its unit is active, and it emits nothing. Every liveness check in
+# this suite passes while the box never locks again -- which is the failure
+# that created this package.
+#
+# A watchdog cannot see that without an expectation, and `idle-lock` is far too
+# rare to build one on: a whole day can legitimately pass without one. So the
+# timer also arms a SHORT observational timeout that does nothing but log. A
+# healthy swayidle then emits on EVERY pause of this length, turning a rare
+# event into a frequent one, and silence into evidence.
+TICK_TIMEOUT=${TICK_TIMEOUT:-60}    # seconds idle before a proof-of-life tick
 LOCK_TIMEOUT=${LOCK_TIMEOUT:-480}   # seconds idle before the lock
 BLANK_DELAY=${BLANK_DELAY:-120}     # further seconds before peripherals go dark
 # Idle-SUSPEND seam (OFF unless the integrator sets both). SUSPEND_TIMEOUT is
@@ -102,6 +113,7 @@ RUNDIR=${XDG_RUNTIME_DIR:-/tmp}/swayidle-mgr
 LOGDIR=${SWAYIDLE_LOG_DIR:-$HOME/.local/state/swayidle-mgr}
 EVENT_LOG=$LOGDIR/events.log
 STATE=$RUNDIR/last-idle-lock
+PIDFILE=$RUNDIR/swayidle.pid
 
 # Absolute path to this script, so swayidle's sh -c can re-invoke us regardless
 # of the session PATH.
@@ -145,6 +157,13 @@ cmd_event() {
       # shellcheck disable=SC2086
       exec $LOCK_CMD
       ;;
+    idle-tick|active)
+      # PROOF OF LIFE, and nothing else. It must not need `vigilant`, must not
+      # cross an edge and must not be able to fail: its entire job is to prove
+      # that swayidle is still firing its timers. An observational hook that
+      # can take an action is one that can also break the thing it observes.
+      log "$kind"
+      ;;
     *)
       echo "swayidle-mgr: unknown event '$kind'" >&2
       exit 1
@@ -153,9 +172,30 @@ cmd_event() {
 }
 
 # --- lifecycle --------------------------------------------------------------
+# STOP WHAT WE STARTED, then say what else was there.
+#
+# This was a bare `pkill -x swayidle`, which kills every swayidle on the box by
+# name. It cannot tell ours from anyone else's, so it would silently take out
+# an unrelated instance -- including any independent idle client -- and leave
+# no trace that it had. The sweep is KEPT, because leaving a foreign timer
+# running would mean `stop` did not stop idle locking, which is the one thing
+# it promises. What changes is that a foreign instance is now NAMED.
 cmd_stop() {
   quiet=${1:-}
-  pkill -x swayidle 2>/dev/null || true
+  _pid=$(cat "$PIDFILE" 2>/dev/null || true)
+  case "$_pid" in ''|*[!0-9]*) _pid= ;; esac
+  # Confirm it is still swayidle before signalling: a pid file outlives its
+  # process, and the number can have been recycled onto something else.
+  if [ -n "$_pid" ] && [ "$(cat "/proc/$_pid/comm" 2>/dev/null)" = swayidle ]
+  then
+    kill "$_pid" 2>/dev/null || true
+    rm -f "$PIDFILE" 2>/dev/null || true
+  fi
+  _others=$(pgrep -x swayidle 2>/dev/null | tr '\n' ' ' || true)
+  if [ -n "$_others" ]; then
+    log "stop: swept swayidle we did not start: $_others"
+    pkill -x swayidle 2>/dev/null || true
+  fi
   [ "$quiet" = quiet ] || log stop
 }
 
@@ -167,6 +207,13 @@ _run() {
   # events into the worker's stdio log, to root-cause a phantom-relock storm.
   # Opt-in, OFF by default -- normal behaviour is unchanged.
   [ -n "${SWAYIDLE_DEBUG:-}" ] && set -- "$@" -d
+  # ARMED FIRST because it is the shortest, and kept separate from the lock
+  # timer on purpose: swayidle measures every timeout from the last input
+  # independently, so this observes without altering when anything fires. Its
+  # own `resume` records the other half of the transition, so the log shows a
+  # healthy timer cycling rather than merely having fired once.
+  set -- "$@" timeout "${TICK_TIMEOUT:-60}" "$SELF event idle-tick" \
+              resume "$SELF event active"
   set -- "$@" timeout "$LOCK_TIMEOUT" "$SELF event idle-lock"
   # The blank edge, BLANK_DELAY after the lock. Two separate timers rather than
   # one chained action: swayidle measures both from last input, so the blank
@@ -187,6 +234,16 @@ _run() {
   if [ -n "$SUSPEND_TIMEOUT" ] && [ -n "$SUSPEND_CMD" ]; then
     set -- "$@" timeout "$SUSPEND_TIMEOUT" "$SUSPEND_CMD"
   fi
+  # BEFORE the exec, so this is swayidle's OWN pid: exec replaces the process
+  # and keeps it. Written for `stop`, which used to pkill every swayidle on the
+  # box by name -- a blunt instrument that would also kill an unrelated or
+  # independent one, and that cannot tell "mine" from "somebody else's".
+  # TOLERANT: a pidfile we cannot write must never stop the timer from arming.
+  # Bookkeeping failing is not a reason to leave the machine without an idle
+  # lock -- the same rule _set_depth carries, and that ddc-monitor once broke
+  # one layer out by aborting a whole edge on a failed truncate.
+  [ -n "${PIDFILE:-}" ] && { printf '%s\n' "$$" > "$PIDFILE" 2>/dev/null \
+    || true; }
   exec swayidle "$@"
 }
 

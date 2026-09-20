@@ -1,0 +1,118 @@
+#!/bin/sh
+# swayidle-watchdog - is the idle timer still FIRING, not merely running?
+#
+# THE FAILURE THAT CREATED THIS PACKAGE. swayidle wedges on this Wayfire build:
+# it resumed a suspend UNLOCKED and silently dropped a Session.Lock that fired.
+# A wedged instance is alive -- correct argv, active unit, right cgroup -- and
+# emits nothing. Every liveness check in this suite passes while the machine
+# never locks again.
+#
+# Nothing could see that, because seeing it needs an EXPECTATION to compare
+# silence against, and the obvious expectation (an idle clock) is the one thing
+# vigilant cannot measure.
+#
+# HOW SILENCE BECOMES EVIDENCE. Two pieces, neither of which is a clock:
+#
+#   THE HEARTBEAT. swayidle-mgr arms a short observational timeout, so a
+#   healthy timer logs on EVERY brief pause. That turns a rare event -- a full
+#   idle-lock, which can legitimately not happen all day -- into a frequent
+#   one. Without it, "no events today" is unremarkable.
+#
+#   THE INDEPENDENT OBSERVER. This hook is run by a systemd timer, not by
+#   swayidle. The heartbeat SHARING fate with the subject is the point: it goes
+#   quiet exactly when the subject does. What must not share fate is whoever
+#   looks at it.
+#
+# WHY IT IS NOT AN audit.d HOOK. That tier's contract is `<epoch> <edge> <note>`
+# and asks "this event happened, did its edge follow?" -- it is event-driven.
+# There is no event here, and inventing one to fit would poison the forensic
+# tier with a record of something that did not occur.
+set -eu
+
+LOG=${SWAYIDLE_LOG_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/swayidle-mgr}
+LOG=$LOG/events.log
+
+# How long a healthy timer may be silent before that is a finding. Generous on
+# purpose: the cost of a false positive is a human learning to ignore this, and
+# the fault it catches is permanent until someone intervenes, so waiting costs
+# nothing. Overridable because a kiosk and a laptop idle very differently.
+QUIET=${VIGILANCE_WATCHDOG_QUIET:-14400}      # 4 hours
+
+_now=$(date +%s)
+
+# --- can we answer at all? --------------------------------------------------
+# 78, not 0. "I could not look" and "I looked and it is fine" are the same exit
+# code only in suites that later discover they were never checking anything.
+if ! command -v swayidle >/dev/null 2>&1; then
+  echo "no swayidle on this host; nothing to watch"
+  exit 78
+fi
+if ! pgrep -x swayidle >/dev/null 2>&1; then
+  # NOT this hook's finding. `report` already asserts the timer is running and
+  # supervised, and two tiers reporting the same fault in different words is
+  # how a reader learns to discount both. This one owns exactly one question:
+  # it is running, but is it WORKING?
+  echo "swayidle is not running; that is report's finding, not this one"
+  exit 78
+fi
+if [ ! -r "$LOG" ]; then
+  echo "no event log at $LOG; the heartbeat is not wired"
+  exit 78
+fi
+
+# --- how long has it been silent? -------------------------------------------
+_last=$(date -r "$LOG" +%s 2>/dev/null || echo 0)
+case "$_last" in ''|*[!0-9]*) _last=0 ;; esac
+if [ "$_last" = 0 ]; then
+  echo "cannot read the mtime of $LOG"
+  exit 78
+fi
+_silent=$((_now - _last))
+
+# --- the SESSION must have been up long enough for silence to mean anything -
+# A box booted ten minutes ago has no business being judged on four hours of
+# quiet: it cannot have been silent for longer than it has existed. Uptime is
+# the whole of it -- an earlier draft of this comment claimed a fallback from
+# the log's own start record, which the code never did.
+#
+# OVERRIDABLE, or the tier measures the DEVELOPER'S machine. That is the
+# mistake behind a long line of defects here, and it bit immediately: every
+# case in this hook's own test passed only because the box running it happened
+# to have been up for days. In a freshly booted VM the same test failed, which
+# is exactly what the second substrate exists for. A real file, so the parse
+# stays under test rather than being bypassed by a bare number.
+_up=$(cut -d' ' -f1 "${VIGILANCE_UPTIME_FILE:-/proc/uptime}" 2>/dev/null \
+      | cut -d. -f1)
+case "${_up:-}" in ''|*[!0-9]*) _up=0 ;; esac
+if [ "$_up" -lt "$QUIET" ]; then
+  echo "up ${_up}s, less than the ${QUIET}s quiet window; too early to judge"
+  exit 78
+fi
+
+if [ "$_silent" -lt "$QUIET" ]; then
+  exit 0
+fi
+
+# --- silence, and now the innocent explanations ------------------------------
+# THE RUNG IS THE FIRST ONE, and it is decisive. If the machine is at `lock` or
+# below, the idle timer demonstrably worked -- that is how it got there. Only a
+# machine sitting at `open` has a timer that should have fired and did not.
+_depth=$(${VIGILANT:-vigilant} status 2>/dev/null \
+         | sed -n 's/^depth: *//p' | head -1)
+case "${_depth:-}" in
+  lock|sleep|suspend)
+    exit 0 ;;
+esac
+
+# THE SECOND: an idle inhibitor legitimately suppresses every timer, and a
+# fullscreen video is the mechanism behaving correctly. vigilant cannot query
+# the inhibitor directly, so this is NOT claimed as a fault -- it is reported
+# as one explanation among two, which is the honest shape when the evidence
+# cannot separate them.
+echo "the idle timer has emitted nothing for ${_silent}s while the machine sat\
+ at '${_depth:-open}'. A healthy timer logs on every brief pause, so this means\
+ either it is WEDGED -- running, correctly armed, and firing nothing, which is\
+ the failure this package exists for and which every other check here passes --\
+ or an idle inhibitor has been held that whole time. Restart\
+ vigilance-idle.service to clear a wedge."
+exit 1

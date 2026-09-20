@@ -31,11 +31,28 @@ runfn=$(sed -n '/^_need_vigilant() {/,/^}/p;/^_run() {/,/^}/p' \
   "$HERE/bin/swayidle-mgr")
 run_run() {   # SUSPEND_TIMEOUT and SUSPEND_CMD passed as env
   env -i PATH="$T/bin:/usr/bin:/bin" HOME="$T" LOCK_TIMEOUT=480 \
-    BLANK_DELAY=120 VIGILANT_CMD=/bin/true SELF=self \
+    BLANK_DELAY=120 TICK_TIMEOUT=60 VIGILANT_CMD=/bin/true SELF=self \
     "$@" sh -c "set -eu
 $runfn
 _run"
 }
+
+# THE HEARTBEAT IS ARMED, and it is armed SEPARATELY from the lock timer.
+# A wedged swayidle is running with correct argv and emits nothing, so every
+# liveness check in this suite passes while the box never locks again. The
+# watchdog needs an expectation to compare silence against, and `idle-lock` is
+# far too rare to be one -- a whole day can pass without a single lock. This
+# short observational timeout is what turns silence into evidence.
+out=$(run_run SUSPEND_TIMEOUT= SUSPEND_CMD=)
+echo "$out" | grep -q 'timeout 60 self event idle-tick' \
+  || fail "no proof-of-life tick armed: $out"
+echo "$out" | grep -q 'resume self event active' \
+  || fail "the tick has no resume, so only half of each transition is
+recorded and a log cannot show the timer CYCLING, only that it fired once"
+# ...and it must not have displaced the lock timer, which is the whole point of
+# arming it as its own timeout: swayidle measures each from the last input.
+echo "$out" | grep -q 'timeout 480' \
+  || fail "arming the tick displaced the lock timer: $out"
 
 # seam set -> exactly the suspend timeout + command appears, lock timer intact
 out=$(run_run SUSPEND_TIMEOUT=1200 SUSPEND_CMD=/bin/echo)

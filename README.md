@@ -232,6 +232,7 @@ An integrator chooses which run on which edge, because that is policy:
     hooks/lock-blank       paint the LOCK SURFACE black, and restore it
     hooks/sway-dpms        power outputs off/on -- SWAY sessions only
     hooks/screen-dark      VERIFY the screen is actually dark, mechanism-blind
+    hooks/swayidle-watchdog  is the idle timer FIRING, not merely running?
     hooks/kbd-backlight    the keyboard backlight (vendor LED, discovered)
     hooks/mute-leds        the mute / mic-mute indicator LEDs
     hooks/logind-hint      SetLockedHint, so the rest of the desktop knows

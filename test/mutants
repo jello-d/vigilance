@@ -193,3 +193,57 @@ f bin/vigilant
 t due
 -       echo "enforce: $_e OVERDUE (idle ${_idle}s of ${_d}s); reported"
 +       echo "enforce: $_e fine"
+
+= watchdog-tier-never-runs
+f bin/vigilant
+t watchdog
+-   _run_watchdogs || _erc=1
++   :
+
+= watchdog-failure-not-alerted
+f bin/vigilant
+t watchdog
+-         _alert watchdog "${_wmsg:-$(basename "$_wh") reports its subject is"\
++         true    watchdog "${_wmsg:-$(basename "$_wh") reports its subject is"\
+
+= watchdog-na-treated-as-failure
+f bin/vigilant
+t watchdog
+-       0|"$HOOK_NA") ;;
++       0) ;;
+
+= watchdog-silence-at-lock-is-a-fault
+f libexec/vigilance/hooks/swayidle-watchdog
+t swayidle-watchdog
+-   lock|sleep|suspend)
++  nosuchrung)
+
+= watchdog-judges-a-fresh-boot
+f libexec/vigilance/hooks/swayidle-watchdog
+t swayidle-watchdog
+- if [ "$_up" -lt "$QUIET" ]; then
++ if false; then
+
+= watchdog-reports-a-not-running-timer
+f libexec/vigilance/hooks/swayidle-watchdog
+t swayidle-watchdog
+- if ! pgrep -x swayidle >/dev/null 2>&1; then
++ if false; then
+
+= swayidle-heartbeat-not-armed
+f bin/swayidle-mgr
+t idle-suspend
+-   set -- "$@" timeout "${TICK_TIMEOUT:-60}" "$SELF event idle-tick" \
++  set -- "$@" true "${TICK_TIMEOUT:-60}" "$SELF event x" \
+
+= swayidle-stop-is-blunt-again
+f bin/swayidle-mgr
+t swayidle-mgr
+-     log "stop: swept swayidle we did not start: $_others"
++    true
+
+= watchdog-uptime-reads-the-host
+f libexec/vigilance/hooks/swayidle-watchdog
+t swayidle-watchdog
+- _up=$(cut -d' ' -f1 "${VIGILANCE_UPTIME_FILE:-/proc/uptime}" 2>/dev/null \
++ _up=$(cut -d' ' -f1 /proc/uptime 2>/dev/null \
