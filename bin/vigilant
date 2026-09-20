@@ -1215,6 +1215,23 @@ cmd_verify() {   # [edge]
     # say WHICH question went unanswered, or the next layer up mis-reports it.
     echo "verify: n/a (no verify hooks for edge" \
 "'${1:-$(_verify_edge_for "$_from")}'; nothing was checked)"
+    # 78, NOT 0. "Nothing was checked" must never leave here as success.
+    #
+    # The n/a contract was closed at the HOOK level (a hook declines with 78)
+    # and left open at the EDGE level: every wired hook declining is a FAIL,
+    # while NO hook being wired returned 0. Identical epistemic state, opposite
+    # verdict -- the precise conflation this whole tier exists to break.
+    #
+    # It is load-bearing, not tidiness. lock-on-sleep.service runs
+    # `vigilant verify lock` as ExecStartPost, and that is the suspend-time
+    # lock guarantee. With 0 here, emptying lock.verify.d -- a sweep, a
+    # rename, a wiring bug, exactly what hit swayidle-mgr and 50-swaylock --
+    # made the unit report success and the box suspend with the lock verified
+    # by nothing, green all the way up.
+    #
+    # DISTINCT FROM 1 on purpose. Both mean no verdict, but the remedies
+    # differ: 1 (all declined) says fix the mechanism, 78 says wire one.
+    _vrc=$HOOK_NA
   fi
   return "$_vrc"
 }
@@ -1421,6 +1438,52 @@ _rep_coherence() {
 # Capture the OUTPUT, not just the status: an empty tier exits 0 and used
 # to read here as "clean" when nothing had been asked. A green light
 # meaning "nobody checked" is worse than no light.
+# EDGES THAT ACT BUT CANNOT BE CHECKED, asked statically for EVERY edge.
+#
+# `verify` and the standing recheck only ever ask about the rung the machine is
+# at NOW, so an edge with no verifier is invisible until the machine happens to
+# be there. For `resume` that is after an S3 cycle -- the one moment nobody is
+# watching, on the edge with a history of failing.
+#
+# Found live on both boxes: `resume` fires four actuators and has no verify
+# tier at all, and `vigilant verify resume` reported success.
+_unverified_edges() {   # -> "edge:actcount" for each acting, uncheckable edge
+  for _ue in lock unlock sleep wake suspend resume; do
+    _uea=0; _uev=0
+    for _uer in "$HOOK_ROOT" "$MACHINE_HOOK_ROOT"; do
+      for _ueh in "$_uer/$_ue.d"/*; do
+        if [ -x "$_ueh" ]; then _uea=$((_uea + 1)); fi
+      done
+      for _ueh in "$_uer/$_ue.verify.d"/*; do
+        if [ -x "$_ueh" ]; then _uev=$((_uev + 1)); fi
+      done
+    done
+    if [ "$_uea" -gt 0 ] && [ "$_uev" = 0 ]; then
+      printf '%s:%s\n' "$_ue" "$_uea"
+    fi
+  done
+}
+
+_rep_coverage() {
+  # ITS OWN SECTION, so an assertion can be scoped to it. report has one exit
+  # code for ten sections and several read the real host, so a test that keys
+  # on the whole output passes for free on any host that is red elsewhere --
+  # and keeps passing with the check it claims to cover deleted.
+  echo "-- coverage --"
+  _uo=$(_unverified_edges)
+  if [ -z "$_uo" ]; then
+    _r_ok "every acting edge has a verify tier wired"
+    return 0
+  fi
+  for _u in $_uo; do
+    # WARN, matching the existing "verify: n/a" severity: this is a wiring gap,
+    # not a machine fault, and it is actionable and rare rather than always-on.
+    _r_warn "edge '${_u%:*}' acts (${_u#*:} hooks) with NO verify tier;" \
+      "it drives hardware and asks nobody whether it worked"
+  done
+  return 0
+}
+
 _rep_verify() {
   if [ -z "$_have_record" ]; then
     _r_info "verify n/a: nothing was asserted, so there is nothing to check"
@@ -1860,6 +1923,7 @@ cmd_report() {
   _rep_hardware
   _rep_coherence
   _rep_verify
+  _rep_coverage
   _rep_machinery
   _rep_actuators
   _rep_budget
@@ -2099,6 +2163,12 @@ _enforce_recheck() {   # from
   _rv=$(cmd_verify 2>&1) || _rvrc=$?
   case "${_rvrc:-0}" in
     0) return 0 ;;
+    # NOT DRIFT. Drift means we looked and the machine was wrong; 78 means
+    # nothing is wired to look. Raising it here would alert every minute about
+    # a static wiring fact -- and an alert that fires on a correct machine is
+    # how the enforce timer got stopped by hand once already. `report` owns
+    # this finding and states it ONCE, so it is neither lost nor a storm.
+    "$HOOK_NA") return 0 ;;
   esac
   echo "enforce: $_rv"
   _log "STILL-DRIFTED at '$1': $_rv"

@@ -140,6 +140,29 @@ A greeter session needs no configuration of its own: it simply has no user root,
 so it gets the machine hooks and nothing else. The machine scope is the LOWER
 layer, so it comes up first and goes down last, exactly as systemd orders units:
 descent runs user 10\(en90 then machine 10\(en90, and ascent reverses both.
+.SS Coverage: edges that act and cannot be checked
+.B vigilant report
+carries a
+.B coverage
+section naming every edge that has actuators and NO verify tier. It is asked
+STATICALLY, for all edges, and that is what makes it able to see one the
+machine is not currently on:
+.B verify
+and the standing recheck only ever ask about the rung we are at NOW, so an edge
+with no verifier stays invisible until the machine happens to be there.
+.PP
+Found live on both boxes:
+.B resume
+fires four actuators, has no verify tier, and
+.B "vigilant verify resume"
+reported success. After an S3 cycle is the one moment nobody is watching, and
+it is an edge with a history of failing.
+.PP
+A verifier in EITHER scope covers an edge, because the two scopes are one hook
+set when an edge runs. Only EXECUTABLE hooks count, matching the runner
+exactly: a hook that lost its mode bit in a copy never runs, and counting it
+would certify an edge as checked that nothing checks. It WARNS rather than
+fails, being a wiring gap and not a machine fault.
 .SS plan: what runs, as whom
 .B vigilant hooks
 lists what is wired. It lists it for THIS session, implicitly, and in one fixed
@@ -358,6 +381,27 @@ EVERY hook declined as
 .BR "NOTHING CHECKED" ,
 which is a FAIL: the state is unknown rather than good. An n/a raises no alert
 and does not degrade a crossing.
+.IP
+.B vigilant verify
+ITSELF exits 78 when the edge has NO verify hooks at all. That closes the same
+hole one level up: the contract was honoured between a hook and the runner and
+broken between the runner and its caller, so every wired hook declining was a
+FAIL while none being wired was a pass. Identical state, opposite verdict.
+.IP
+It is load-bearing rather than tidy.
+.I lock\-on\-sleep.service
+runs
+.B "vigilant verify lock"
+as
+.B ExecStartPost
+and that is the suspend\-time lock guarantee; systemd reads the STATUS and
+cannot read the sentence. With 0 there, emptying
+.I lock.verify.d
+made the unit report success and the box suspend with its lock verified by
+nothing. 78 is distinct from failure, so a caller asking "was this verified"
+learns the truth while
+.B report
+renders it WARN and still exits 0.
 .IP
 Using it is OPTIONAL. A hook that exits 0 is counted as having checked, exactly
 as before, so no existing integration changes behaviour.

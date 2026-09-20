@@ -133,6 +133,14 @@ whose monitor has no DPMS standby and which has no panel backlight, both screen
 verifiers declined and `verify sleep` said OK: the screen was checked by
 nothing, and the tier that exists to catch exactly that reported green.
 
+`vigilant verify` itself exits **78** when an edge has **no** verify hooks at
+all, which closes the same hole one level up. `lock-on-sleep.service` runs
+`vigilant verify lock` as `ExecStartPost` and systemd reads only the *status*,
+so with 0 there an emptied `lock.verify.d` let the box suspend with its lock
+verified by nothing. `report` gains a **coverage** section naming every edge
+that acts with no verify tier, asked statically so it can see an edge the
+machine is not currently on.
+
 So `verify` now names them -- `ok (3 checked, 1 n/a: panel-backlight)` -- and an
 edge where *every* hook declined is reported as `NOTHING CHECKED`, a FAIL: the
 state is unknown rather than good. Using 78 is optional; a hook that exits 0 is

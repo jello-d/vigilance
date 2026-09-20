@@ -78,11 +78,35 @@ with nobody present to notice"
 # --- 4. a MISSING user tree is not an error --------------------------------
 # Every command must work with the user root absent, because that IS the
 # greeter. An error would make a greeter noisy or dead at the login screen.
-for _c in status hooks verify audit due; do
+for _c in status hooks audit due; do
   "$VIGILANT" "$_c" >/dev/null 2>>"$T/stderr" \
     || fail "'$_c' failed with no user hook tree. That is the greeter's normal
 state, not an error condition"
 done
+
+# `verify` IS ASSERTED APART, and the distinction is the point rather than an
+# exemption. "Did not fail" and "exited 0" are different claims, and collapsing
+# them is the conflation this package keeps paying for. With no verify tier
+# reachable at all, the honest answer is 78 (nobody asked), not 0 (all clear).
+_rc=0
+"$VIGILANT" verify >/dev/null 2>>"$T/stderr" || _rc=$?
+case "$_rc" in
+  0|78) ;;
+  *) fail "'verify' failed with rc=$_rc and no user hook tree. A greeter has no
+user scope by definition, so an ERROR there would be noise on every login
+screen -- 78 says nothing was checked without claiming something broke" ;;
+esac
+
+# AND THE OTHER HALF: give the greeter's MACHINE scope a verifier and it must
+# produce a real verdict. Without this, "78 is acceptable" would pass with the
+# greeter's verify tier permanently inert -- which is the greeter outage this
+# whole file exists to prevent, re-created inside its own test.
+_mhook lock.verify.d 10-confirm
+go lock
+"$VIGILANT" verify lock >/dev/null 2>>"$T/stderr" \
+  || fail "with a machine-scope verify hook wired, the greeter still could not
+produce a verdict. Machine scope is ALL a greeter has, so if it cannot verify
+through it, it cannot verify at all"
 
 # `report` is asserted DIFFERENTLY, and the difference is not a loophole. Its
 # exit code folds in the machinery section, which reads the HOST's real systemd

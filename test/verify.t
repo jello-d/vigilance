@@ -15,16 +15,46 @@ set -eu
 scenario_init verify
 
 # --- an empty tier must NOT read as a pass ----------------------------------
-_out=$("$VIGILANT" verify 2>>"$T/stderr") || fail "empty verify exited non-zero"
+_rc=0
+_out=$("$VIGILANT" verify 2>>"$T/stderr") || _rc=$?
 case "$_out" in
   *"n/a"*"nothing was checked"*) ;;
   *) printf 'got: %s\n' "$_out" >&2
      fail "an empty verify tier did not announce itself as n/a" ;;
 esac
-
-# Exit stays 0: a box with no verify hooks is not BROKEN, and a timer must not
-# alarm. The honesty lives in the output, not the status.
 [ -n "$_out" ] || fail "empty verify said nothing at all"
+
+# EXIT 78, AND THIS REVERSES A DELIBERATE EARLIER DECISION. The old rule was
+# "exit stays 0: a box with no verify hooks is not BROKEN, and a timer must not
+# alarm -- the honesty lives in the output, not the status." It was wrong for
+# one specific reason: THE LOAD-BEARING CONSUMER READS ONLY THE STATUS.
+# lock-on-sleep.service runs `vigilant verify lock` as ExecStartPost and that
+# is the suspend-time lock guarantee; systemd cannot read the sentence. So the
+# honesty was placed exactly where the guarantee could not see it, and emptying
+# lock.verify.d made the unit report success with the lock verified by nothing.
+#
+# It also contradicted the sibling case: EVERY WIRED HOOK DECLINING is a FAIL
+# (below), while NO HOOK BEING WIRED was a pass. Identical epistemic state,
+# opposite verdict -- and that inconsistency is the tell.
+#
+# 78 is not an alarm, which is what makes this safe: it is the not-applicable
+# code, distinct from both 0 and failure, so a consumer asking "was this
+# verified" gets the truth while `report` still renders it WARN and exits 0.
+[ "$_rc" = 78 ] || fail "an empty verify tier exited $_rc, not 78. 0 means
+verified and 1 means drift; 'nobody asked' is neither, and reporting it as
+either is the conflation this file's own header was written about"
+
+# --- THE CONSEQUENCE, asserted directly ------------------------------------
+# Not a restatement of the above: this is the specific path that was silently
+# broken. lock-on-sleep.service gates a suspend on `verify lock`, so an empty
+# lock.verify.d must not be able to answer that question with success.
+_rc=0
+"$VIGILANT" verify lock >/dev/null 2>>"$T/stderr" || _rc=$?
+[ "$_rc" != 0 ] || fail "with no lock.verify.d wired, 'verify lock' returned
+success. That is the exact call lock-on-sleep.service makes as ExecStartPost
+before the box suspends -- so a swept or renamed verify tier, the failure mode
+that already hit swayidle-mgr and 50-swaylock, would let the machine sleep with
+its lock verified by nothing and every tier green"
 
 # --- a populated tier reports per edge --------------------------------------
 hook lock 10-act
@@ -106,7 +136,14 @@ esac
 : > "$RECORD"
 go open
 rm -rf "$VIGILANCE_HOOK_ROOT/unlock.verify.d"
-_out=$("$VIGILANT" verify 2>>"$T/stderr")
+# GUARDED, because a removed tier now answers 78 and this file runs under
+# `set -e`: an unguarded capture made the whole test abort silently at this
+# line, which the runner correctly reported as a test that reached no verdict.
+_rc=0
+_out=$("$VIGILANT" verify 2>>"$T/stderr") || _rc=$?
+[ "$_rc" = 78 ] || fail "removing a wired verify tier left 'verify' answering
+$_rc. A tier that USED to exist and no longer does is the sweep/rename failure
+mode exactly, and it has to be as loud as never having had one"
 case "$_out" in
   *"n/a"*unlock*) ;;
   *) printf 'got: %s\n' "$_out" >&2
