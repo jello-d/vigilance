@@ -1,0 +1,75 @@
+#!/bin/sh
+# sway-dpms - power the outputs off at a dark rung, and on at a lit one, in a
+# SWAY session only.
+#
+# WHY A SECOND HOOK AND NOT A CHANGE TO `dpms`. That one is ON-only and must
+# stay so: it is written for the Wayfire user session, where powering an output
+# off re-modesets and was observed to DESTROY VIEWS. test/dpms.t asserts
+# mechanically that no edge ever issues an off there, and that assertion is not
+# being weakened. This is a different hook for a different compositor.
+#
+# WHY THE GREETER NEEDS IT. A greeter has no locker, so `lock-blank` has nothing
+# to signal, and on a panel that advertises no DPMS standby `ddc-monitor` can
+# only DIM (measured: VCP 10 = 0 is dim, not black). So the greeter's sleep edge
+# darkened the keyboard and left the screen lit -- the same "nothing here can
+# blank it" gap the user session had, one layer over, on the session nobody is
+# present to notice.
+#
+# SELF-LIMITING BY CONSTRUCTION. The gate is the tool: `swaymsg` can only talk
+# to sway, so in a Wayfire session it simply fails and this declines. That is
+# what makes the hook safe to wire in MACHINE scope, where it is offered to the
+# greeter and the user session alike -- the one it must not act in cannot answer
+# it. There is no host list to keep in sync and no way to get the answer wrong.
+#
+# DPMS IS A COMPOSITOR-SIDE BLANK, not a monitor power state: it stops scanout
+# and the panel enters its own standby. It does NOT write VCP D6, so it cannot
+# reach the firmware hang that an unimplemented power code caused on the
+# AW2725Q. Coming back is `dpms on`, which the ascent always sends.
+set -eu
+
+_self=$(readlink -f "$0")
+. "$(dirname "$_self")/../hooklib.sh"
+
+edge=${1:-${VIGILANCE_EDGE:-}}
+_intent=$(hook_intent "$edge")
+case "$_intent" in
+  dark|lit) ;;
+  *)        exit 0 ;;
+esac
+
+# NOT APPLICABLE unless sway is reachable. Exit 78 rather than 0: a hook that
+# could not act must not be counted as one that did, or an edge where nothing
+# could blank reads exactly like one where everything blanked.
+if ! command -v swaymsg >/dev/null 2>&1; then
+  exit 78
+fi
+if ! swaymsg -t get_version >/dev/null 2>&1; then
+  exit 78
+fi
+
+if [ "$_intent" = dark ]; then _want=off; else _want=on; fi
+
+if [ "${VIGILANCE_KIND:-act}" = verify ]; then
+  # sway reports each output's dpms state, so this is a real readback rather
+  # than a proxy -- the same standard ddc-monitor's verify is held to.
+  # SPLIT ON COMMAS FIRST. swaymsg pretty-prints by default but not in every
+  # version, and a compact one-line object would put every field on one awk
+  # record -- the last "dpms" would win and the check would silently examine
+  # one output instead of all of them. Splitting makes it format-independent.
+  _bad=$(swaymsg -t get_outputs 2>/dev/null | tr ',' '\n' \
+    | awk -v want="$_want" '
+        /"name"/ { n = $0; sub(/.*"name":[ ]*"/, "", n); sub(/".*/, "", n) }
+        /"dpms"/ { d = ($0 ~ /true/) ? "on" : "off"
+                   if (d != want) printf "%s(%s) ", n, d }')
+  if [ -n "$_bad" ]; then
+    echo "sway-dpms: output(s) not $want: $_bad" >&2
+    exit 1
+  fi
+  exit 0
+fi
+
+if ! swaymsg "output * dpms $_want" >/dev/null 2>&1; then
+  echo "sway-dpms: could not set outputs dpms $_want" >&2
+  exit 1
+fi
+exit 0

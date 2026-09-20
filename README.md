@@ -216,6 +216,7 @@ An integrator chooses which run on which edge, because that is policy:
     hooks/dpms             re-assert outputs ON; never turns one off
     hooks/panel-backlight  the built-in panel backlight
     hooks/lock-blank       paint the LOCK SURFACE black, and restore it
+    hooks/sway-dpms        power outputs off/on -- SWAY sessions only
     hooks/kbd-backlight    the keyboard backlight (vendor LED, discovered)
     hooks/mute-leds        the mute / mic-mute indicator LEDs
     hooks/logind-hint      SetLockedHint, so the rest of the desktop knows
@@ -300,6 +301,15 @@ explicitly unblank. Hence:
   OLED a black pixel is an off pixel, so this is a real power-down of the
   emitting surface without a power state the panel may not return from. It
   changes what is drawn, never whether the session is locked.
+
+- **`sway-dpms` is how a GREETER goes dark, and it is safe in machine scope
+  because it cannot act outside sway.** A greeter has no locker, so `lock-blank`
+  has nothing to signal; on a panel advertising no DPMS standby `ddc-monitor`
+  can only dim. So a greeter's sleep edge killed the keyboard and left the
+  screen lit, on the session nobody is present to notice. The gate is the tool:
+  `swaymsg` only talks to sway, so in a Wayfire session -- which gets the same
+  machine hooks, and where powering an output off destroys views -- it simply
+  cannot act and declines. `dpms` stays ON-only and untouched.
 
 - **`ddc-monitor` is not redundant with anything, and cannot be undone by
   input.** It speaks I2C to the monitor's own scaler, which no compositor and
