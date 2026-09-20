@@ -15,6 +15,7 @@
 #   vigilant status           where we are, and where hooks live
 #   vigilant verify [edge]    run reverse hooks; assert reality
 #   vigilant hooks [edge]     what would run, in order, resolved
+#   vigilant plan [edge]      the same, PER CONTEXT: session vs greeter
 #   vigilant report           does reality match what we believe?
 #   vigilant rescue           record everything, then recover
 #   vigilant due [edge]       when SHOULD this edge have fired?
@@ -809,6 +810,199 @@ cmd_go() {   # <state> [force|only]
     if [ "$_src" != 0 ]; then _rc=1; fi
   done
   return "$_rc"
+}
+
+# --- plan: what WILL run, as whom, in what order ---------------------------
+# `hooks` answers "what is wired". It answers it for THIS session, implicitly,
+# and in one fixed order. Those two silences hide the faults that have cost the
+# most here, and this verb exists to break all three:
+#
+#   SCOPE. A hook wired in USER scope does not exist for the greeter at all.
+#   The greeter's sleep edge darkened the keyboard and left the screen lit
+#   because the only blanking hook was user-scope, and nothing ever said so.
+#
+#   ORDER. It REVERSES on an ascent (machine unwinds first, then user), so one
+#   listed order is wrong for half the edges.
+#
+#   REACHABILITY. _hooks_in lists a hook only `if [ -x ]`, and that test is
+#   FALSE for a uid that cannot traverse to the target. A machine-scope hook
+#   pointing into a 0750 home therefore does not FAIL for the greeter, it does
+#   not EXIST: no log, no alert, no missing-hook warning, and the greeter's
+#   hook set is quietly smaller than the wiring declares.
+#
+# That last one is a defect, not a listing, so it sets a non-zero exit. The
+# verb is offline and actuates nothing.
+GREETER_USER=${VIGILANCE_GREETER_USER:-_greetd}
+PLAN_WHY=""
+
+_plan_bit() {   # path " groups " -> 0 if the greeter has execute on it
+  _pb=$(stat -c '%a %U %G' "$1" 2>/dev/null) || return 0
+  _pbm=${_pb%% *}; _pbr=${_pb#* }
+  _pbu=${_pbr%% *}; _pbg=${_pbr##* }
+  case "$_pbm" in *[1357]) return 0 ;; esac    # other-x settles it outright
+  if [ "$_pbu" = "$GREETER_USER" ]; then return 0; fi
+  case "$2" in *" $_pbg "*) return 0 ;; esac
+  # An ACL can grant traversal where the mode bits deny it, and a named entry
+  # for the greeter is exactly how one would grant it deliberately. Reading
+  # the mode alone would report a correct setup as broken.
+  if command -v getfacl >/dev/null 2>&1; then
+    if getfacl -p "$1" 2>/dev/null | grep -q "^user:$GREETER_USER:..x"
+    then return 0; fi
+  fi
+  return 1
+}
+
+_plan_reach() {   # path -> 0 greeter can execute it, 1 no, 2 cannot tell
+  if ! id -u "$GREETER_USER" >/dev/null 2>&1; then return 2; fi
+  _pr_t=$(readlink -f "$1" 2>/dev/null) || return 2
+  if [ -z "$_pr_t" ]; then return 2; fi
+  _pr_g=" $(id -nG "$GREETER_USER" 2>/dev/null) "
+  # EVERY COMPONENT, not just the target: one non-traversable directory hides
+  # what is under it exactly as completely as a non-executable file does, and
+  # that is the real shape of the fault (a 0750 home, three levels up).
+  _pr_p=""; _pr_rest=${_pr_t#/}
+  while [ -n "$_pr_rest" ]; do
+    _pr_c=${_pr_rest%%/*}
+    case "$_pr_rest" in */*) _pr_rest=${_pr_rest#*/} ;; *) _pr_rest="" ;; esac
+    _pr_p="$_pr_p/$_pr_c"
+    if ! _plan_bit "$_pr_p" "$_pr_g"; then PLAN_WHY=$_pr_p; return 1; fi
+  done
+  return 0
+}
+
+_plan_names() {   # root edge suffix dir [mark] -> " n1 n2!", space-led
+  _pn=$(_hooks_in "$1" "$2" "$3" "$4")
+  if [ -z "$_pn" ]; then return 0; fi
+  _pn_ifs=$IFS; IFS='
+'
+  for _pnh in $_pn; do
+    IFS=$_pn_ifs
+    if [ -z "$_pnh" ]; then continue; fi
+    if [ -n "${5:-}" ] && ! _plan_reach "$_pnh"; then
+      printf ' %s!' "$(basename "$_pnh")"
+    else
+      printf ' %s' "$(basename "$_pnh")"
+    fi
+    IFS='
+'
+  done
+  IFS=$_pn_ifs
+}
+
+# 18 chars: "  " + a 7-wide label + " " + "session:". Every row below shares
+# it, so a wrapped continuation lines up under the first hook name.
+PLAN_IND="                  "
+
+_plan_wrap() {   # prefix " n1 n2 n3"
+  _pw_l=$1
+  for _pw_n in $2; do
+    if [ $(( ${#_pw_l} + 1 + ${#_pw_n} )) -gt 79 ]; then
+      printf '%s\n' "$_pw_l"; _pw_l=$PLAN_IND
+    fi
+    _pw_l="$_pw_l $_pw_n"
+  done
+  printf '%s\n' "$_pw_l"
+}
+
+_plan_row() {   # label who names
+  _plan_wrap "$(printf '  %-7s %s' "$1" "$2")" "$3"
+}
+
+_plan_edge() {   # edge
+  _pe=$1
+  if _is_ascent "$_pe"; then _pdir=desc; _pasc=ascent
+  else _pdir=asc; _pasc=descent; fi
+  printf '\n%s  (%s, intent=%s)\n' "$_pe" "$_pasc" "$(_intent_of "$_pe")"
+  for _pt in "" .verify .report .block .due; do
+    _pu=$(_plan_names "$HOOK_ROOT" "$_pe" "$_pt" "$_pdir")
+    _pm=$(_plan_names "$MACHINE_HOOK_ROOT" "$_pe" "$_pt" "$_pdir" mark)
+    if [ -z "$_pu$_pm" ]; then continue; fi
+    _plabel=${_pt#.}; if [ -z "$_plabel" ]; then _plabel=act; fi
+    # ORDER MATTERS AND IT FLIPS. Descending, the user layer is torn down
+    # first and the machine left for last; coming up, the machine is restored
+    # first so a user hook never addresses a device still powered off.
+    if _is_ascent "$_pe"; then _pfirst=$_pm; _psecond=$_pu
+    else _pfirst=$_pu; _psecond=$_pm; fi
+    _plan_row "$_plabel" "session:" "$_pfirst$_psecond"
+    # THE GREETER LINE IS THE POINT. It has no user scope at all, so every
+    # user-scope hook is simply absent there -- invisible in any listing that
+    # shows one merged set, which is how a greeter with no way to blank its
+    # screen looked identical to a session that had one.
+    _plan_row "" "greeter:" "${_pm:- (nothing)}"
+    if [ -n "$_pu" ]; then _plan_row "" "absent :" "$_pu"; fi
+  done
+}
+
+_plan_gaps() {   # -> 0 clean, 1 a wired machine hook is invisible to greeter
+  _pg=0
+  for _pge in lock unlock sleep wake suspend resume audit alert; do
+    for _pgt in "" .verify .report .block .due; do
+      case "$_pge" in
+        audit|alert) if [ -n "$_pgt" ]; then continue; fi ;;
+      esac
+      _pgl=$(_hooks_in "$MACHINE_HOOK_ROOT" "$_pge" "$_pgt" asc)
+      if [ -z "$_pgl" ]; then continue; fi
+      _pg_ifs=$IFS; IFS='
+'
+      for _pgh in $_pgl; do
+        IFS=$_pg_ifs
+        _pgr=0; _plan_reach "$_pgh" || _pgr=$?
+        if [ "$_pgr" = 1 ]; then
+          if [ "$_pg" = 0 ]; then
+            printf '\nUNREACHABLE BY THE GREETER (wired, but it cannot look)\n'
+            _pg=1
+          fi
+          printf '  %s%s.d/%s\n    -> %s\n    blocked at %s\n' \
+            "$_pge" "$_pgt" "$(basename "$_pgh")" \
+            "$(readlink -f "$_pgh" 2>/dev/null)" "$PLAN_WHY"
+        fi
+        IFS='
+'
+      done
+      IFS=$_pg_ifs
+    done
+  done
+  if [ "$_pg" = 1 ]; then
+    echo ""
+    echo "  These are listed above as if the greeter runs them. It does not:"
+    echo "  _hooks_in tests [ -x ], which is FALSE for a uid that cannot"
+    echo "  traverse there, so the hook does not fail -- it does not exist."
+    echo "  A machine-scope target must live in a root-visible tree."
+  fi
+  return "$_pg"
+}
+
+cmd_plan() {   # [edge]
+  echo "== plan: what runs, as whom, in what order =="
+  echo ""
+  echo "  Nothing below is executed. This is what WOULD run, and as whom."
+  echo ""
+  printf '  session  uid %s\n             %s\n             + %s\n' \
+    "$(id -un 2>/dev/null || echo '?')" "$MACHINE_HOOK_ROOT" "$HOOK_ROOT"
+  if id -u "$GREETER_USER" >/dev/null 2>&1; then
+    printf '  greeter  uid %s, starts at rung %s\n             %s ONLY\n' \
+      "$GREETER_USER" "${VIGILANCE_INITIAL_DEPTH:-lock}" "$MACHINE_HOOK_ROOT"
+  else
+    printf '  greeter  no %s account here; reachability NOT checked\n' \
+      "$GREETER_USER"
+  fi
+  echo "             a trailing ! means the greeter cannot reach it"
+  for _pe in ${1:-lock unlock sleep wake suspend resume}; do
+    _plan_edge "$_pe"
+  done
+  # The cross-cutting tiers are not per-edge. Listing them under one would
+  # imply they are keyed by it, which is the exact confusion that let an audit
+  # hook in <edge>.audit.d read as wired while nothing would ever run it.
+  printf '\ncross-cutting (not per-edge)\n'
+  for _pt in audit alert; do
+    _pu=$(_plan_names "$HOOK_ROOT" "$_pt" "" asc)
+    _pm=$(_plan_names "$MACHINE_HOOK_ROOT" "$_pt" "" asc mark)
+    _pboth=$_pm$_pu
+    _plan_row "$_pt" "session:" "${_pboth:- (nothing)}"
+    _plan_row "" "greeter:" "${_pm:- (nothing)}"
+  done
+  _plan_gaps || return 1
+  return 0
 }
 
 cmd_status() {
@@ -2185,7 +2379,8 @@ _audit_verdict() {
 
 _U="usage: vigilant go <open|lock|sleep|suspend>
                  | force <state> | only <state> | status
-                 | verify [edge] | hooks [edge] | report | rescue
+                 | verify [edge] | hooks [edge] | plan [edge]
+                 | report | rescue
                  | due [edge] | enforce | audit
        (the wiring audit is 'setup.sh check', not a verb here)"
 _sub=${1:-}
@@ -2206,6 +2401,7 @@ case "$_sub" in
       echo "vigilant: 'only' needs a state" >&2; echo "$_U" >&2; exit 2
     fi
     cmd_go "$1" only ;;
+  plan)    cmd_plan "${1:-}" ;;
   status)  cmd_status ;;
   verify)  cmd_verify "${1:-}" ;;
   hooks)   cmd_hooks "${1:-}" ;;

@@ -53,6 +53,12 @@ passes the rung being **left** as `$2`.
     vigilant status           where we are, and where hooks live
     vigilant verify [edge]    ask the hardware whether it agrees
     vigilant hooks [edge]     what would run, in order, resolved
+    vigilant plan [edge]      the same PER CONTEXT: session vs greeter,
+                              each in its own direction's order. Exits
+                              non-zero if a machine hook is wired to a
+                              target the greeter cannot traverse to,
+                              which today is invisible: [ -x ] is false
+                              for a uid that cannot look.
     vigilant report           does reality match what we believe?
     vigilant rescue           one key: record everything, then recover
     vigilant due [edge]       when SHOULD this edge have fired?

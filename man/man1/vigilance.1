@@ -11,6 +11,9 @@ vigilance \- edge framework for what a machine does when you step away
 .B vigilant
 .RB { status | verify | hooks | report | rescue }
 .br
+.B vigilant plan
+.RI [ edge ]
+.br
 .B vigilant
 .RB { due " [" edge ] | enforce | audit }
 .br
@@ -137,6 +140,42 @@ A greeter session needs no configuration of its own: it simply has no user root,
 so it gets the machine hooks and nothing else. The machine scope is the LOWER
 layer, so it comes up first and goes down last, exactly as systemd orders units:
 descent runs user 10\(en90 then machine 10\(en90, and ascent reverses both.
+.SS plan: what runs, as whom
+.B vigilant hooks
+lists what is wired. It lists it for THIS session, implicitly, and in one fixed
+order, and both of those silences have cost an outage.
+.B vigilant plan
+answers the question an integrator actually has: if this edge fires, in this
+context, as that uid, what runs and in what order. It names three things a
+merged listing cannot.
+.TP
+.B SCOPE
+A hook wired in USER scope does not exist for the greeter at all. Each tier is
+printed twice, once per context, and the user-only hooks are listed again under
+.B "absent :"
+so the shortfall is stated rather than inferred.
+.TP
+.B ORDER
+The traversal REVERSES on an ascent, so the listing is built per edge from that
+edge's own direction. A restore does not run in the order a descent did.
+.TP
+.B REACHABILITY
+.I _hooks_in
+lists a hook only if it is executable, and that test is FALSE for a uid which
+cannot traverse to the target. A machine-scope hook pointing into a 0750 home
+therefore does not FAIL for the greeter, it does not EXIST: no log, no alert,
+no missing-hook warning, and the greeter's hook set is quietly smaller than the
+wiring declares. That one is silent BY CONSTRUCTION, so it is the only thing
+here that sets a non-zero exit.
+.PP
+Reachability is judged for
+.BR VIGILANCE_GREETER_USER " (default " _greetd )
+by walking EVERY component of the resolved target, because one non-traversable
+directory hides what is under it as completely as a non-executable file does.
+A named POSIX ACL entry granting that user traversal counts: reading the mode
+bits alone would report a deliberate, correct grant as a fault. Where no such
+account exists the verb says reachability was not checked rather than implying
+it was clean. It runs no hook, crosses no edge and writes no log record.
 .PP
 vigilant hardcodes no mechanism in any kind.
 .TP
