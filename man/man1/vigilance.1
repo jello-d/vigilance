@@ -438,6 +438,147 @@ removes one guard and names the tests that must notice; a guard nothing kills
 is decorative. The driver asserts the mutation LANDED, that the result still
 PARSES, and that the named tests were green beforehand, because every failure
 of this discipline here has been in the instrument rather than the subject.
+.SH ENVIRONMENT
+Forty-one knobs, and an audit found seventy percent of them documented
+nowhere. The extension points existed and were not discoverable, which for a
+package whose whole claim is "ship the 80 percent, dial in the rest" is the
+gap that matters most.
+.PP
+The five groups below are not cosmetic. Which group a knob is in says who is
+allowed to set it, and the last two are the ones people get wrong: a hook
+INPUT set by hand lies to the hook, and a PROBE OVERRIDE set in production
+makes a tier measure a fixture instead of the machine.
+.SS Placement: where vigilance keeps things
+.TP
+.B VIGILANCE_HOOK_ROOT
+user hook tree (default ~/.config/vigilance/hooks)
+.TP
+.B VIGILANCE_MACHINE_HOOKS
+machine hook tree (default /etc/vigilance/hooks)
+.TP
+.B VIGILANCE_LOG
+the edge log the audit tier parses
+.TP
+.B VIGILANCE_RESCUE_LOG
+where `rescue` writes its transcript
+.TP
+.B VIGILANCE_RUN_DIR
+runtime state; the depth record lives here
+.TP
+.B VIGILANCE_RUNTIME_BASE
+per-uid runtime root (default /run/user)
+.TP
+.B VIGILANCE_HOOK_PATH
+the PATH every hook is given
+.SS Mechanism: the dials for a different stack
+.TP
+.B VIGILANCE_LOCKER
+locker process name (default swaylock)
+.TP
+.B VIGILANCE_IDLE_PROCESS
+idle daemon; EMPTY means this box has none
+.TP
+.B VIGILANCE_IDLE_UNIT
+unit supervising it; EMPTY means none
+.TP
+.B VIGILANCE_LOCK_UNIT
+transient unit the lock provider starts
+.TP
+.B VIGILANCE_GREETER_USER
+uid `plan` judges reachability for
+.SS Policy and bounds
+.TP
+.B VIGILANCE_HOOK_TIMEOUT
+per-hook bound, seconds (default 10)
+.TP
+.B VIGILANCE_AUDIT_TIMEOUT
+the audit tier's larger bound (default 60)
+.TP
+.B VIGILANCE_GRACE
+slack before an edge counts as overdue
+.TP
+.B VIGILANCE_ALERT_COOLDOWN
+repeat-alert suppression; 0 disables
+.TP
+.B VIGILANCE_AUDIT_WINDOW
+how far an event may sit from its edge
+.TP
+.B VIGILANCE_SLEEP_BUDGET
+the suspend unit's TimeoutStartSec, for report
+.TP
+.B VIGILANCE_INITIAL_DEPTH
+rung a session starts at (a greeter: lock)
+.TP
+.B VIGILANCE_DDC_DEEP_OFF
+allow DDC power states beyond standby
+.TP
+.B VIGILANCE_LOCK_BLANK
+auto|always|never for the black lock surface
+.TP
+.B VIGILANCE_WATCHDOG_QUIET
+silence before the idle timer is suspect
+.TP
+.B VIGILANCE_PHANTOM_COOLDOWN
+the phantom-relock guard's window
+.TP
+.B VIGILANCE_AUDIT_SINCE
+how far back an audit source reads
+.SS Passed TO hooks by the runner, never set by an operator
+.TP
+.B VIGILANCE_EDGE
+the edge being crossed
+.TP
+.B VIGILANCE_KIND
+act|verify|report|due|block|audit|idle|watchdog
+.TP
+.B VIGILANCE_FROM
+the rung being left
+.TP
+.B VIGILANCE_INTENT
+dark|lit|none for this edge
+.TP
+.B VIGILANCE_SOURCE
+who asked: idle, logind, lid, manual, suspend
+.TP
+.B VIGILANCE_STATE_DIR
+a private directory for that hook
+.TP
+.B VIGILANCE_ALERT_KIND
+the alert kind, to an alert.d hook
+.TP
+.B VIGILANCE_ALERT_MSG
+the alert text, to an alert.d hook
+.SS Probe overrides: these exist so a tier measures a FIXTURE
+.TP
+.B VIGILANCE_SYS_BACKLIGHT
+sysfs backlight root
+.TP
+.B VIGILANCE_SYS_LEDS
+sysfs leds root
+.TP
+.B VIGILANCE_SYS_DRM
+sysfs drm root
+.TP
+.B VIGILANCE_SYS_INPUT
+sysfs input root
+.TP
+.B VIGILANCE_PROC_INTERRUPTS
+the interrupts file
+.TP
+.B VIGILANCE_UPTIME_FILE
+the uptime file
+.TP
+.B VIGILANCE_SCREEN_LUMA
+short-circuit the screen capture
+.TP
+.B VIGILANCE_LOCKER_UP
+1|0 instead of looking for the locker
+.TP
+.B VIGILANCE_SESSION
+the logind session id
+.TP
+.B VIGILANCE_IDLE_CMDLINE
+a file standing in for /proc/<pid>/cmdline
 .SH EXIT STATUS
 .TP
 .B 0

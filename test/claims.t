@@ -115,4 +115,27 @@ for _c in 0 1 2 3; do
     || fail "exit code $_c is documented in the code but not in the man page"
 done
 
+# --- EVERY KNOB IS DOCUMENTED ----------------------------------------------
+# An audit counted 41 VIGILANCE_* knobs and found 29 of them documented
+# nowhere. The extension points existed and were not discoverable, which for a
+# package claiming "ship the 80 percent, dial in the rest" is the gap that
+# matters most -- a dial nobody can find is not a dial.
+#
+# A ratchet rather than a one-time sweep, because the doc was never wrong on
+# purpose: knobs arrive one at a time with the feature that needs them, and
+# nothing asked. This is what asks.
+_undoc=
+for _k in $(grep -ohE 'VIGILANCE_[A-Z_]+' "$HERE"/bin/* \
+              "$HERE"/libexec/vigilance/hooklib.sh \
+              "$HERE"/libexec/vigilance/hooks/* \
+              "$HERE"/libexec/vigilance/providers/* 2>/dev/null | sort -u); do
+  grep -qE "\b$_k\b" "$M" "$HERE/README.md" 2>/dev/null || _undoc="$_undoc $_k"
+done
+[ -z "$_undoc" ] || fail "knob(s) referenced in code and documented nowhere:
+$_undoc
+
+Every VIGILANCE_* name has to appear in the man page or the README. A knob is a
+promise that something is adjustable, and one nobody can find is a promise to
+whoever reads the source and nobody else."
+
 pass
