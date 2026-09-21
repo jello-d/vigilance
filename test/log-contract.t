@@ -131,4 +131,56 @@ grep -q 'cross wake:' "$VIGILANCE_LOG" \
 against a real 'cross wake:' line. Only the literal cross-form match can satisfy
 an ascent edge, so that branch of the parser is now dead"
 
+# --- 7. EVERY LINE IS A RECORD ----------------------------------------------
+# The contract this file is named for, and it was never actually asserted --
+# every case above tests that the PARSER understands well-formed records, and
+# none tested that the WRITER only ever produces them.
+#
+# It shipped broken because of it. `log()` writes to stderr AND the log, so the
+# standing recheck's `$(cmd_verify 2>&1)` captured vigilant's own already-
+# logged output, and feeding that into _log wrote a record whose first line had
+# a timestamp and whose remaining lines had none. Observed on a live box:
+#
+#   2026-09-20T21:21:50 STILL-DRIFTED at 'sleep': expected dark, found 1/2
+#   vigilant: HOOK FAILED (rc=1): sleep.verify 30-kbd-backlight
+#   verify sleep: FAIL
+#
+# The audit tier reads this file BY LINE, so untimestamped debris is precisely
+# what makes a forensic pass mis-read a window -- and this is the tier of last
+# resort, so when it is confused nothing else is looking.
+#
+# Driven through the path that produced it rather than a synthetic message: a
+# failing verify at the rung the machine is actually at, which is what the
+# once-a-minute standing recheck does on every pass.
+mkdir -p "$VIGILANCE_HOOK_ROOT/lock.verify.d"
+cat > "$VIGILANCE_HOOK_ROOT/lock.verify.d/10-multiline" <<'MULTI'
+#!/bin/sh
+echo "first line of trouble" >&2
+echo "second line of trouble" >&2
+exit 1
+MULTI
+chmod +x "$VIGILANCE_HOOK_ROOT/lock.verify.d/10-multiline"
+go open
+go lock
+"$VIGILANT" enforce >/dev/null 2>&1 || true
+
+_bad=$(grep -vcE '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2} ' \
+  "$VIGILANCE_LOG" || true)
+[ "${_bad:-0}" = 0 ] || fail "$_bad line(s) in the log are not timestamped
+records:
+
+$(grep -vE '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2} ' \
+  "$VIGILANCE_LOG" | head -5)
+
+One record is one line. The audit tier parses this file by line, and a record
+that spills extra lines puts debris between the entries it reads."
+
+# ...and the information must SURVIVE the flattening, or the fix would be to
+# throw the finding away rather than to format it.
+grep -q "first line of trouble" "$VIGILANCE_LOG" \
+  || fail "flattening the transcript lost the hook's message. A one-line
+record is the requirement; silence is not the way to meet it"
+grep -q "second line of trouble" "$VIGILANCE_LOG" \
+  || fail "only the first line of a multi-line hook message survived"
+
 pass

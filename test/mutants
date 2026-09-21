@@ -247,3 +247,9 @@ f libexec/vigilance/hooks/swayidle-watchdog
 t swayidle-watchdog
 - _up=$(cut -d' ' -f1 "${VIGILANCE_UPTIME_FILE:-/proc/uptime}" 2>/dev/null \
 + _up=$(cut -d' ' -f1 /proc/uptime 2>/dev/null \
+
+= recheck-logs-a-multiline-record
+f bin/vigilant
+t log-contract
+-   _rv=$(_flatten "$_rv")
++   :

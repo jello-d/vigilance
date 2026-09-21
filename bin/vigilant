@@ -2393,8 +2393,30 @@ _run_watchdogs() {   # -> 0 healthy or unknown, 1 something is not doing its job
   return "$_wrc"
 }
 
+# ONE RECORD IS ONE LINE, and a captured verify transcript is not one line.
+#
+# `log()` writes to stderr AND to the log file, so `cmd_verify 2>&1` captures
+# vigilant's own already-logged messages alongside the hook's. Feeding that
+# straight into _log wrote a record whose FIRST line carried a timestamp and
+# whose remaining lines carried none -- observed live:
+#
+#   2026-09-20T21:21:50 STILL-DRIFTED at 'sleep': expected dark, found 1/2
+#   vigilant: HOOK FAILED (rc=1): sleep.verify 30-kbd-backlight
+#   verify sleep: FAIL
+#
+# The audit tier parses this file by line, so untimestamped debris is exactly
+# the kind of thing that makes a forensic reader mis-read a window. The
+# `vigilant: ` lines are dropped rather than joined because `log()` already
+# wrote each of them as its own proper record: repeating them here is pure
+# duplication, not context.
+_flatten() {   # multi-line transcript -> one line, vigilant's own echo removed
+  printf '%s' "$1" | grep -v "^$PKG: " | tr '\n' ' ' \
+    | sed 's/  */ /g; s/^ //; s/ $//'
+}
+
 _enforce_recheck() {   # from
   _rv=$(cmd_verify 2>&1) || _rvrc=$?
+  _rv=$(_flatten "$_rv")
   case "${_rvrc:-0}" in
     0) return 0 ;;
     # NOT DRIFT. Drift means we looked and the machine was wrong; 78 means
