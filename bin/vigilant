@@ -1661,11 +1661,30 @@ _rep_unit_runnable() {   # unit
 # locker probe are: otherwise this assertion depends on whatever swayidle the
 # DEVELOPER happens to be running, and the test reaches into the live session to
 # find it. Production never sets it.
+# THE IDLE TIMER IS A MECHANISM, AND report SHOULD NOT KNOW WHICH ONE.
+#
+# Everything below named `swayidle` outright. The crossing machinery hardcodes
+# no mechanism at all -- measured, zero references across all nine of its
+# functions -- but the OBSERVABILITY did, and that is the worse half: swap
+# swayidle for xidlehook or hypridle and the machine locks perfectly while
+# `report` says "swayidle NOT running: nothing will lock on idle". A false FAIL
+# about a healthy box, from the one tier whose entire job is not doing that.
+#
+# `VIGILANCE_IDLE_CMDLINE` looked like the dial for this and was not: it
+# substitutes the cmdline SOURCE for tests while the process name stayed fixed.
+#
+# Set VIGILANCE_IDLE_PROCESS empty to say the box HAS no idle timer, and the
+# whole tier reports n/a rather than red -- a greeter-only or kiosk machine has
+# nothing to idle.
+IDLE_PROCESS=${VIGILANCE_IDLE_PROCESS-swayidle}
+IDLE_UNIT=${VIGILANCE_IDLE_UNIT-vigilance-idle.service}
+
 _rep_idle_armed() {
   if [ -n "${VIGILANCE_IDLE_CMDLINE:-}" ]; then
     _icl=$VIGILANCE_IDLE_CMDLINE
   else
-    _ipid=$(pgrep -x swayidle 2>/dev/null | head -1)
+    [ -n "$IDLE_PROCESS" ] || return 0
+    _ipid=$(pgrep -x "$IDLE_PROCESS" 2>/dev/null | head -1)
     [ -n "${_ipid:-}" ] || return 0
     _icl=/proc/$_ipid/cmdline
   fi
@@ -1685,7 +1704,8 @@ _rep_idle_armed() {
         /*) [ -x "$_icmd" ] && continue ;;
         *)  PATH="$HOOK_PATH" command -v "$_icmd" >/dev/null 2>&1 && continue ;;
       esac
-      _r_bad "swayidle is armed with a command that cannot run: $_icmd -- that"\
+      _r_bad "$IDLE_PROCESS is armed with a command that cannot run:"\
+" $_icmd -- that"\
 " timer fires into nothing, silently, and no other check can see it"
       _ibad=$((_ibad + 1))
       continue
@@ -1698,7 +1718,8 @@ _rep_idle_armed() {
 $(tr '\0' '\n' < "$_icl")
 EOF
   if [ "$_iseen" = 0 ]; then
-    _r_warn "swayidle is running with NO timers armed; nothing locks on idle"
+    _r_warn "$IDLE_PROCESS is running with NO timers armed; nothing locks"\
+" on idle"
   elif [ "$_ibad" = 0 ]; then
     _r_ok "$_iseen idle timer command(s) armed and runnable"
   fi
@@ -1731,9 +1752,16 @@ _rep_machinery() {
     else _r_bad "$_t NOT active: supervision is off, so a missed edge will go"\
 " unnoticed -- which is the one thing this suite exists to prevent"; fi
   done
-  if pgrep -x swayidle >/dev/null 2>&1; then _r_ok "swayidle running (timer)"
-  elif [ -z "$_sess" ]; then _r_info "swayidle n/a (no session to idle in)"
-  else _r_bad "swayidle NOT running: nothing will lock on idle"; fi
+  if [ -z "$IDLE_PROCESS" ]; then
+    _r_info "idle timer n/a (VIGILANCE_IDLE_PROCESS is empty: this box"\
+" declares none)"
+  elif pgrep -x "$IDLE_PROCESS" >/dev/null 2>&1; then
+    _r_ok "$IDLE_PROCESS running (timer)"
+  elif [ -z "$_sess" ]; then
+    _r_info "$IDLE_PROCESS n/a (no session to idle in)"
+  else
+    _r_bad "$IDLE_PROCESS NOT running: nothing will lock on idle"
+  fi
   # RUNNING IS NOT WORKING, the same distinction as enabled-is-not-working.
   #
   # Called UNCONDITIONALLY, and the function decides for itself whether it has
@@ -1748,12 +1776,17 @@ _rep_machinery() {
   # running. A bare swayidle works right up until it wedges, and wedging is the
   # original failure this entire suite was built around: one wedge-prone daemon
   # must not BE the guarantee. Running-but-unsupervised is degraded, not broken,
-  # so it warns rather than fails -- a dead swayidle already failed above.
-  if systemctl --user is-active --quiet vigilance-idle.service 2>/dev/null
-  then _r_ok "vigilance-idle.service active (the idle timer is supervised)"
-  elif [ -z "$_sess" ]; then _r_info "vigilance-idle n/a (no session)"
-  else _r_warn "vigilance-idle.service NOT active: swayidle is unsupervised,"\
-" so a wedge will not be restarted"; fi
+  # so it warns rather than fails -- a dead timer already failed above.
+  if [ -z "$IDLE_UNIT" ]; then
+    _r_info "no idle supervisor declared (VIGILANCE_IDLE_UNIT is empty)"
+  elif systemctl --user is-active --quiet "$IDLE_UNIT" 2>/dev/null; then
+    _r_ok "$IDLE_UNIT active (the idle timer is supervised)"
+  elif [ -z "$_sess" ]; then
+    _r_info "$IDLE_UNIT n/a (no session)"
+  else
+    _r_warn "$IDLE_UNIT NOT active: $IDLE_PROCESS is unsupervised, so a wedge"\
+" will not be restarted"
+  fi
 
 }
 

@@ -92,4 +92,49 @@ set VIGILANCE_HOOK_TIMEOUT=0. Crying wolf about a deliberately chosen state is
 what teaches a reader to skip the line that matters" ;;
 esac
 
+# --- THE IDLE TIMER IS A MECHANISM, AND report MUST NOT KNOW WHICH ----------
+# The crossing machinery hardcodes no mechanism -- measured, zero references
+# across all nine of its functions -- but the OBSERVABILITY did, and that is
+# the worse half of the two. Swap swayidle for xidlehook or hypridle and the
+# machine locks perfectly while report says "swayidle NOT running: nothing will
+# lock on idle": a false FAIL about a healthy box, from the tier whose whole
+# job is not doing that.
+_sect() { printf '%s\n' "$1" | sed -n '/-- machinery --/,/^-- /p'; }
+
+_out=$(VIGILANCE_IDLE_PROCESS=hypridle VIGILANCE_IDLE_UNIT=hypridle.service \
+       "$VIGILANT" report 2>&1 || true)
+case $(_sect "$_out") in
+  *hypridle*) ;;
+  *) printf '%s\n' "$_out" >&2
+     fail "with a different idle daemon named, report never mentioned it. The
+name is a mechanism and belongs to the integrator, not to the runner" ;;
+esac
+case $(_sect "$_out") in
+  *swayidle*) fail "report still named swayidle after the idle daemon was
+dialled to something else. A box running a different timer would be told its
+healthy machine has nothing locking on idle" ;;
+esac
+
+# DECLARED ABSENT is not BROKEN. A greeter-only box or a kiosk has no idle
+# timer at all, and red is the wrong answer for a deliberate configuration.
+_out=$(VIGILANCE_IDLE_PROCESS= VIGILANCE_IDLE_UNIT= "$VIGILANT" report 2>&1 \
+       || true)
+case $(_sect "$_out") in
+  *"idle timer n/a"*) ;;
+  *) printf '%s\n' "$_out" >&2
+     fail "a box declaring NO idle timer was not reported as n/a. Empty means
+'this machine has none', and answering FAIL there makes the knob unusable" ;;
+esac
+_no_fail_in "$_out" machinery "declaring no idle timer produced a FAIL"
+
+# ...and the DEFAULT is unchanged, or every existing box changes behaviour on
+# upgrade. The knob is for people who need it, not a migration.
+_out=$("$VIGILANT" report 2>&1 || true)
+case $(_sect "$_out") in
+  *swayidle*) ;;
+  *) printf '%s\n' "$_out" >&2
+     fail "the default stopped naming swayidle; the dial must not change what
+an unconfigured box reports" ;;
+esac
+
 pass

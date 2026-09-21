@@ -337,3 +337,15 @@ f libexec/vigilance/hooks/input-counters
 t input-counters
 -   if [ "$_ended" -gt "$_pmax" ]; then _pmax=$_ended; fi
 + :
+
+= report-hardcodes-the-idle-process
+f bin/vigilant
+t report
+- IDLE_PROCESS=${VIGILANCE_IDLE_PROCESS-swayidle}
++ IDLE_PROCESS=swayidle
+
+= report-treats-no-idle-timer-as-broken
+f bin/vigilant
+t report
+-   if [ -z "$IDLE_PROCESS" ]; then
++ if false; then
