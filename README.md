@@ -232,7 +232,8 @@ An integrator chooses which run on which edge, because that is policy:
     hooks/lock-blank       paint the LOCK SURFACE black, and restore it
                            (declines where a sysfs backlight can do it)
     hooks/sway-dpms        power outputs off/on -- SWAY sessions only
-    hooks/screen-dark      VERIFY the screen is actually dark, mechanism-blind
+    hooks/screen-dark      VERIFY the screen is actually dark (framebuffer
+                           + backlight; blind to DDC, which ddc-monitor owns)
     hooks/swayidle-watchdog  is the idle timer FIRING, not merely running?
     hooks/kbd-backlight    the keyboard backlight (vendor LED, discovered)
     hooks/mute-leds        the mute / mic-mute indicator LEDs
@@ -339,9 +340,22 @@ explicitly unblank. Hence:
   session with no darkening mechanism, and a greeter with none either -- and
   every hook was individually correct each time. The failure lived in the gap
   *between* per-device checks, which is exactly where a per-device check cannot
-  look. This one measures what the display emits and compares it to what the
-  rung claims. Keep both: the device checks say WHICH mechanism failed, this
-  says THAT the machine is lying.
+  look. It compares what the display is SHOWING against what the rung claims,
+  so it holds when a mechanism is broken, never wired, or declined. Keep both:
+  the device checks say WHICH mechanism failed, this says THAT the machine is
+  lying.
+
+  It does **not** measure emitted light, and an earlier version of this
+  paragraph said it did. `grim` copies the *compositor's framebuffer*; a
+  backlight is a panel property outside the compositor, so a capture reads the
+  same whether the panel is blazing or completely off. Measured on manifold:
+  `bl=0` at the `sleep` rung while this reported "still emitting, 0.277" once a
+  minute. It had only looked right because `lock-blank` was painting the
+  surface black there, and gating that hook to the hardware needing it removed
+  the mask. So the backlight is now read directly -- an observation, not an
+  assumption. Darkening by **DDC** remains invisible to it; `ddc-monitor`'s
+  verify owns that, and the two cases cannot overlap, because a box with no
+  backlight is exactly the box where `lock-blank` paints black.
 
 - **`sway-dpms` is how a GREETER goes dark, and it is safe in machine scope
   because it cannot act outside sway.** A greeter has no locker, so `lock-blank`

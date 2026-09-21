@@ -19,11 +19,29 @@
 # was individually correct. The failure lived in the gap BETWEEN them, which is
 # precisely where a per-device check cannot look.
 #
-# So this one is mechanism-blind on purpose. It does not know or care whether
-# the darkening was meant to come from DDC, DPMS, a backlight, or a painted
-# lock surface -- it measures what the display is emitting and compares that to
-# what the rung claims. It holds when a mechanism is broken, when one was never
-# wired, and when the hook that owned it declined.
+# So this one is deliberately incurious about WHICH mechanism was meant to act.
+# It compares what the display is showing against what the rung claims, and so
+# it holds when a mechanism is broken, when one was never wired, and when the
+# hook that owned it declined.
+#
+# BUT IT CANNOT SEE A BACKLIGHT, and an earlier version of this comment claimed
+# it measured "what the display emits", which is false. `grim` copies the
+# COMPOSITOR'S framebuffer; the backlight is a panel property outside the
+# compositor entirely, so a capture is identical whether the panel is blazing
+# or completely off. Measured on manifold: display-watch recorded bl=0 at the
+# `sleep` rung while this hook reported "still emitting, mean luminance 0.277"
+# once a minute.
+#
+# It had looked correct only because lock-blank was painting the surface black
+# on that box; gating lock-blank to the hardware that needs it took the mask
+# away and left this asserting something it had never been able to check.
+#
+# So the backlight is consulted directly. A panel held dark by its backlight
+# emits nothing WHATEVER the framebuffer says, and that is an observation, not
+# an assumption. What remains genuinely blind is darkening by DDC -- ddc-
+# monitor's own verify owns that, and with lock-blank gated on the absence of a
+# backlight the two cases do not overlap: a box with no backlight paints the
+# surface black, which this CAN see.
 #
 # DEFENSE IN DEPTH, not a replacement. The per-device verifiers say WHICH
 # mechanism failed, which is what you need to fix it. This one says THAT the
@@ -50,6 +68,21 @@ _intent=$(hook_intent "$edge")
 if [ "$_intent" != dark ]; then
   exit 0
 fi
+
+# THE BACKLIGHT FIRST, because it settles the question outright and costs a
+# file read, where the capture costs over a second.
+for _sb in "${VIGILANCE_SYS_BACKLIGHT:-/sys/class/backlight}"/*; do
+  [ -r "$_sb/brightness" ] && [ -r "$_sb/max_brightness" ] || continue
+  _sbc=$(cat "$_sb/brightness" 2>/dev/null || echo)
+  _sbm=$(cat "$_sb/max_brightness" 2>/dev/null || echo)
+  case "${_sbc:-}${_sbm:-}" in ''|*[!0-9]*) continue ;; esac
+  [ "$_sbm" -gt 0 ] || continue
+  # The same "dark is not exactly 0 on every device" threshold hooklib uses,
+  # so the two tiers cannot disagree about what dark means.
+  if [ "$_sbc" -le $((_sbm / 10)) ]; then
+    exit 0
+  fi
+done
 
 _l=$(hook_screen_luma)
 if [ -z "$_l" ]; then

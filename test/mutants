@@ -283,3 +283,15 @@ f libexec/vigilance/hooklib.sh
 t hooklib
 -     if [ "$_hd_new" = 1 ]; then rm -f "$_sf"; fi
 +     rm -f "$_sf"
+
+= screen-dark-ignores-the-backlight
+f libexec/vigilance/hooks/screen-dark
+t screen-dark
+-   if [ "$_sbc" -le $((_sbm / 10)) ]; then
++   if [ false ]; then
+
+= screen-dark-passes-any-backlight
+f libexec/vigilance/hooks/screen-dark
+t screen-dark
+-   if [ "$_sbc" -le $((_sbm / 10)) ]; then
++   if [ true ]; then
