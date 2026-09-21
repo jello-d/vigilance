@@ -97,6 +97,47 @@ hook_dark "$SF" -d x          # second descent, device already at 0
 hook_lit "$SF" -d x
 [ "$(_lvl)" = 70 ] || fail "after a double-dim the restore gave $(_lvl)"
 
+# --- ...BUT ASSERT EVERY TIME ----------------------------------------------
+# Saving once is NOT the same as trusting the save. hook_dark used to `return
+# 0` outright when the file existed, reading it as "already saved, therefore
+# already dark" -- an inference, not an observation. When it was wrong the
+# descent became a SILENT NO-OP THAT REPORTED SUCCESS, and since crossings do
+# not run the verify tier, nothing caught it at the edge.
+#
+# Observed live on manifold: a leftover save file left the keyboard backlight
+# lit through every `sleep`, the crossing logged clean, and only the
+# once-a-minute standing recheck ever said so. This is that, reproduced: a
+# save file present and the device NOT dark, which is the state the old code
+# could not tell from a correct one.
+_reset 70
+hook_dark "$SF" -d x
+[ "$(_lvl)" = 0 ] || fail "setup: the first descent did not dim"
+echo 55 > "$BC_LEVEL"         # something put the device back, as a stray tool
+                              # would; the save file is untouched
+hook_dark "$SF" -d x || fail "a re-assert over an existing save failed"
+[ "$(_lvl)" = 0 ] || fail "a descent with a save file already present left the
+device at $(_lvl). It returned success without looking, which is exactly how a
+lit keyboard sat over a dark screen for 39 minutes while every tier was green"
+[ "$(cat "$SF")" = 70 ] || fail "the re-assert clobbered the save with
+'$(cat "$SF")'; the original level is the one thing that must survive"
+hook_lit "$SF" -d x
+[ "$(_lvl)" = 70 ] || fail "restore after a re-assert gave $(_lvl), not 70"
+
+# A PRE-EXISTING SAVE SURVIVES A FAILED RE-ASSERT. Dropping it because a later
+# write failed would throw away the level the device must return to, stranding
+# a panel that may still be dark from the first descent. Only a save this call
+# CREATED is dropped on failure.
+_reset 70
+hook_dark "$SF" -d x
+BC_FAIL_SET=1
+hook_dark "$SF" -d x 2>>"$T/stderr" \
+  && fail "a failed re-assert reported success"
+BC_FAIL_SET=
+[ -f "$SF" ] || fail "a failed re-assert deleted a PRE-EXISTING save. The
+device may still be dark from the first descent, and the level it has to be
+restored to is now gone"
+[ "$(cat "$SF")" = 70 ] || fail "the pre-existing save was corrupted"
+
 # --- THE BUG: a FAILED restore must not report success ---------------------
 # stderr is captured, not shown: these failures are EXPECTED here, and a passing
 # run whose output contains error text trains you not to read it.

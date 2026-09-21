@@ -149,20 +149,40 @@ hook_luma_is_dark() {   # <luma>
 # hook_dark <save-file> [brightnessctl-selector...]
 hook_dark() {
   _sf=$1; shift
-  if [ -f "$_sf" ]; then return 0; fi          # already saved: already dark
-  if ! brightnessctl "$@" get > "$_sf" 2>/dev/null; then
-    rm -f "$_sf"
-    return 0                                   # no such device here; fine
-  fi
+  # SAVE ONCE, BUT ASSERT EVERY TIME.
+  #
+  # This used to `return 0` outright when the save file existed, reading it as
+  # "already saved, therefore already dark". That is an inference, not an
+  # observation, and when it was wrong the descent became a SILENT NO-OP THAT
+  # REPORTED SUCCESS -- and crossings do not run the verify tier, so nothing
+  # caught it at the edge.
+  #
+  # Observed live on manifold: a leftover save file made every `sleep` leave
+  # the keyboard backlight lit, the crossing logged clean, and only the
+  # once-a-minute standing recheck ever said so. Reproduced exactly: with a
+  # save file present the act tier returned 0 and the device never moved.
+  #
+  # The same short-circuit-on-state shape once left a stale save failing every
+  # ascent for four days; it was fixed in hook_lit and left here. Re-asserting
+  # is idempotent, which is what this package claims to be by default, and it
+  # costs one write.
+  _hd_new=0
+  if [ ! -f "$_sf" ]; then
+    _hd_new=1
+    if ! brightnessctl "$@" get > "$_sf" 2>/dev/null; then
+      rm -f "$_sf"
+      return 0                                 # no such device here; fine
+    fi
   # A SAVE FILE THAT CANNOT BE RESTORED FROM is worse than none: hook_lit would
   # hand it to brightnessctl as a level, fail, and (before this) delete it.
-  _hd_lvl=$(cat "$_sf" 2>/dev/null || true)
-  case "${_hd_lvl:-}" in
-    ''|*[!0-9]*)
-      rm -f "$_sf"
-      echo "hooklib: saved level '$_hd_lvl' is not a number; not dimming" >&2
-      return 1 ;;
-  esac
+    _hd_lvl=$(cat "$_sf" 2>/dev/null || true)
+    case "${_hd_lvl:-}" in
+      ''|*[!0-9]*)
+        rm -f "$_sf"
+        echo "hooklib: saved level '$_hd_lvl' is not a number; not dimming" >&2
+        return 1 ;;
+    esac
+  fi
   # A FAILED DIM IS NOT SUCCESS. It used to be `|| true`, which is how a denied
   # brightnessctl produced clean crossings over hardware that never moved.
   #
@@ -170,7 +190,10 @@ hook_dark() {
   # leaving it would make `report` cry "saved levels outstanding at a lit rung"
   # about a device sitting in exactly the state it should be in.
   if ! _bc "$@" set 0; then
-    rm -f "$_sf"
+    # ONLY DROP A SAVE WE JUST CREATED. Deleting a PRE-EXISTING one because a
+    # re-assert failed would throw away the level the device must be restored
+    # to, stranding a panel that may well still be dark from the first descent.
+    if [ "$_hd_new" = 1 ]; then rm -f "$_sf"; fi
     echo "hooklib: could not dim $* (brightnessctl denied or absent)" >&2
     return 1
   fi

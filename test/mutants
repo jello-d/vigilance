@@ -271,3 +271,15 @@ f libexec/vigilance/hooks/lock-blank
 t lock-blank
 -     if [ "$_lbm" -gt 0 ]; then return 0; fi
 +     if [ "$_lbm" -ge 0 ]; then return 0; fi
+
+= hook-dark-trusts-the-save-file
+f libexec/vigilance/hooklib.sh
+t hooklib
+-   if [ ! -f "$_sf" ]; then
++   if [ -f "$_sf" ]; then return 0; elif true; then
+
+= hook-dark-clobbers-a-pre-existing-save
+f libexec/vigilance/hooklib.sh
+t hooklib
+-     if [ "$_hd_new" = 1 ]; then rm -f "$_sf"; fi
++     rm -f "$_sf"
