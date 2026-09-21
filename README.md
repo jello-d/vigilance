@@ -230,6 +230,7 @@ An integrator chooses which run on which edge, because that is policy:
     hooks/dpms             re-assert outputs ON; never turns one off
     hooks/panel-backlight  the built-in panel backlight
     hooks/lock-blank       paint the LOCK SURFACE black, and restore it
+                           (declines where a sysfs backlight can do it)
     hooks/sway-dpms        power outputs off/on -- SWAY sessions only
     hooks/screen-dark      VERIFY the screen is actually dark, mechanism-blind
     hooks/swayidle-watchdog  is the idle timer FIRING, not merely running?
@@ -317,6 +318,18 @@ explicitly unblank. Hence:
   OLED a black pixel is an off pixel, so this is a real power-down of the
   emitting surface without a power state the panel may not return from. It
   changes what is drawn, never whether the session is locked.
+  It is **hardware-gated**, because it is a last resort and not a preference:
+  a box with a usable sysfs backlight declines with **78**, since
+  `panel-backlight` already takes that panel genuinely dark. Wiring it there
+  costs the lock wallpaper and buys nothing -- and worse, on an ascent the
+  machine scope unwinds first, so the backlight comes back up showing a *black*
+  lock surface and the wallpaper arrives after it: a visible black flash on
+  every wake. The predicate is deliberately cheap ("is there a usable sysfs
+  backlight") rather than honest ("can every output be darkened some other
+  way"), which would need the output list and a ddcutil round trip on the lock
+  path. `VIGILANCE_LOCK_BLANK=always|never` overrides it -- `always` is for the
+  mixed case the cheap test answers wrong, an internal panel with a backlight
+  plus an external monitor without one.
 
 - **`screen-dark` is the only check that asks the RUNG'S question.** Every other
   verifier asks about its own mechanism, and each can be satisfied or n/a on its

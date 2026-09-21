@@ -41,9 +41,17 @@ PATH="$T/bin:$PATH"; export PATH
 SIGNALS=$T/signals; export SIGNALS
 export LOCKER_UP=1 PKILL_FAIL=
 
+# THE BACKLIGHT ROOT IS PINNED, and empty by default. This hook is a LAST
+# RESORT for a panel with no other way to go dark, so "no sysfs backlight" is
+# the condition every case below is about. Left unpinned it reads the HOST:
+# every case here would decline on the developer's laptop (intel_backlight,
+# max 400) and pass on a desktop, which is a verdict about the substrate.
+mkdir -p "$T/backlight"
 _run() {   # <edge> [kind]
   : > "$SIGNALS"
   VIGILANCE_EDGE="$1" VIGILANCE_KIND="${2:-act}" \
+    VIGILANCE_SYS_BACKLIGHT="${BL_ROOT:-$T/backlight}" \
+    VIGILANCE_LOCK_BLANK="${BLANK_POLICY:-auto}" \
     VIGILANCE_STATE_DIR="$T/state" sh "$HOOK" "$1" 2>>"$T/stderr"
 }
 _sent() { cat "$SIGNALS" 2>/dev/null; }
@@ -197,5 +205,77 @@ case "$(_sent)" in
 $(_sent)" ;;
 esac
 unset VIGILANCE_LOCKER
+
+# --- THE HARDWARE GATE ------------------------------------------------------
+# This is a last resort, not a preference. It exists for a panel that cannot go
+# dark any other way; on a box WITH a backlight, panel-backlight already takes
+# the panel genuinely dark and this only costs the lock wallpaper.
+#
+# And not merely nothing: on an ASCENT the machine scope unwinds FIRST, so
+# 20-panel-backlight restores brightness before this user-scope hook repaints.
+# The panel lights up showing a BLACK lock surface and the wallpaper arrives
+# afterwards -- a visible black flash on every wake, on a box that needed none
+# of it. Observed on manifold, which has intel_backlight at max 400.
+mkdir -p "$T/haslight/intel_backlight"
+printf '400\n' > "$T/haslight/intel_backlight/max_brightness"
+rm -f "$T/state/blanked"
+
+BL_ROOT=$T/haslight
+_rc=0; _run sleep >/dev/null || _rc=$?
+[ "$_rc" = 78 ] || fail "with a usable sysfs backlight the hook returned $_rc,
+not 78. It must DECLINE: panel-backlight already darkens that panel, so
+blanking the surface costs the lock wallpaper and buys nothing"
+case "$(_sent)" in
+  *USR2*) fail "a gated hook still signalled the locker" ;;
+esac
+
+# A DEVICE WITH max_brightness 0 IS NOT A BACKLIGHT. Treating it as one would
+# decline on hardware that genuinely cannot dim -- exactly the box this hook
+# exists for, left with a lit wallpaper on an OLED.
+mkdir -p "$T/zerolight/fake"
+printf '0\n' > "$T/zerolight/fake/max_brightness"
+BL_ROOT=$T/zerolight
+_run sleep >/dev/null || fail "a max_brightness=0 device was treated as a
+working backlight, so the one panel that needs blanking would not get it"
+case "$(_sent)" in
+  *USR2*) ;;
+  *) fail "no blank signal on a box whose only 'backlight' cannot dim" ;;
+esac
+rm -f "$T/state/blanked"
+
+# --- A RESTORE IS NEVER GATED -----------------------------------------------
+# If a marker is outstanding we blanked before the policy said not to -- a
+# deploy, a config change, a mixed setup. Declining then would leave the
+# wallpaper black with nothing able to bring it back. A short-circuit on state
+# that cannot clear the state is what left a stale save failing every ascent
+# for four days.
+BL_ROOT=$T/zerolight
+_run sleep >/dev/null || fail "setup: could not blank to create the marker"
+[ -f "$T/state/blanked" ] || fail "setup: no marker was written"
+BL_ROOT=$T/haslight            # policy now says do not blank this box
+_run wake >/dev/null || fail "a gated hook refused to RESTORE an outstanding
+blank. That leaves a black wallpaper with nothing able to repaint it"
+case "$(_sent)" in
+  *RTMIN*) ;;
+  *) fail "the restore signal was not sent (sent: '$(_sent)')" ;;
+esac
+[ ! -f "$T/state/blanked" ] || fail "the marker survived the restore"
+
+# ...but once nothing is outstanding, a gated box stays out of the way.
+_rc=0; _run wake >/dev/null || _rc=$?
+[ "$_rc" = 78 ] || fail "with no marker outstanding a gated box returned $_rc,
+not 78; it should decline rather than signal on every ascent forever"
+
+# --- THE OVERRIDE, both directions ------------------------------------------
+BL_ROOT=$T/haslight BLANK_POLICY=always
+_run sleep >/dev/null || fail "VIGILANCE_LOCK_BLANK=always did not override the
+gate. A laptop with an internal backlight AND an external monitor without one
+is exactly the mixed case the cheap predicate answers wrong"
+case "$(_sent)" in *USR2*) ;; *) fail "always: no blank signal" ;; esac
+rm -f "$T/state/blanked"
+
+BL_ROOT=$T/zerolight BLANK_POLICY=never
+_rc=0; _run sleep >/dev/null || _rc=$?
+[ "$_rc" = 78 ] || fail "VIGILANCE_LOCK_BLANK=never did not suppress the blank"
 
 pass

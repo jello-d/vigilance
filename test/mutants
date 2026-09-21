@@ -253,3 +253,21 @@ f bin/vigilant
 t log-contract
 -   _rv=$(_flatten "$_rv")
 +   :
+
+= lock-blank-ignores-the-backlight-gate
+f libexec/vigilance/hooks/lock-blank
+t lock-blank
+-   *)      if _has_backlight; then _gated=1; fi ;;
++   *)      : ;;
+
+= lock-blank-gates-the-restore-too
+f libexec/vigilance/hooks/lock-blank
+t lock-blank
+- if [ "$_gated" = 1 ] && { [ "$_intent" = dark ] || [ ! -f "$MARK" ]; }; then
++ if [ "$_gated" = 1 ]; then
+
+= lock-blank-counts-a-zero-max-device
+f libexec/vigilance/hooks/lock-blank
+t lock-blank
+-     if [ "$_lbm" -gt 0 ]; then return 0; fi
++     if [ "$_lbm" -ge 0 ]; then return 0; fi

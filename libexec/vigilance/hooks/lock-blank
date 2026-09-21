@@ -52,6 +52,52 @@ fi
 
 MARK=${VIGILANCE_STATE_DIR:-/tmp}/blanked
 
+# HARDWARE-GATED, because this is a LAST RESORT and not a preference.
+#
+# It exists for a panel that cannot go dark any other way: no sysfs backlight
+# to drop to 0, and a monitor advertising no DPMS standby, leaving the locker's
+# own pixels as the only thing that can stop the display emitting. On a box
+# that HAS a backlight, panel-backlight already takes the panel genuinely dark
+# and this buys nothing -- while costing the lock wallpaper.
+#
+# And not merely nothing. On an ASCENT the machine scope unwinds first, so
+# 20-panel-backlight restores the brightness BEFORE this user-scope hook
+# repaints: the panel lights up showing a BLACK lock surface and the wallpaper
+# arrives after. A visible black flash on every wake, on a box that needed none
+# of this. Observed on manifold, which has intel_backlight at max 400.
+#
+# The CHEAP predicate, deliberately: "is there a usable sysfs backlight". The
+# honest one is "can every output be darkened some other way", which needs the
+# output list and a ddcutil round trip on the lock path. This errs toward
+# leaving the wallpaper alone, and VIGILANCE_LOCK_BLANK=always is the escape
+# hatch for a mixed setup -- an internal panel with a backlight plus an
+# external monitor without one, where the cheap test answers wrong.
+_has_backlight() {
+  for _lb in "${VIGILANCE_SYS_BACKLIGHT:-/sys/class/backlight}"/*; do
+    [ -r "$_lb/max_brightness" ] || continue
+    _lbm=$(cat "$_lb/max_brightness" 2>/dev/null || echo 0)
+    case "${_lbm:-0}" in ''|*[!0-9]*) continue ;; esac
+    if [ "$_lbm" -gt 0 ]; then return 0; fi
+  done
+  return 1
+}
+_gated=0
+case "${VIGILANCE_LOCK_BLANK:-auto}" in
+  always) ;;
+  never)  _gated=1 ;;
+  *)      if _has_backlight; then _gated=1; fi ;;
+esac
+# A RESTORE IS NEVER GATED. If a marker is outstanding we blanked this surface
+# before the policy said not to -- on a deploy, a config change, or a mixed
+# setup -- and declining now would leave the wallpaper black with nothing able
+# to bring it back. A short-circuit on state that cannot clear the state is the
+# exact shape that left a stale save file failing every ascent for four days.
+if [ "$_gated" = 1 ] && { [ "$_intent" = dark ] || [ ! -f "$MARK" ]; }; then
+  echo "lock-blank: this panel goes dark by its own backlight; leaving the"\
+" lock wallpaper alone (VIGILANCE_LOCK_BLANK=always to override)"
+  exit 78
+fi
+
 # VERIFY BY LOOKING AT THE PIXELS. swaylock exposes no way to ask what it is
 # painting -- but it is not the only thing that can see the surface. The
 # compositor can, through wlr-screencopy, and grim plus ImageMagick turn that
