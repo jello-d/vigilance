@@ -53,7 +53,20 @@ _edit() {   # file old new -> 0 if a line was changed
     !done && $0 == old { done = 1; if (new != "") print new; next }
     { print }
     END { exit(done ? 0 : 1) }' "$1" > "$1.mut" || return 1
+  # PRESERVE THE MODE. A redirect creates a 644 file, so `mv` left every
+  # mutated executable UNRUNNABLE -- and a test that invokes it then dies with
+  # "permission denied", which this driver scored as KILLED. Every mutation of
+  # an executable was passing for that reason instead of its own, in the very
+  # tool built to prove guards are real. The check below is the ratchet: a
+  # mutation that changes a file's MODE is not the mutation that was written.
+  _em=$(stat -c %a "$1" 2>/dev/null || echo)
+  if [ -n "$_em" ]; then chmod "$_em" "$1.mut" 2>/dev/null || true; fi
   mv -f "$1.mut" "$1"
+  _em2=$(stat -c %a "$1" 2>/dev/null || echo)
+  if [ "$_em" != "$_em2" ]; then
+    echo "mutate: INTERNAL: mode changed $_em -> $_em2 on $1" >&2
+    return 1
+  fi
 }
 
 _run_one() {   # name file tests old new

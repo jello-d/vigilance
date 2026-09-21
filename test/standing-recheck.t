@@ -161,4 +161,20 @@ was skipped. 'Is anything overdue' and 'is the machine still where it says it
 is' are different questions, and the second one must not depend on the first
 having an answer"
 
+# --- 8. A VERIFY THAT COULD NOT LOOK IS NOT DRIFT --------------------------
+# DRIFT means we looked and the machine was wrong. 78 means nothing was wired
+# to look. Raising the first for the second alerts every minute about a static
+# wiring fact -- and an alert that fires on a correct machine is how the
+# enforce timer got stopped by hand on a live box, after which every report was
+# green because nothing was running.
+: > "$T/alerts"
+rm -rf "$VIGILANCE_HOOK_ROOT/sleep.verify.d"
+[ "$(_enforce)" = 0 ] || fail "with NO verify hook wired for the current rung,
+the supervision pass failed. `verify` answers 78 there -- nobody asked -- and
+treating that as drift means a permanent alert about a wiring gap"
+[ "$(_alerts)" = 0 ] || fail "an edge with no verify hooks raised an alert:
+$(_alerts). 'I could not look' must not be reported as 'the machine is wrong'"
+grep -q "STILL-DRIFTED" "$VIGILANCE_LOG" && \
+  [ "$(grep -c 'STILL-DRIFTED' "$VIGILANCE_LOG")" -gt 0 ] || true
+
 pass

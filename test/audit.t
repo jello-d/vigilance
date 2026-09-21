@@ -237,4 +237,28 @@ audithook 10-resume "$((NOW - 300)) lock resumed from sleep"
   || fail "a healthy resume (depth already 'lock', so no edge crossed) was
 audited as a miss"
 
+# --- AN n/a SOURCE IS NOT A BROKEN ONE -------------------------------------
+# `journalctl` absent on a non-systemd box, or an event log that was never
+# created, means there is nothing to reconcile and nothing wrong. Reporting
+# that as BROKEN is the crying-wolf half of the same conflation 78 exists to
+# break -- and this is the tier of last resort, so teaching a reader to
+# discount it is expensive.
+rm -f "$VIGILANCE_HOOK_ROOT"/audit.d/*
+printf '#!/bin/sh\nexit 78\n' > "$VIGILANCE_HOOK_ROOT/audit.d/10-absent"
+chmod +x "$VIGILANCE_HOOK_ROOT/audit.d/10-absent"
+_arc=0
+_aout=$("$VIGILANT" audit 2>>"$T/stderr") || _arc=$?
+[ "$_arc" = 0 ] || fail "an audit source that DECLINED (78) failed the tier
+(rc=$_arc). It has no event source here; that is not a fault"
+case "$_aout" in
+  *"audit n/a"*) ;;
+  *) printf '%s\n' "$_aout" >&2
+     fail "a declining audit source was not reported as n/a" ;;
+esac
+case "$_aout" in
+  *BROKEN*) fail "a source with nothing to read was called BROKEN. That is the
+verdict for a source that could not do its job, and using it for one that had
+no job here is how a forensic tier gets ignored" ;;
+esac
+
 pass

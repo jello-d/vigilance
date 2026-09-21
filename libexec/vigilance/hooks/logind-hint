@@ -31,7 +31,13 @@ case "$edge" in
   *)      exit 0 ;;    # sleep/suspend do not change locked-ness
 esac
 
-command -v busctl >/dev/null 2>&1 || exit 0
+# 78, NOT 0. "busctl is not installed here" and "I did the work" were the
+# same exit code until the n/a contract; exit 0 launders a mechanism that
+# was never present into a tier that reports clean.
+if ! command -v busctl >/dev/null 2>&1; then
+  echo "logind-hint: busctl is not installed; nothing to do here" >&2
+  exit 78
+fi
 
 # WHICH session. XDG_SESSION_ID when the caller has one; otherwise ask logind
 # for this user's graphical session. Type=wayland/x11 plus a real seat is what

@@ -44,7 +44,13 @@ set -eu
 
 SINCE=${VIGILANCE_AUDIT_SINCE:--1 day}
 
-command -v journalctl >/dev/null 2>&1 || exit 0
+# 78, NOT 0. "journalctl is not installed here" and "I did the work" were the
+# same exit code until the n/a contract; exit 0 launders a mechanism that
+# was never present into a tier that reports clean.
+if ! command -v journalctl >/dev/null 2>&1; then
+  echo "logind-sleep-audit: journalctl is not installed; nothing to do here" >&2
+  exit 78
+fi
 
 # logind announces both directions. "Reached target sleep.target" is the point
 # of no return on the way down; the resume line is systemd-sleep returning.

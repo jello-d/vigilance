@@ -2701,6 +2701,17 @@ cmd_audit() {
     # the EMPTY VERIFY TIER was fixed for, reproduced one tier over -- and worse
     # here, because audit is the tier of last resort. If it is blind, nothing
     # else is looking.
+    # A SOURCE THAT CANNOT LOOK IS NOT A BROKEN ONE. `journalctl` absent on a
+    # non-systemd box, or a source whose event log was never created, has
+    # nothing to reconcile and nothing wrong with it. Reporting that as BROKEN
+    # is the crying-wolf half of the same conflation 78 exists to break -- and
+    # this tier is the last resort, so teaching a reader to discount it is
+    # expensive.
+    if [ "$_arc" = "$HOOK_NA" ]; then
+      echo "audit n/a: $(basename "$_ah") has no event source here"\
+" (nothing to reconcile, nothing wrong)"
+      continue
+    fi
     if [ "$_arc" -ne 0 ]; then
       _broken=$((_broken + 1))
       _log "AUDIT: source $(basename "$_ah") failed (rc=$_arc); not reconciled"

@@ -161,4 +161,26 @@ _age 900; _run
 _max=$(awk '{print $3}' "$T/state/input-counters")
 _about 900 "$_max" "a long quiet stretch did not raise the ceiling"
 
+# --- SEVERAL SOURCES: THE MINIMUM WINS -------------------------------------
+# Not a property of this hook but of the runner that aggregates idle.d, and it
+# is asserted here because this is the file that has a working source to pair
+# one against. Sources should agree; when they do not, the one reporting the
+# LEAST idle saw input most recently, and believing it is what stops a stale
+# source manufacturing a false overdue against a machine somebody is at.
+#
+# The MAXIMUM would be the dangerous read: it reports a busy machine as long
+# idle, which is exactly the cry-wolf the whole idle anchor was refused for.
+_H=$T/aggr; mkdir -p "$_H/idle.d" "$T/aggrun"
+printf '#!/bin/sh\necho 900\n' > "$_H/idle.d/10-stale"
+printf '#!/bin/sh\necho 5\n'   > "$_H/idle.d/20-fresh"
+chmod +x "$_H/idle.d/10-stale" "$_H/idle.d/20-fresh"
+_agg=$(VIGILANCE_HOOK_ROOT="$_H" VIGILANCE_MACHINE_HOOKS="$T/none" \
+       VIGILANCE_RUN_DIR="$T/aggrun" VIGILANCE_LOG="$T/aggr.log" \
+       "$HERE/bin/vigilant" report 2>/dev/null \
+       | sed -n 's/.*idle clock: \([0-9]*\)s since last input.*/\1/p' | head -1)
+[ "$_agg" = 5 ] || fail "with two idle sources reporting 900s and 5s, the
+runner used '$_agg'. The MINIMUM must win: the source that saw input most
+recently is the one that keeps a stale reading from declaring a machine
+somebody is sitting at overdue for a lock"
+
 pass

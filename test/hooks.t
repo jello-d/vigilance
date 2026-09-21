@@ -106,7 +106,13 @@ PATH=$T/minbin
 export PATH
 [ -z "$(command -v brightnessctl 2>/dev/null)" ] \
   || fail "sandbox leak: brightnessctl still reachable in the absent case"
-run_hook sleep || fail "hook errored when brightnessctl is absent"
+# 78 IS THE GRACEFUL ANSWER NOW, not 0. Without brightnessctl the hook drives
+# nothing, and counting it as a tier that acted is how an edge where every
+# mechanism was missing read exactly like one where all of them worked.
+_rc=0
+run_hook sleep || _rc=$?
+[ "$_rc" = 78 ] || fail "with brightnessctl absent the hook exited $_rc, not
+78; it must decline rather than claim work it could not do"
 [ -f "$SAVE" ] && fail "absent brightnessctl still wrote a save file"
 
 pass

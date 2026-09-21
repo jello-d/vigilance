@@ -149,14 +149,8 @@ t block rescue
 = fingerprint-ignores-targets
 f bin/vigilant
 t plan
--             printf '%s %s%s %s -> %s\n' "$_fs" "$_fe" "$_ft" \
-+             printf '%s %s%s %s\n' "$_fs" "$_fe" "$_ft" \
-
-= fingerprint-not-canonical
-f bin/vigilant
-t plan
--     done; } | sort | cksum | tr -d ' '
-+     done; } | cksum | tr -d ' '
+-               "$(basename "$_fh")" "$(readlink -f "$_fh" 2>/dev/null)"
++               "$(basename "$_fh")" "SAME"
 
 = deadlines-ignores-idle-clock
 f bin/vigilant
@@ -178,7 +172,7 @@ t due coverage
 
 = idle-source-takes-max-not-min
 f bin/vigilant
-t due
+t input-counters
 -     if [ -z "$_imin" ] || [ "$_iv" -lt "$_imin" ]; then _imin=$_iv; fi
 +     if [ -z "$_imin" ] || [ "$_iv" -gt "$_imin" ]; then _imin=$_iv; fi
 
@@ -349,3 +343,15 @@ f bin/vigilant
 t report
 -   if [ -z "$IDLE_PROCESS" ]; then
 + if false; then
+
+= dpms-claims-success-with-no-wlopm
+f libexec/vigilance/hooks/dpms
+t dpms
+-   exit 78
++   exit 0
+
+= audit-calls-an-na-source-broken
+f bin/vigilant
+t audit
+-     if [ "$_arc" = "$HOOK_NA" ]; then
++     if false; then

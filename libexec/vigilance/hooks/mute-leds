@@ -24,7 +24,13 @@ set -eu
 _self=$(readlink -f "$0")
 . "$(dirname "$_self")/../hooklib.sh"
 
-hook_have_brightnessctl || exit 0
+# 78, NOT 0. Without brightnessctl this hook drives nothing, and exit 0
+# would count it as a tier that CHECKED -- the conflation the n/a
+# contract exists to break, in the tier where it was first measured.
+if ! hook_have_brightnessctl; then
+  echo "mute-leds: brightnessctl is not installed; nothing to drive" >&2
+  exit 78
+fi
 
 LEDS='platform::mute platform::micmute'
 edge=${1:-${VIGILANCE_EDGE:-}}

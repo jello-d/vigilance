@@ -38,7 +38,13 @@ _self=$(readlink -f "$0")
 edge=${1:-${VIGILANCE_EDGE:-}}
 [ "$(hook_intent "$edge")" = lit ] || exit 0
 
-command -v wlopm >/dev/null 2>&1 || exit 0
+# 78, NOT 0. "wlopm is not installed here" and "I did the work" were the
+# same exit code until the n/a contract; exit 0 launders a mechanism that
+# was never present into a tier that reports clean.
+if ! command -v wlopm >/dev/null 2>&1; then
+  echo "dpms: wlopm is not installed; nothing to do here" >&2
+  exit 78
+fi
 
 # NO REACHABLE COMPOSITOR IS n/a, NOT FAILURE. These hooks also run in machine
 # scope, where the greeter's session may not be ours to talk to, and a hook that
