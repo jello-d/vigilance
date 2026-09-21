@@ -2008,7 +2008,12 @@ _rep_actuators() {
     fi
   done
   if [ "$_act_seen" = 0 ]; then
-    _r_info "no brightnessctl-backed devices on this host (nothing to drive)"
+    # NAMES THE NODES, NOT A TOOL. The scan is over sysfs paths that are
+    # themselves knobs, and hooklib is no longer brightnessctl-shaped
+    # after 684a4ab, so blaming a tool for an absent DEVICE was both wrong
+    # and the last mechanism name in a section that has none.
+    _r_info "no writable backlight or LED nodes on this host (nothing"\
+" to drive)"
   elif [ "$_act_bad" = 0 ]; then
     _r_ok "$_act_seen actuator node(s) writable"
   else

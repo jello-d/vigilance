@@ -64,7 +64,7 @@ rm -rf "$VIGILANCE_SYS_LEDS/tpacpi::kbd_backlight"
 _out=$("$VIGILANT" report 2>>"$T/stderr") || true
 _no_fail_in "$_out" actuators "an absent actuator was flagged as drift"
 case "$_out" in
-  *"no brightnessctl-backed devices"*) ;;
+  *"no writable backlight or LED nodes"*) ;;
   *) printf '%s\n' "$_out" >&2
      fail "an absent actuator was not reported as n/a" ;;
 esac
