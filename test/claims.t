@@ -52,7 +52,16 @@ grep -q "^$_word kinds" "$M" \
 # --- the LADDER: every rung in the code is documented -----------------------
 # The rungs ARE the vocabulary. A rung the docs do not mention is one a reader
 # cannot ask for.
-_rungs=$(grep -m1 "^LADDER=" "$V" | cut -d= -f2- | tr -d "'" | sed 's/#.*//')
+# FROM THE TABLE, which is where the rungs are declared now. `LADDER` is
+# derived from it at runtime, so grepping that line reads an awk expression
+# rather than a list of rungs.
+# FROM THE TABLE, which is where the rungs are declared now. `LADDER` is
+# derived from it at runtime, so grepping that line reads an awk expression
+# instead of a list of rungs. The range ends at the line that CLOSES the quote,
+# not at one that starts with it -- the closing quote is at the end of the last
+# row, so anchoring at the start swept up every comment that followed.
+_rungs=$(sed -n "/^LADDER_TABLE=/,/'\$/p" "$V" \
+         | sed "s/^LADDER_TABLE='//; s/'\$//" | awk 'NF { print $1 }')
 for _r in $_rungs; do
   grep -q "^    $_r " "$R" || grep -q "^\.B $_r\$" "$M" \
     || fail "rung '$_r' is in LADDER but neither the README ladder table nor

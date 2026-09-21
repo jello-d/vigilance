@@ -361,3 +361,15 @@ f libexec/vigilance/hooklib.sh
 t hooklib
 -   if ! level_get >/dev/null 2>&1; then
 +   if ! level_set "$_hll_lvl" >/dev/null 2>&1; then
+
+= ladder-forces-a-refused-rung
+f bin/vigilant
+t due
+-   for _ne in $NEVER_ENFORCED; do
++   for _ne in ; do
+
+= ladder-intent-ignores-the-table
+f bin/vigilant
+t intent
+-   _io=$(_lt | awk -v e="$1" '$2 == e || $3 == e { print $4; exit }')
++   _io=$(_lt | awk -v e="$1" '0 { print $4; exit }')

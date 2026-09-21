@@ -202,7 +202,60 @@ fi
 DEPTH_FILE=$RUN_DIR/depth
 STATE_ROOT=$RUN_DIR/state
 
-LADDER='open lock sleep suspend'           # shallowest first
+# --- THE LADDER, DECLARED ONCE ---------------------------------------------
+#
+# Five functions each knew the vocabulary by heart -- _is_descent, _is_ascent,
+# _intent_of, _verify_edge_for, _next_down -- plus five more lists scattered
+# through plan, report and the fingerprint, and the rung list below written out
+# a second time. Eleven places to edit in step, with nothing to notice if one
+# was missed. That breaks the first house rule: ONE VALUE DRIVES ALL ITS
+# DEPENDENTS, never the same fact in two places where they can drift.
+#
+#   rung    edge arriving DOWNWARD    edge arriving UPWARD    intent
+#
+# INTENT BELONGS TO THE RUNG, NOT THE EDGE, which is why this collapses at all.
+# `resume` reads dark and `wake` reads lit purely because of where each LANDS:
+# resume returns to the `sleep` rung with peripherals still down, wake climbs
+# out to `lock`. Said per rung, every special case disappears.
+#
+# `-` means the ladder ends: nothing descends into `open`, nothing ascends out
+# of `suspend`.
+LADDER_TABLE='open - unlock lit
+lock lock wake lit
+sleep sleep resume dark
+suspend suspend - dark'
+
+# POLICY, NOT STRUCTURE, and separate for that reason. `suspend` is a real rung
+# with a real edge; what it is not is an ENFORCEMENT target, because vigilant
+# does not suspend -- systemd does -- so forcing it would prepare peripherals
+# and never cross. Structure describes the machine; this says what we are
+# willing to drive it to.
+NEVER_ENFORCED='suspend'
+
+# The cross-cutting tiers are NOT edges. Listing them beside edges is what once
+# made an audit hook read as wired while nothing would ever run it.
+CROSS_KINDS='audit alert idle watchdog'
+
+_lt() { printf '%s\n' "$LADDER_TABLE"; }
+
+_all_edges() {   # every edge name, descents then ascents
+  _lt | awk '$2 != "-" { print $2 }'
+  _lt | awk '$3 != "-" { print $3 }'
+}
+
+_is_descent() {   # edge
+  [ -n "${1:-}" ] || return 1
+  _lt | awk -v e="$1" '$2 == e { f = 1 } END { exit !f }'
+}
+
+_is_ascent() {   # edge
+  [ -n "${1:-}" ] || return 1
+  _lt | awk -v e="$1" '$3 == e { f = 1 } END { exit !f }'
+}
+
+# THE RUNG LIST, DERIVED. It was its own literal -- the same four names written
+# twice, which is precisely the drift this table exists to prevent.
+LADDER=$(_lt | awk '{ printf "%s%s", sep, $1; sep = " " }')
 
 # GRACE: how far past a declared deadline an edge must be before supervision
 # calls it overdue. It exists so the PRIMARY mechanism wins the race in the
@@ -352,16 +405,8 @@ _edge_up() {                           # index of the rung being LEFT
   case "$1" in 3) echo resume ;; 2) echo wake ;; 1) echo unlock ;; esac
 }
 
-_is_descent() {   # edge
-  case "$1" in lock|sleep|suspend) return 0 ;; *) return 1 ;; esac
-}
-
 # Only an ASCENT edge unwinds in reverse. Anything else (a descent, and the
 # non-edge `alert` set) runs in plain ascending order.
-_is_ascent() {   # edge
-  case "$1" in unlock|wake|resume) return 0 ;; *) return 1 ;; esac
-}
-
 _depth_of() {   # rung -> integer, or non-zero if it is not a rung
   _i=0
   for _r in $LADDER; do
@@ -518,12 +563,11 @@ _hooks_for() {   # edge [suffix]
 # through a stale `*)` case when the ladder grows a rung, and an integrator no
 # longer has to locate a libexec path it does not own just to ask "dark or lit?"
 _intent_of() {   # edge -> dark | lit | none
-  case "$1" in
-    sleep|suspend|resume) echo dark ;;
-    wake)                 echo lit ;;
-    lock|unlock)          echo lit ;;   # the rung is lit; only ACTING differs
-    *)                    echo none ;;
-  esac
+  # DERIVED, because intent belongs to the RUNG an edge lands on. `resume` is
+  # dark and `wake` is lit for no reason except where each arrives, so stating
+  # it per rung removes every special case that used to be listed here.
+  _io=$(_lt | awk -v e="$1" '$2 == e || $3 == e { print $4; exit }')
+  printf '%s\n' "${_io:-none}"
 }
 
 # PATH FOR HOOKS, normalised because inheriting the caller's is a silent trap.
@@ -936,8 +980,7 @@ _plan_edge() {   # edge
 
 _plan_gaps() {   # -> 0 clean, 1 a wired machine hook is invisible to greeter
   _pg=0
-  for _pge in lock unlock sleep wake suspend resume audit alert idle \
-               watchdog; do
+  for _pge in $(_all_edges) $CROSS_KINDS; do
     for _pgt in "" .verify .report .block .due; do
       case "$_pge" in
         audit|alert|idle|watchdog)
@@ -992,8 +1035,7 @@ _plan_gaps() {   # -> 0 clean, 1 a wired machine hook is invisible to greeter
 # The hash says THAT they differ; `vigilant plan` diffs between boxes to say
 # HOW, which is the half a checksum cannot give you.
 _plan_fingerprint() {
-  { for _fe in lock unlock sleep wake suspend resume audit alert idle \
-              watchdog; do
+  { for _fe in $(_all_edges) $CROSS_KINDS; do
       for _ft in "" .verify .report .block .due; do
         case "$_fe" in
           audit|alert) if [ -n "$_ft" ]; then continue; fi ;;
@@ -1033,14 +1075,14 @@ cmd_plan() {   # [edge]
       "$GREETER_USER"
   fi
   echo "             a trailing ! means the greeter cannot reach it"
-  for _pe in ${1:-lock unlock sleep wake suspend resume}; do
+  for _pe in ${1:-$(_all_edges)}; do
     _plan_edge "$_pe"
   done
   # The cross-cutting tiers are not per-edge. Listing them under one would
   # imply they are keyed by it, which is the exact confusion that let an audit
   # hook in <edge>.audit.d read as wired while nothing would ever run it.
   printf '\ncross-cutting (not per-edge)\n'
-  for _pt in audit alert idle watchdog; do
+  for _pt in $CROSS_KINDS; do
     _pu=$(_plan_names "$HOOK_ROOT" "$_pt" "" asc)
     _pm=$(_plan_names "$MACHINE_HOOK_ROOT" "$_pt" "" asc mark)
     _pboth=$_pm$_pu
@@ -1096,7 +1138,7 @@ KINDS=". .verify .report .due .block"
 # Listing them under every edge would be a lie; listing them nowhere hid two
 # whole tiers. So they get their own section.
 _hooks_cross() {
-  for _ck in audit alert idle watchdog; do
+  for _ck in $CROSS_KINDS; do
     echo "$_ck.d:"
     _cl=$(_hooks_for "$_ck")
     if [ -z "$_cl" ]; then echo "  (none)"; continue; fi
@@ -1216,11 +1258,10 @@ cmd_hooks() {   # [edge]
 #
 #   open -> unlock (lit)   lock -> lock (lit)
 #   sleep -> sleep (dark)  suspend -> suspend (dark)
-_verify_edge_for() {   # rung
-  case "$1" in
-    open) echo unlock ;;
-    *)    echo "$1" ;;
-  esac
+_verify_edge_for() {   # rung -> the edge whose verify tier asks about it
+  # The DESCENT edge into the rung, or the ascent edge where nothing descends
+  # into it -- which is only `open`, the top of the ladder.
+  _lt | awk -v r="$1" '$1 == r { print ($2 == "-" ? $3 : $2); exit }'
 }
 
 cmd_verify() {   # [edge]
@@ -1503,7 +1544,7 @@ _rep_coherence() {
 # Found live on both boxes: `resume` fires four actuators and has no verify
 # tier at all, and `vigilant verify resume` reported success.
 _unverified_edges() {   # -> "edge:actcount" for each acting, uncheckable edge
-  for _ue in lock unlock sleep wake suspend resume; do
+  for _ue in $(_all_edges); do
     _uea=0; _uev=0
     for _uer in "$HOOK_ROOT" "$MACHINE_HOOK_ROOT"; do
       for _ueh in "$_uer/$_ue.d"/*; do
@@ -1558,7 +1599,7 @@ _rep_deadlines() {
     _r_info "idle clock: none wired (idle.d); idle-anchored deadlines cannot"\
 " be measured here"
   fi
-  for _dr in open lock; do
+  for _dr in $LADDER; do
     _de=$(_next_down "$_dr")
     if [ -z "$_de" ]; then continue; fi
     _dd=$(_due_for "$_de" "$_dr")
@@ -2276,12 +2317,16 @@ EOF
 # peripherals configured for S3 on a box that is awake. And vigilant starting
 # a real power transition would mean competing with the trust root instead of
 # riding it, which is the one thing this design refuses to do.
-_next_down() {   # rung -> edge, or empty
-  case "$1" in
-    open)  echo lock ;;
-    lock)  echo sleep ;;
-    *)     echo "" ;;
-  esac
+_next_down() {   # rung -> the edge below it, or empty
+  # The descent edge of the NEXT rung down, minus anything policy refuses to
+  # drive to. Structure and policy stay apart: `suspend` is a real edge that
+  # simply is not ours to force.
+  _nd=$(_lt | awk -v r="$1" '$1 == r { hit = 1; next } hit { print $2; exit }')
+  if [ -z "${_nd:-}" ] || [ "$_nd" = - ]; then return 0; fi
+  for _ne in $NEVER_ENFORCED; do
+    if [ "$_nd" = "$_ne" ]; then return 0; fi
+  done
+  printf '%s\n' "$_nd"
 }
 
 cmd_due() {   # [edge]

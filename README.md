@@ -523,6 +523,16 @@ a silent skip. `mutants.t` runs with the normal suite and re-checks that every
 target line still exists, so rewording a guarded line fails in seconds instead
 of quietly disarming a mutation nobody runs until next month.
 
+The ladder is **declared once**, as a table of `rung / descent edge / ascent
+edge / intent`. Five functions used to know the vocabulary by heart and five
+more lists repeated it, with the rung list written out twice -- eleven places
+to edit in step and nothing to notice if one was missed. Intent belongs to the
+**rung**, not the edge, which is why it collapses: `resume` is dark and `wake`
+is lit purely because of where each *lands*. Adding a row to the table adds the
+rung, both its edges, its intent, and every list that enumerates them. Policy
+stays separate (`NEVER_ENFORCED`), because `suspend` is a real edge that simply
+is not ours to force.
+
 `hooklib` separates the save/restore **discipline** from the **actuator**.
 Define `level_get` and `level_set`, call `hook_level_dark` / `hook_level_lit`,
 and you inherit the rules without inheriting `brightnessctl`: save once, assert

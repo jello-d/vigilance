@@ -16,7 +16,12 @@ set -eu
 scenario_init intent
 
 . "$HERE/libexec/vigilance/hooklib.sh"
-eval "$(sed -n '/^_intent_of() {/,/^}/p' "$HERE/bin/vigilant")"
+# THE TABLE COMES WITH IT. _intent_of used to carry the whole vocabulary in a
+# case statement and could be lifted alone; it is DERIVED now, so extracting
+# the function without its data gives a function that answers "none" to
+# everything -- which is how this file failed the moment the two were split.
+eval "$(sed -n "/^LADDER_TABLE=/,/^NEVER_ENFORCED=/p;\
+/^_lt() {/,/^}/p;/^_intent_of() {/,/^}/p" "$HERE/bin/vigilant")"
 
 # --- the two copies must AGREE on every edge --------------------------------
 # Compared against the RUNNER's, which is authoritative. hook_intent layers the
