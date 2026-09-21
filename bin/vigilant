@@ -243,19 +243,37 @@ _all_edges() {   # every edge name, descents then ascents
   _lt | awk '$3 != "-" { print $3 }'
 }
 
+# FLATTENED ONCE AT STARTUP, then every lookup is pure shell.
+#
+# The first cut ran an awk per call, and _intent_of is called once per HOOK per
+# edge: measured at 1210ms against 1128ms for a lock+unlock pair, ~7% on the
+# security path. Noise against a 25s budget, but it was a regression this
+# refactor had no business introducing -- single-sourcing is about where a fact
+# is DECLARED, not about re-deriving it on every question.
+# ONE awk PASS for all four, because four spawns per invocation is most of
+# what the per-call version cost. The table is a literal in this file, so the
+# eval has nothing external to trust.
+eval "$(_lt | awk '
+  { if ($2 != "-") { d = d $2 " "; m = m $2 "=" $4 " " }
+    if ($3 != "-") { a = a $3 " "; m = m $3 "=" $4 " " }
+    r = r sep $1; sep = " " }
+  END { printf "DESCENT_EDGES=\"%s\"\n", d
+        printf "ASCENT_EDGES=\"%s\"\n",  a
+        printf "INTENT_MAP=\"%s\"\n",    m
+        printf "LADDER=\"%s\"\n",        r }')"
+
 _is_descent() {   # edge
   [ -n "${1:-}" ] || return 1
-  _lt | awk -v e="$1" '$2 == e { f = 1 } END { exit !f }'
+  case " $DESCENT_EDGES " in *" $1 "*) return 0 ;; esac
+  return 1
 }
 
 _is_ascent() {   # edge
   [ -n "${1:-}" ] || return 1
-  _lt | awk -v e="$1" '$3 == e { f = 1 } END { exit !f }'
+  case " $ASCENT_EDGES " in *" $1 "*) return 0 ;; esac
+  return 1
 }
 
-# THE RUNG LIST, DERIVED. It was its own literal -- the same four names written
-# twice, which is precisely the drift this table exists to prevent.
-LADDER=$(_lt | awk '{ printf "%s%s", sep, $1; sep = " " }')
 
 # GRACE: how far past a declared deadline an edge must be before supervision
 # calls it overdue. It exists so the PRIMARY mechanism wins the race in the
@@ -566,8 +584,14 @@ _intent_of() {   # edge -> dark | lit | none
   # DERIVED, because intent belongs to the RUNG an edge lands on. `resume` is
   # dark and `wake` is lit for no reason except where each arrives, so stating
   # it per rung removes every special case that used to be listed here.
-  _io=$(_lt | awk -v e="$1" '$2 == e || $3 == e { print $4; exit }')
-  printf '%s\n' "${_io:-none}"
+  if [ -z "${1:-}" ]; then printf 'none\n'; return 0; fi
+  case " $INTENT_MAP " in
+    *" $1="*) _io=${INTENT_MAP#*" $1="}
+              # guard the FIRST entry, where there is no leading space
+              case "$INTENT_MAP" in "$1="*) _io=${INTENT_MAP#"$1="} ;; esac
+              printf '%s\n' "${_io%% *}" ;;
+    *)        printf 'none\n' ;;
+  esac
 }
 
 # PATH FOR HOOKS, normalised because inheriting the caller's is a silent trap.

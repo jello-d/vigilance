@@ -368,8 +368,8 @@ t due
 -   for _ne in $NEVER_ENFORCED; do
 +   for _ne in ; do
 
-= ladder-intent-ignores-the-table
+= ladder-table-goes-empty
 f bin/vigilant
 t intent
--   _io=$(_lt | awk -v e="$1" '$2 == e || $3 == e { print $4; exit }')
-+   _io=$(_lt | awk -v e="$1" '0 { print $4; exit }')
+- _lt() { printf '%s\n' "$LADDER_TABLE"; }
++ _lt() { printf '%s\n' ""; }

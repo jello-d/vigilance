@@ -16,12 +16,18 @@ set -eu
 scenario_init intent
 
 . "$HERE/libexec/vigilance/hooklib.sh"
-# THE TABLE COMES WITH IT. _intent_of used to carry the whole vocabulary in a
-# case statement and could be lifted alone; it is DERIVED now, so extracting
-# the function without its data gives a function that answers "none" to
-# everything -- which is how this file failed the moment the two were split.
-eval "$(sed -n "/^LADDER_TABLE=/,/^NEVER_ENFORCED=/p;\
-/^_lt() {/,/^}/p;/^_intent_of() {/,/^}/p" "$HERE/bin/vigilant")"
+# THE WHOLE LADDER REGION COMES WITH IT. _intent_of used to carry the entire
+# vocabulary in a case statement and could be lifted alone. It is DERIVED now
+# -- from LADDER_TABLE, through an eval that flattens the table into lookup
+# strings at startup -- so extracting the function without its data gives one
+# that answers "none" to everything, or fails outright on an unset variable.
+# Both happened here, once per refactor step.
+#
+# The range runs from the table to the line before _is_descent, which is
+# everything the lookup depends on and nothing else.
+eval "$(sed -n "/^LADDER_TABLE=/,/^_is_descent() {/p" "$HERE/bin/vigilant" \
+        | sed '$d')
+$(sed -n '/^_intent_of() {/,/^}/p' "$HERE/bin/vigilant")"
 
 # --- the two copies must AGREE on every edge --------------------------------
 # Compared against the RUNNER's, which is authoritative. hook_intent layers the
