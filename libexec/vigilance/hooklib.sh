@@ -140,10 +140,26 @@ hook_screen_luma() {   # -> mean luminance 0..1, or empty if unmeasurable
 # the SAME threshold: two checks disagreeing about what "dark" means is its own
 # source of false verdicts.
 hook_luma_is_dark() {   # <luma>
-  case "$1" in
-    0|0.00*) return 0 ;;
-    *)       return 1 ;;
+  # NUMERIC, AND THAT IS THE WHOLE POINT. This was a string match on
+  # `0|0.00*`, which cannot read the SCIENTIFIC NOTATION ImageMagick emits for
+  # very small means -- and a very small mean is precisely the success case.
+  #
+  # Measured on manifestor, 275 times: a genuinely black lock surface reported
+  # `mean luminance 3.64999e-05` (0.0000365, blacker than the other box ever
+  # gets) and was called LIT, because "3.64999e-05" is neither "0" nor "0.00*".
+  # The check fired hardest exactly where the mechanism was working best.
+  #
+  # awk parses the exponent natively; `v + 0` forces the numeric read. The
+  # threshold is the one the measurements settled on: a lit desktop reads
+  # 0.2546, pure black 0, near-black 0.0039, so 0.01 separates them decisively.
+  #
+  # A value that is not a number at all is NOT dark. awk would quietly turn
+  # garbage into 0 and call it black, which is the one wrong answer that
+  # silences this tier instead of merely annoying it.
+  case "${1:-}" in
+    ''|*[!0-9.eE+-]*) return 1 ;;
   esac
+  awk -v v="$1" 'BEGIN { exit !(v + 0 <= 0.01) }' 2>/dev/null
 }
 
 # hook_dark <save-file> [brightnessctl-selector...]

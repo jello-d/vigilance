@@ -147,4 +147,32 @@ framebuffer, the screen is emitting and the rung claims dark. Passing that
 would disable this check on every box that has a backlight"
 BL_ROOT=
 
+# --- SCIENTIFIC NOTATION IS A NUMBER --------------------------------------
+# THE BUG THAT FIRED 275 TIMES ON manifestor, on the box where the mechanism
+# was working BEST. hook_luma_is_dark matched strings (`0|0.00*`), and
+# ImageMagick emits an exponent for very small means -- which is precisely the
+# success case. A genuinely black lock surface measured 3.64999e-05, blacker
+# than the other box ever gets, and was reported as still emitting.
+#
+# A check that fires hardest where the mechanism works is worse than no check:
+# it teaches the reader that the tier is noise, on the one box whose OLED has
+# no other way to go dark.
+for _v in 3.64999e-05 3.44196e-05 1.0e-9 0E0; do
+  [ "$(_run sleep "$_v")" = 0 ] || fail "a luminance of $_v -- black to nine
+decimal places -- was reported as a lit screen. Comparing a number as a string
+cannot read an exponent, and an exponent is what a working blank produces"
+done
+
+# ...and the threshold still bites on the other side of it.
+[ "$(_run sleep 0.0100001)" = 1 ] || fail "a luminance just over the 0.01
+threshold was accepted; the fix must not widen what counts as dark"
+[ "$(_run sleep 1e3)" = 1 ] || fail "a LARGE value in exponent form was read as
+dark. Parsing the exponent must not mean trusting the sign of it"
+
+# A NON-NUMBER IS NOT DARK. awk turns garbage into 0 silently, and 0 is the one
+# answer that switches this tier off rather than merely annoying it.
+[ "$(_run sleep abc)" = 1 ] || fail "a non-numeric luminance was treated as
+black. That is the reading that makes a broken measurement look like a working
+blank, which is the failure mode this whole hook exists to catch"
+
 pass

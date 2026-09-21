@@ -295,3 +295,15 @@ f libexec/vigilance/hooks/screen-dark
 t screen-dark
 -   if [ "$_sbc" -le $((_sbm / 10)) ]; then
 +   if [ true ]; then
+
+= luma-compared-as-a-string
+f libexec/vigilance/hooklib.sh
+t screen-dark
+-   awk -v v="$1" 'BEGIN { exit !(v + 0 <= 0.01) }' 2>/dev/null
++   case "$1" in 0|0.00*) return 0 ;; *) return 1 ;; esac
+
+= luma-garbage-reads-as-dark
+f libexec/vigilance/hooklib.sh
+t screen-dark
+-     ''|*[!0-9.eE+-]*) return 1 ;;
++     '') return 1 ;;
