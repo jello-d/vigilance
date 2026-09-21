@@ -163,56 +163,94 @@ hook_luma_is_dark() {   # <luma>
 }
 
 # hook_dark <save-file> [brightnessctl-selector...]
-hook_dark() {
-  _sf=$1; shift
-  # SAVE ONCE, BUT ASSERT EVERY TIME.
-  #
-  # This used to `return 0` outright when the save file existed, reading it as
-  # "already saved, therefore already dark". That is an inference, not an
-  # observation, and when it was wrong the descent became a SILENT NO-OP THAT
-  # REPORTED SUCCESS -- and crossings do not run the verify tier, so nothing
-  # caught it at the edge.
-  #
-  # Observed live on manifold: a leftover save file made every `sleep` leave
-  # the keyboard backlight lit, the crossing logged clean, and only the
-  # once-a-minute standing recheck ever said so. Reproduced exactly: with a
-  # save file present the act tier returned 0 and the device never moved.
-  #
-  # The same short-circuit-on-state shape once left a stale save failing every
-  # ascent for four days; it was fixed in hook_lit and left here. Re-asserting
-  # is idempotent, which is what this package claims to be by default, and it
-  # costs one write.
-  _hd_new=0
+# --- the save/restore DISCIPLINE, separated from the actuator ---------------
+#
+# WHY THIS SPLIT EXISTS. hook_dark and hook_lit took brightnessctl SELECTORS,
+# so the discipline they encode -- save once, assert every time, keep the save
+# when a restore is refused, drop it when the device cannot be read -- was
+# available only to things brightnessctl can drive. ddc-monitor needed the same
+# rules for a VCP brightness write and had to RE-IMPLEMENT all of them by hand,
+# which is two copies of a set of rules that were each learned the hard way.
+#
+# The rules are not about brightnessctl. They are about any actuator with a
+# level worth putting back, so they live here and the tool lives in a caller.
+#
+# CONTRACT: define two functions before calling, then pass only a save file.
+#
+#   level_get        print the current level; NON-ZERO if the device cannot be
+#                    read at all (absent, denied) -- that is n/a, not failure
+#   level_set LEVEL  apply it; non-zero if the device refused the write
+#
+# The distinction between "cannot read" and "refused the write" is the whole
+# reason both exist: a device that is GONE should drop its stale save, and one
+# that is present and refusing should keep it. Collapsing them is what left a
+# save file failing every ascent for four days.
+hook_level_dark() {   # <save-file>
+  _sf=$1
+  _hld_new=0
   if [ ! -f "$_sf" ]; then
-    _hd_new=1
-    if ! brightnessctl "$@" get > "$_sf" 2>/dev/null; then
+    _hld_new=1
+    if ! level_get > "$_sf" 2>/dev/null; then
       rm -f "$_sf"
       return 0                                 # no such device here; fine
     fi
-  # A SAVE FILE THAT CANNOT BE RESTORED FROM is worse than none: hook_lit would
-  # hand it to brightnessctl as a level, fail, and (before this) delete it.
-    _hd_lvl=$(cat "$_sf" 2>/dev/null || true)
-    case "${_hd_lvl:-}" in
+    _hld_lvl=$(cat "$_sf" 2>/dev/null || true)
+    case "${_hld_lvl:-}" in
       ''|*[!0-9]*)
         rm -f "$_sf"
-        echo "hooklib: saved level '$_hd_lvl' is not a number; not dimming" >&2
+        echo "hooklib: saved level '$_hld_lvl' is not a number; not dimming" >&2
         return 1 ;;
     esac
   fi
-  # A FAILED DIM IS NOT SUCCESS. It used to be `|| true`, which is how a denied
-  # brightnessctl produced clean crossings over hardware that never moved.
-  #
-  # The save file goes too, and that is not tidying: nothing was dimmed, so
-  # leaving it would make `report` cry "saved levels outstanding at a lit rung"
-  # about a device sitting in exactly the state it should be in.
-  if ! _bc "$@" set 0; then
-    # ONLY DROP A SAVE WE JUST CREATED. Deleting a PRE-EXISTING one because a
-    # re-assert failed would throw away the level the device must be restored
-    # to, stranding a panel that may well still be dark from the first descent.
-    if [ "$_hd_new" = 1 ]; then rm -f "$_sf"; fi
-    echo "hooklib: could not dim $* (brightnessctl denied or absent)" >&2
+  # ASSERT EVERY TIME. A save file is a record that we dimmed, not an
+  # observation that it is still dim; trusting it made the descent a silent
+  # no-op that reported success.
+  if ! level_set 0; then
+    if [ "$_hld_new" = 1 ]; then rm -f "$_sf"; fi
+    echo "hooklib: could not dim (device refused the write)" >&2
     return 1
   fi
+}
+
+hook_level_lit() {   # <save-file>
+  _sf=$1
+  if [ ! -f "$_sf" ]; then return 0; fi        # nobody dimmed it; leave it
+  _hll_lvl=$(cat "$_sf" 2>/dev/null || true)
+  case "${_hll_lvl:-}" in
+    ''|*[!0-9]*)
+      echo "hooklib: saved level '$_hll_lvl' is not a number; not restoring" >&2
+      return 1 ;;
+  esac
+  # UNREADABLE IS n/a AND DROPS THE SAVE; REFUSED IS A FAILURE AND KEEPS IT.
+  if ! level_get >/dev/null 2>&1; then
+    rm -f "$_sf"
+    return 0
+  fi
+  if ! level_set "$_hll_lvl"; then
+    echo "hooklib: could not restore to $_hll_lvl; keeping $_sf so the level"\
+" is not lost and report can see it" >&2
+    return 1
+  fi
+  rm -f "$_sf"
+}
+
+# THE BRIGHTNESSCTL ADAPTERS. They supply level_get/level_set and delegate, so
+# there is ONE implementation of the rules and brightnessctl is just the first
+# caller rather than the shape of the interface.
+hook_dark() {   # <save-file> [brightnessctl-selector...]
+  _hd_sf=$1; shift
+  _hd_sel="$*"
+  level_get() { brightnessctl $_hd_sel get; }
+  level_set() { _bc $_hd_sel set "$1"; }
+  hook_level_dark "$_hd_sf"
+}
+
+hook_lit() {   # <save-file> [brightnessctl-selector...]
+  _hl_sf=$1; shift
+  _hl_sel="$*"
+  level_get() { brightnessctl $_hl_sel get; }
+  level_set() { _bc $_hl_sel set "$1"; }
+  hook_level_lit "$_hl_sf"
 }
 
 # hook_verify_level <save-file> <intent> [brightnessctl-selector...]

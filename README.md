@@ -523,6 +523,17 @@ a silent skip. `mutants.t` runs with the normal suite and re-checks that every
 target line still exists, so rewording a guarded line fails in seconds instead
 of quietly disarming a mutation nobody runs until next month.
 
+`hooklib` separates the save/restore **discipline** from the **actuator**.
+Define `level_get` and `level_set`, call `hook_level_dark` / `hook_level_lit`,
+and you inherit the rules without inheriting `brightnessctl`: save once, assert
+every time, **keep** the save when a device refuses a write, **drop** it when
+the device cannot be read at all. That last distinction is the one that matters
+-- collapsing it left a stale save failing every ascent for four days.
+`hook_dark`/`hook_lit` are now thin brightnessctl adapters over the same
+implementation, so `brightnessctl` is the first caller rather than the shape of
+the interface. `ddc-monitor` had to re-implement all of it by hand for a VCP
+write, which is what made the split necessary.
+
 `input-counters` is an `idle.d` source that needs **no privilege, no daemon,
 and cannot see a keystroke**. It reads monotonic counters the kernel already
 keeps -- `i8042` IRQ totals for a PS/2 keyboard or trackpoint, and `urbnum` on

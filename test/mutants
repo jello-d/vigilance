@@ -275,7 +275,7 @@ t hooklib
 = hook-dark-clobbers-a-pre-existing-save
 f libexec/vigilance/hooklib.sh
 t hooklib
--     if [ "$_hd_new" = 1 ]; then rm -f "$_sf"; fi
+-     if [ "$_hld_new" = 1 ]; then rm -f "$_sf"; fi
 +     rm -f "$_sf"
 
 = screen-dark-ignores-the-backlight
@@ -355,3 +355,9 @@ f bin/vigilant
 t audit
 -     if [ "$_arc" = "$HOOK_NA" ]; then
 +     if false; then
+
+= generic-lit-drops-a-save-on-refusal
+f libexec/vigilance/hooklib.sh
+t hooklib
+-   if ! level_get >/dev/null 2>&1; then
++   if ! level_set "$_hll_lvl" >/dev/null 2>&1; then

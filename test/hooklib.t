@@ -271,4 +271,58 @@ hook_verify_level "$SF" lit -d x 2>/dev/null \
 [ "$(VIGILANCE_KIND=verify VIGILANCE_INTENT=lit hook_intent lock)" = lit ] \
   || fail "hook_intent refused to let VERIFY assert the lit rung at lock"
 
+# --- THE DISCIPLINE WITHOUT brightnessctl ----------------------------------
+# hook_dark/hook_lit took brightnessctl SELECTORS, so the rules they encode --
+# save once, assert every time, keep the save when a write is refused, drop it
+# when the device cannot be read -- were available only to what brightnessctl
+# drives. ddc-monitor needed the same rules for a VCP write and re-implemented
+# all of them by hand: two copies of rules that were each learned the hard way.
+#
+# These cases drive the generic form with a fixture actuator that is not
+# brightnessctl at all, which is the only way to show the split is real rather
+# than a rename.
+FAKE=$T/fake-device
+FSAVE=$T/fake-save
+rm -f "$FSAVE"
+printf '64\n' > "$FAKE"
+level_get() { [ -n "${FAKE_GONE:-}" ] && return 1; cat "$FAKE"; }
+level_set() { [ -n "${FAKE_GONE:-}" ] && return 1
+              [ -n "${FAKE_RO:-}" ] && return 1
+              printf '%s\n' "$1" > "$FAKE"; }
+
+hook_level_dark "$FSAVE" || fail "the generic dark path failed on a healthy
+non-brightnessctl device"
+[ "$(cat "$FAKE")" = 0 ] || fail "generic dark did not drive the device to 0"
+[ "$(cat "$FSAVE")" = 64 ] || fail "generic dark saved '$(cat "$FSAVE")'"
+
+# SAVE ONCE, ASSERT EVERY TIME -- the same pair the brightnessctl path gets.
+printf '40\n' > "$FAKE"
+hook_level_dark "$FSAVE" || fail "a re-assert failed"
+[ "$(cat "$FAKE")" = 0 ] || fail "the generic path trusted its save file and
+left the device at $(cat "$FAKE"); that is the silent no-op, one layer down"
+[ "$(cat "$FSAVE")" = 64 ] || fail "the re-assert clobbered the save"
+
+hook_level_lit "$FSAVE" || fail "the generic restore failed"
+[ "$(cat "$FAKE")" = 64 ] || fail "restore gave $(cat "$FAKE"), not 64"
+[ -f "$FSAVE" ] && fail "a completed restore left its save file behind"
+
+# REFUSED WRITE KEEPS THE SAVE; UNREADABLE DEVICE DROPS IT. Collapsing those
+# is what left a stale save failing every ascent for four days.
+printf '64\n' > "$FAKE"
+hook_level_dark "$FSAVE" || fail "setup"
+FAKE_RO=1
+hook_level_lit "$FSAVE" 2>>"$T/stderr" && fail "a refused restore reported ok"
+FAKE_RO=
+[ -f "$FSAVE" ] || fail "a REFUSED restore dropped the save; the level the
+device must return to is now gone, on a device that is present and answering"
+
+FAKE_GONE=1
+hook_level_lit "$FSAVE" 2>>"$T/stderr" || fail "an absent device made the
+restore FAIL; it is n/a, and failing every ascent forever is the other half"
+FAKE_GONE=
+[ -f "$FSAVE" ] && fail "an unreadable device kept its stale save, which is
+what fails every later ascent about hardware that is simply not there"
+
+unset -f level_get level_set 2>/dev/null || true
+
 pass

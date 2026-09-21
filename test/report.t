@@ -125,7 +125,16 @@ case $(_sect "$_out") in
      fail "a box declaring NO idle timer was not reported as n/a. Empty means
 'this machine has none', and answering FAIL there makes the knob unusable" ;;
 esac
-_no_fail_in "$_out" machinery "declaring no idle timer produced a FAIL"
+# SCOPED TO THE IDLE LINES, not to the whole section. `machinery` reads the
+# real systemd, so in a VM its units are legitimately not enabled and it
+# carries FAILs that have nothing to do with this. Asserting on the section
+# made a correct VM fail the case -- the exact "one exit code for nine
+# sections" trap this suite has already paid for twice.
+_idl=$(printf '%s\n' "$_out" | grep -i "idle timer" || true)
+case "$_idl" in
+  *"[FAIL]"*) printf '%s\n' "$_idl" >&2
+     fail "declaring NO idle timer produced a FAIL on the idle line itself" ;;
+esac
 
 # ...and the DEFAULT is unchanged, or every existing box changes behaviour on
 # upgrade. The knob is for people who need it, not a migration.
