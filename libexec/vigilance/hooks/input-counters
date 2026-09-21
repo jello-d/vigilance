@@ -1,0 +1,159 @@
+#!/bin/sh
+# input-counters - seconds since the last seat input, from kernel counters.
+#
+# AN IDLE CLOCK THAT NEEDS NO PRIVILEGE, NO DAEMON, AND CANNOT SEE A KEYSTROKE.
+#
+# vigilance needs to answer "has the seat been idle for N seconds" or a whole
+# tier is inert: the deadline that matters is expressed in idle time, and
+# without a clock `enforce` can only ever decline. The obvious sources all fail
+# or cost too much:
+#
+#   ext_idle_notify_v1   only fires after waiting the threshold out from
+#                        registration, so a one-shot probe is impossible and
+#                        the only form is a persistent Wayland client
+#   swayidle itself      shares fate with the thing we are trying to watch: a
+#                        wedged timer would report a frozen clock as "idle 0"
+#   logind IdleHint      reports `no` on this stack
+#   evdev                root:input 0660, and a process that READS it is
+#                        keylogger-shaped however well intentioned
+#
+# So this reads MONOTONIC COUNTERS the kernel already maintains. They carry
+# COUNTS AND NOTHING ELSE -- no scancode, no button, no coordinate -- so the
+# mechanism is incapable of observing what was typed, which is a property of
+# its construction rather than a promise about its behaviour.
+#
+# TWO SOURCES, because two boxes needed two and the union covers both:
+#
+#   i8042 IRQ totals in /proc/interrupts   a PS/2 keyboard or trackpoint.
+#                                          Measured: +92 and +1323 over 15s of
+#                                          typing on a ThinkPad.
+#   urbnum on the parent USB device        a USB input device. xHCI handles
+#                                          NAKs in hardware, so a URB only
+#                                          completes when the device actually
+#                                          sends a report -- measured FLAT at
+#                                          idle and climbing under use.
+#
+# Devices are found by walking UP from /sys/class/input, so only things that
+# genuinely produce input events are counted. Reading HID interface classes
+# instead would have picked up a YubiKey.
+#
+# NO DAEMON. The supervision timer already calls this once a minute, which IS
+# the sampling loop such a clock needs, and that timer is a systemd unit --
+# the independent observer this suite leans on everywhere else. Resolution is
+# therefore about a minute, which is ample against a 480s deadline.
+#
+# WHAT IT CANNOT DO, said plainly: anything that talks to an input device
+# increments its counter, so a tool that writes to a keyboard (qmk-ripple, via
+# the kbd-rgb hook) reads as input. That errs toward ACTIVE, which suppresses a
+# would-be finding rather than inventing one -- the safe direction, and the
+# only one acceptable for a clock that gates an alert.
+set -eu
+
+STATE=${VIGILANCE_STATE_DIR:-/tmp}/input-counters
+PROC_INT=${VIGILANCE_PROC_INTERRUPTS:-/proc/interrupts}
+SYS_INPUT=${VIGILANCE_SYS_INPUT:-/sys/class/input}
+
+# --- gather one signature over every input-producing device -----------------
+# A SUM, not a list: any change at all means input, and which device it came
+# from is not a question this hook is asked. Summing also survives a device
+# appearing or vanishing without the signature format changing.
+_sig=0
+_seen=0
+
+# i8042: every numeric column of every line naming it.
+if [ -r "$PROC_INT" ]; then
+  _i8=$(awk '/i8042/ { for (i = 2; i <= NF; i++)
+                         if ($i ~ /^[0-9]+$/) s += $i }
+             END { print s + 0 }' "$PROC_INT" 2>/dev/null || echo 0)
+  case "${_i8:-}" in
+    ''|*[!0-9]*) _i8=0 ;;
+    *) if [ "$_i8" -gt 0 ]; then _seen=$((_seen + 1)); fi ;;
+  esac
+  _sig=$((_sig + _i8))
+fi
+
+# USB: urbnum on the parent device of anything under /sys/class/input. The
+# same parent is reached from several input nodes (a keyboard exposes four),
+# so parents are de-duplicated or the sum would weight one device by four.
+_parents=
+for _d in "$SYS_INPUT"/input*; do
+  [ -e "$_d/device" ] || continue
+  _p=$(readlink -f "$_d/device" 2>/dev/null) || continue
+  while [ -n "$_p" ] && [ "$_p" != / ]; do
+    if [ -r "$_p/urbnum" ]; then
+      case " $_parents " in *" $_p "*) ;; *) _parents="$_parents $_p" ;; esac
+      break
+    fi
+    _p=$(dirname "$_p")
+  done
+done
+for _p in $_parents; do
+  _u=$(cat "$_p/urbnum" 2>/dev/null || echo)
+  case "${_u:-}" in ''|*[!0-9]*) continue ;; esac
+  _sig=$((_sig + _u))
+  _seen=$((_seen + 1))
+done
+
+# NOTHING TO COUNT is not "idle forever". A box with no countable input device
+# must say so: 78 leaves the deadline unmeasurable and visible in `report`,
+# where 0 would silently pin the clock and quietly disable the tier.
+if [ "$_seen" = 0 ]; then
+  echo "input-counters: no countable input device (no i8042, no USB input)" >&2
+  exit 78
+fi
+
+_now=$(date +%s)
+_prev=$(cat "$STATE" 2>/dev/null || true)
+_psig=$(printf '%s' "$_prev" | awk '{print $1}')
+_pat=$(printf '%s' "$_prev" | awk '{print $2}')
+_pmax=$(printf '%s' "$_prev" | awk '{print $3}')
+case "${_psig:-}" in ''|*[!0-9]*) _psig= ;; esac
+case "${_pat:-}"  in ''|*[!0-9]*) _pat= ;; esac
+case "${_pmax:-}" in ''|*[!0-9]*) _pmax=0 ;; esac
+
+# THE CEILING, and it is not a statistic for its own sake. A counter can be
+# CHATTERED by a device that reports on its own -- measured on a QMK keyboard
+# that emits a burst every 40-60s with nobody present -- and a clock that
+# resets that often can never observe the 480s a lock deadline needs. It would
+# still return a NUMBER, so `report` would call the deadline measurable while
+# it was structurally unreachable: a green light meaning "nobody can check".
+#
+# Recording the longest quiet interval ever seen makes that visible. A ceiling
+# far below the deadlines on the box is the tell that some device is talking to
+# itself, and it names the limitation instead of hiding it in a small number.
+_save() {   # sig now max
+  printf '%s %s %s\n' "$1" "$2" "$3" > "$STATE" 2>/dev/null || true
+}
+
+# FIRST RUN: a counter alone says nothing. Idle time is the interval since it
+# last CHANGED, so with no previous sample there is no interval and no answer.
+if [ -z "$_psig" ] || [ -z "$_pat" ]; then
+  _save "$_sig" "$_now" 0
+  echo "input-counters: first sample; no interval to measure yet" >&2
+  exit 78
+fi
+
+# A LOWER COUNTER MEANS IT RESET, not that time ran backwards: a USB device was
+# replugged, or the machine rebooted. Treat it as activity and restart the
+# clock, because the alternative is reporting an idle time computed from a
+# counter that no longer refers to the same thing.
+if [ "$_sig" != "$_psig" ]; then
+  # The interval that just ENDED is the one to remember: it is the longest
+  # quiet stretch this clock managed before something moved.
+  _ended=$((_now - _pat))
+  if [ "$_ended" -lt 0 ]; then _ended=0; fi
+  if [ "$_ended" -gt "$_pmax" ]; then _pmax=$_ended; fi
+  _save "$_sig" "$_now" "$_pmax"
+  echo 0
+  exit 0
+fi
+
+# Unchanged: idle since the last time it moved. The timestamp is NOT rewritten
+# here -- that is the whole clock, and touching it on a quiet pass would reset
+# the interval on every sample and report 0 forever.
+_idle=$((_now - _pat))
+if [ "$_idle" -lt 0 ]; then _idle=0; fi
+if [ "$_idle" -gt "$_pmax" ]; then _pmax=$_idle; fi
+_save "$_psig" "$_pat" "$_pmax"
+echo "$_idle"
+exit 0

@@ -307,3 +307,33 @@ f libexec/vigilance/hooklib.sh
 t screen-dark
 -     ''|*[!0-9.eE+-]*) return 1 ;;
 +     '') return 1 ;;
+
+= idle-clock-answers-with-no-devices
+f libexec/vigilance/hooks/input-counters
+t input-counters
+- if [ "$_seen" = 0 ]; then
++ if [ false ]; then
+
+= idle-clock-resets-on-a-quiet-pass
+f libexec/vigilance/hooks/input-counters
+t input-counters
+- _save "$_psig" "$_pat" "$_pmax"
++ _save "$_psig" "$_now" "$_pmax"
+
+= idle-clock-answers-on-first-sample
+f libexec/vigilance/hooks/input-counters
+t input-counters
+- if [ -z "$_psig" ] || [ -z "$_pat" ]; then
++ if false; then
+
+= idle-clock-counts-a-parent-twice
+f libexec/vigilance/hooks/input-counters
+t input-counters
+-       case " $_parents " in *" $_p "*) ;; *) _parents="$_parents $_p" ;; esac
++       _parents="$_parents $_p"
+
+= idle-clock-loses-the-ceiling
+f libexec/vigilance/hooks/input-counters
+t input-counters
+-   if [ "$_ended" -gt "$_pmax" ]; then _pmax=$_ended; fi
++ :

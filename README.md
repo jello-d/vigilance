@@ -235,6 +235,7 @@ An integrator chooses which run on which edge, because that is policy:
     hooks/screen-dark      VERIFY the screen is actually dark (framebuffer
                            + backlight; blind to DDC, which ddc-monitor owns)
     hooks/swayidle-watchdog  is the idle timer FIRING, not merely running?
+    hooks/input-counters   idle.d: seconds since input, from kernel counters
     hooks/kbd-backlight    the keyboard backlight (vendor LED, discovered)
     hooks/mute-leds        the mute / mic-mute indicator LEDs
     hooks/logind-hint      SetLockedHint, so the rest of the desktop knows
@@ -521,6 +522,27 @@ and `$` these lines are full of, and an absent line is a hard error rather than
 a silent skip. `mutants.t` runs with the normal suite and re-checks that every
 target line still exists, so rewording a guarded line fails in seconds instead
 of quietly disarming a mutation nobody runs until next month.
+
+`input-counters` is an `idle.d` source that needs **no privilege, no daemon,
+and cannot see a keystroke**. It reads monotonic counters the kernel already
+keeps -- `i8042` IRQ totals for a PS/2 keyboard or trackpoint, and `urbnum` on
+the parent USB device for USB input (xHCI handles NAKs in hardware, so a URB
+completes only when the device actually sends a report; measured flat at idle).
+Devices are found by walking **up** from `/sys/class/input`, so only things
+that genuinely produce input events count. Counts carry no scancode, button or
+coordinate, so the mechanism is *incapable* of observing content rather than
+merely unwilling. The supervision timer already calls it once a minute, which
+is exactly the sampling loop such a clock needs -- so there is nothing new to
+wedge, and the sampler is a systemd unit, the independent observer again.
+
+Its limit is measured, not assumed: **anything that talks to an input device
+increments that device's counter**. A QMK keyboard observed emitting a burst
+every 40-60s with nobody present resets the clock that often, so it can never
+witness the 480s a lock deadline needs. That errs toward *active*, which
+suppresses a finding rather than inventing one -- but a clock that returns a
+number would make `report` call the deadline measurable while it was
+unreachable. So the hook records the **longest quiet stretch it has ever seen**;
+a ceiling far below the box's deadlines is the tell.
 
 `report` carries a **deadlines** section asking, per deadline, whether anything
 can measure it. The deadline that matters is expressed in *idle* time, and

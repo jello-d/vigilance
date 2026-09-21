@@ -2168,7 +2168,14 @@ _idle_secs() {   # -> seconds since last seat input, or empty if unknowable
     # Through a FILE, not $(...): a command substitution waits for the pipe to
     # close rather than for the hook to exit, so a source leaving a child on
     # stdout defeats the bound entirely. Measured at 21s against a 2s timeout.
-    $HOOK_TMO "$_ih" > "$_io" 2>/dev/null || _irc=$?
+    # A STATE DIR AND A PATH, like every other tier. An idle source is
+    # inherently STATEFUL -- the only unprivileged way to read idle time is to
+    # sample a monotonic counter and remember what it said last time -- so a
+    # source with nowhere to remember is a source that can only ever decline.
+    _isd=$STATE_ROOT/$(basename "$_ih")
+    mkdir -p "$_isd" 2>/dev/null || true
+    VIGILANCE_KIND=idle VIGILANCE_STATE_DIR="$_isd" PATH="$HOOK_PATH" \
+      $HOOK_TMO "$_ih" > "$_io" 2>/dev/null || _irc=$?
     _iv=$(cat "$_io" 2>/dev/null | head -1 | tr -dc '0-9')
     rm -f "$_io"
     if [ "$_irc" != 0 ] || [ -z "$_iv" ]; then continue; fi
