@@ -239,4 +239,45 @@ grep -q '^drift$' "$T/alerts" 2>/dev/null \
 Discarding a verdict is only correct when an edge moved underneath it; doing it
 always would pass the case above and switch the tier off"
 
+# --- 10. A MESSAGE THAT COUNTS UPWARD MUST STILL DEDUP ---------------------
+# THE STORM THE DEDUP EXISTS TO PREVENT, caused by the dedup's own key. It
+# hashes the message text, and a watchdog says "emitted nothing for 45252s"
+# then a minute later "45317s": the same finding, different text, so every pass
+# hashed as a fresh onset. Measured on a live box: 39 notified, ZERO
+# suppressed, one alert a minute about a condition that had not changed.
+#
+# That is the documented reason an enforce timer once got stopped by hand, and
+# it was reintroduced by writing an elapsed time into an alert.
+VIGILANCE_ALERT_COOLDOWN=3600; export VIGILANCE_ALERT_COOLDOWN
+mkdir -p "$VIGILANCE_HOOK_ROOT/watchdog.d"
+: > "$T/alerts"
+_n=0
+for _s in 45252 45317 45382 45447; do
+  printf '#!/bin/sh\necho "emitted nothing for %ss"\nexit 1\n' "$_s" \
+    > "$VIGILANCE_HOOK_ROOT/watchdog.d/10-count"
+  chmod +x "$VIGILANCE_HOOK_ROOT/watchdog.d/10-count"
+  "$VIGILANT" enforce >/dev/null 2>>"$T/stderr" || true
+done
+_n=$(grep -c '^watchdog$' "$T/alerts" 2>/dev/null || echo 0)
+[ "$_n" -le 1 ] || fail "four passes over ONE unchanged finding notified $_n
+times, because the elapsed second count made each message unique. A dedup that
+hashes the message is defeated by any alert that counts upward -- which is
+every alert about a duration, and those are the ones that repeat forever"
+
+# ...and two GENUINELY different findings still both get through, or the fix
+# would be "suppress everything that contains a number".
+: > "$T/alerts"
+VIGILANCE_ALERT_COOLDOWN=3600
+for _b in 4 5; do
+  printf '#!/bin/sh\necho "bus %s will not wake"\nexit 1\n' "$_b" \
+    > "$VIGILANCE_HOOK_ROOT/watchdog.d/10-count"
+  chmod +x "$VIGILANCE_HOOK_ROOT/watchdog.d/10-count"
+  "$VIGILANT" enforce >/dev/null 2>>"$T/stderr" || true
+done
+_n=$(grep -c '^watchdog$' "$T/alerts" 2>/dev/null || echo 0)
+[ "$_n" -ge 2 ] || fail "two DIFFERENT findings (bus 4 and bus 5) collapsed to
+$_n notification(s). A number that identifies a thing is not a measurement of
+it, and merging those hides the second fault behind the first"
+rm -rf "$VIGILANCE_HOOK_ROOT/watchdog.d"
+
 pass

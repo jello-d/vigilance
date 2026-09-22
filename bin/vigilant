@@ -373,7 +373,18 @@ ALERT_COOLDOWN=${VIGILANCE_ALERT_COOLDOWN:-3600}
 
 _alert_repeat() {   # kind message -> 0 if this is a suppressible repeat
   if [ "$ALERT_COOLDOWN" = 0 ]; then return 1; fi
-  _ak=$(printf '%s %s' "$1" "$2" | cksum | tr -d ' ')
+  # DURATIONS ARE NORMALISED OUT OF THE KEY, or the dedup is defeated by the
+  # very alerts that need it most. A watchdog message says "emitted nothing for
+  # 45252s" and a minute later "45317s": same finding, different text, so every
+  # pass hashed as a fresh onset. Measured on a live box -- 39 notified, ZERO
+  # suppressed -- which is the storm this function exists to prevent and the
+  # documented reason an enforce timer once got stopped by hand.
+  #
+  # Only digit-runs followed by `s` are collapsed, so a measurement that
+  # IDENTIFIES something stays distinct: "bus 4" and "bus 5" are different
+  # findings, "45252s" and "45317s" are the same one told twice.
+  _ak=$(printf '%s %s' "$1" "$2" \
+        | sed 's/[0-9][0-9]*s/Ns/g' | cksum | tr -d ' ')
   _af=$RUN_DIR/alerts/$_ak
   mkdir -p "$RUN_DIR/alerts" 2>/dev/null || return 1
   if [ -f "$_af" ]; then

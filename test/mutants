@@ -396,3 +396,15 @@ f libexec/vigilance/hooklib.sh
 t hooklib
 -       if [ -f "$_sf" ] && [ "$_cur" = "$(cat "$_sf" 2>/dev/null)" ]; then
 +       if false; then
+
+= alert-key-defeated-by-a-counter
+f bin/vigilant
+t standing-recheck
+-         | sed 's/[0-9][0-9]*s/Ns/g' | cksum | tr -d ' ')
++         | cksum | tr -d ' ')
+
+= alert-key-merges-distinct-findings
+f bin/vigilant
+t standing-recheck
+-         | sed 's/[0-9][0-9]*s/Ns/g' | cksum | tr -d ' ')
++         | sed 's/[0-9][0-9]*/N/g' | cksum | tr -d ' ')
