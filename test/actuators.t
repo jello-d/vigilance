@@ -69,4 +69,40 @@ case "$_out" in
      fail "an absent actuator was not reported as n/a" ;;
 esac
 
+# --- A SAVED LEVEL IS A FILE CONTAINING A LEVEL ----------------------------
+# This scanned every file any hook kept in its state dir, which was the same
+# thing only while the sole state anyone kept WAS a brightness save. An idle
+# source keeps a counter snapshot there permanently, and report called it an
+# unrestored device at every lit rung: a FAIL, forever, about a file working
+# exactly as intended.
+#
+# Content, not name: the savers use `level` and mute-leds uses the LED name, so
+# there is no naming convention to lean on. What they share is that the file
+# holds the level to restore to.
+_ST=$VIGILANCE_RUN_DIR/state
+mkdir -p "$_ST/10-clock" "$_ST/20-dimmer"
+go open
+
+printf '4168719 1790094757 43271\n' > "$_ST/10-clock/snapshot"
+_out=$("$VIGILANT" report 2>&1 || true)
+case $(_section "$_out" "recorded state") in
+  *"saved levels outstanding"*) printf '%s\n' "$_out" >&2
+     fail "a multi-field state snapshot was reported as an unrestored device.
+Any hook may keep state; only one that holds a LEVEL is a pending restore, and
+flagging the rest is a permanent FAIL about a file doing its job" ;;
+esac
+
+# ...AND A REAL ONE IS STILL CAUGHT. Without this the fix could be "never look",
+# which passes the case above and drops a genuine finding: a device dimmed and
+# never restored is a screen someone has to fix by hand.
+printf '80\n' > "$_ST/20-dimmer/level"
+_out=$("$VIGILANT" report 2>&1 || true)
+case $(_section "$_out" "recorded state") in
+  *"saved levels outstanding"*) ;;
+  *) printf '%s\n' "$_out" >&2
+     fail "a real saved level (a bare integer) outstanding at a LIT rung was
+not reported. That is a device we dimmed and did not restore" ;;
+esac
+rm -rf "$_ST/10-clock" "$_ST/20-dimmer"
+
 pass

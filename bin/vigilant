@@ -1483,6 +1483,18 @@ _rep_state() {
   _saves=
   for _f in "$STATE_ROOT"/*/*; do
     [ -f "$_f" ] || continue
+    # A SAVED LEVEL IS A FILE CONTAINING A LEVEL. This scanned every file any
+    # hook kept in its state dir, which was the same thing only while the sole
+    # state anyone kept WAS a brightness save. An idle source keeps a counter
+    # snapshot there permanently, and report called it an unrestored device at
+    # every lit rung -- a FAIL, forever, about a file working exactly as meant.
+    #
+    # Reading the content rather than the name because there is no naming
+    # convention to lean on: the savers use `level`, and mute-leds uses the LED
+    # name. What they share is the CONTENT, which is the level to restore to.
+    case "$(cat "$_f" 2>/dev/null)" in
+      ''|*[!0-9]*) continue ;;
+    esac
     _saves="$_saves $(basename "$(dirname "$_f")")/$(basename "$_f")"
   done
   case "$_rung:$_saves" in

@@ -27,6 +27,14 @@ CORPUS=$HERE/test/mutants
 T=$(mktemp -d)
 trap 'rm -rf "$T"' EXIT INT HUP TERM
 
+# THE SAME CAPABILITIES test/run GRANTS. Without them a capability-gated test
+# SKIPS and exits 0 under this driver, so every mutation naming one is
+# unkillable and reports SURVIVED for a harness reason rather than a real gap.
+# Found by a guard that is genuinely covered being reported as uncovered.
+SCENARIO_CAPS=${SCENARIO_CAPS:-}
+[ "$(id -u)" = 0 ] || SCENARIO_CAPS="$SCENARIO_CAPS unprivileged"
+export SCENARIO_CAPS
+
 PASS=0; FAIL=0; ERR=0
 
 _parses() {   # file -> 0 if it still parses under ITS OWN shell
@@ -97,6 +105,14 @@ _run_one() {   # name file tests old new
     fi
     # BASELINE FIRST. A test already failing for an unrelated reason would
     # otherwise be counted as having caught this.
+    # A SKIPPED TEST CANNOT KILL ANYTHING, and counting it as a clean baseline
+    # then reporting SURVIVED blames the guard for the harness. Say so.
+    if sh "$HERE/test/$_t.t" 2>/dev/null | grep -q '^skip '; then
+      printf 'ERROR %-32s names test "%s", which SKIPS here\n' "$_n" "$_t"
+      printf '      A skipped test cannot kill a mutation; this would read as\n'
+      printf '      SURVIVED and blame the guard for a missing capability.\n'
+      ERR=$((ERR + 1)); return
+    fi
     if ! sh "$HERE/test/$_t.t" >/dev/null 2>&1; then _base=1; continue; fi
     if ! sh "$T/tree/test/$_t.t" >/dev/null 2>&1; then _killed=1; fi
   done

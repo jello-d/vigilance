@@ -408,3 +408,9 @@ f bin/vigilant
 t standing-recheck
 -         | sed 's/[0-9][0-9]*s/Ns/g' | cksum | tr -d ' ')
 +         | sed 's/[0-9][0-9]*/N/g' | cksum | tr -d ' ')
+
+= saved-levels-flags-any-state-file
+f bin/vigilant
+t actuators
+-       ''|*[!0-9]*) continue ;;
++       nosuchpattern) continue ;;
