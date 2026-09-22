@@ -414,3 +414,9 @@ f bin/vigilant
 t actuators
 -       ''|*[!0-9]*) continue ;;
 +       nosuchpattern) continue ;;
+
+= argv-launches-instead-of-printing
+f bin/swayidle-mgr
+t idle-suspend
+-   if [ -n "${ARGV_ONLY:-}" ]; then
++   if false; then

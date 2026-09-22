@@ -244,8 +244,24 @@ _run() {
   # one layer out by aborting a whole edge on a failed truncate.
   [ -n "${PIDFILE:-}" ] && { printf '%s\n' "$$" > "$PIDFILE" 2>/dev/null \
     || true; }
+  # WHAT WOULD THIS ARM? A daemon pins its argv at START, so the only way to
+  # know a running timer is stale is to compare it against what a fresh launch
+  # would produce. Printing it instead of exec'ing keeps ONE code path: a
+  # separate "here is the argv" function would be a second source of truth for
+  # the thing most worth not having two of.
+  #
+  # This suite has paid for that three times -- a swept binary a running daemon
+  # still pointed at, a heartbeat armed only after a restart, a watchdog
+  # accusing a healthy timer -- and every one was invisible to a config-level
+  # check because the config was right and the PROCESS was old.
+  if [ -n "${ARGV_ONLY:-}" ]; then
+    printf '%s\n' "$@"
+    return 0
+  fi
   exec swayidle "$@"
 }
+
+cmd_argv() { ARGV_ONLY=1 _run; }
 
 cmd_start() {
   fg=0
@@ -284,11 +300,12 @@ case "$sub" in
   stop) cmd_stop ;;
   restart) cmd_stop; cmd_start "$@" ;;
   status) cmd_status ;;
+  argv) cmd_argv ;;
   tail) exec tail -f "$EVENT_LOG" ;;
   event) cmd_event "$@" ;;
   *)
     echo "swayidle-mgr: unknown command '$sub'" >&2
-    echo "usage: start [-f]|stop|restart|status|tail|event <kind>" >&2
+    echo "usage: start [-f]|stop|restart|status|argv|tail|event <kind>" >&2
     exit 1
     ;;
 esac

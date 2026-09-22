@@ -98,4 +98,46 @@ esac
 echo "$_out" | grep -q 'timeout 480' \
   && fail "it printed a timer list despite refusing; the guard is too late" || :
 
+# --- `argv` PRINTS WHAT A FRESH LAUNCH WOULD ARM ---------------------------
+# A DAEMON PINS ITS ARGV AT START, so deploying new code does not reach a
+# RUNNING timer: every config-level check passes while the process keeps what
+# it resolved at launch. That has bitten three times here -- a swept binary a
+# running swayidle still pointed at, a heartbeat armed nowhere, and a watchdog
+# that then accused the healthy timer of being wedged.
+#
+# The integrator compares this against /proc/<pid>/cmdline and restarts on a
+# difference, so it has to come from the SAME code path that arms it. A second
+# function describing the argv would be a second source of truth for exactly
+# the thing not to have two of.
+# FLATTENED, because argv prints ONE ARGUMENT PER LINE -- which is what makes
+# it safe to consume -- so a grep for "timeout 480" can never match the raw
+# output. The integrator joins it the same way before comparing.
+out=$(run_run SUSPEND_TIMEOUT= SUSPEND_CMD= ARGV_ONLY=1 | tr '\n' ' ')
+echo "$out" | grep -q 'timeout 480' \
+  || fail "argv did not report the lock timer: $out"
+echo "$out" | grep -q 'idle-tick' \
+  || fail "argv did not report the heartbeat, which is the one thing a stale
+daemon is missing and therefore the whole reason to compare"
+
+# IT MUST NOT LAUNCH. The comparison runs on every apply, and a query that
+# starts a second idle timer would be worse than the drift it detects.
+#
+# TOLD APART BY LINE COUNT, which is the only thing that distinguishes them
+# here: the stub prints every argument on ONE line, `argv` prints one PER line.
+# Flattening for the greps above erases exactly that difference, so this
+# assertion has to run on the raw output -- a mutation that ignored ARGV_ONLY
+# and exec'd the stub survived until it did.
+_raw=$(run_run SUSPEND_TIMEOUT= SUSPEND_CMD= ARGV_ONLY=1 | wc -l)
+[ "$_raw" -gt 1 ] || fail "argv produced $_raw line(s). That is what the stub
+prints when it is EXECUTED, so the query launched the timer instead of
+describing it -- on a real box, a second idle daemon on every apply"
+
+# ...and the seam still appears when set, so argv reports the real list rather
+# than a hardcoded sketch of it.
+out=$(run_run SUSPEND_TIMEOUT=1200 SUSPEND_CMD=/bin/echo ARGV_ONLY=1 \
+      | tr '\n' ' ')
+echo "$out" | grep -q 'timeout 1200 /bin/echo' \
+  || fail "argv omitted the idle-suspend seam, so a box with one would be
+restarted on every apply for a difference that is not real"
+
 pass
