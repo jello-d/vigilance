@@ -24,5 +24,28 @@ for _f in "$HERE"/bin/* "$HERE"/setup.sh \
   esac
 done
 [ "$_bad" = 0 ] || fail "a shipped script failed its syntax check"
+# --- NO SHIPPED SCRIPT DEFINES A FUNCTION TWICE ----------------------------
+# A second definition silently WINS and the first becomes dead code. Not
+# hypothetical: a refactor split hook_lit into an adapter over a shared
+# implementation and left the old body further down the file, so for two days
+# the adapter was never called. Every test passed, because the shadowing copy
+# behaved the same -- which is exactly why nothing noticed, and why a later fix
+# to the adapter did nothing at all on a live box.
+#
+# `dash -n` cannot see this: two definitions are perfectly valid shell.
+_dupes=
+for _f in "$HERE"/bin/* "$HERE"/libexec/vigilance/hooklib.sh \
+          "$HERE"/libexec/vigilance/hooks/* \
+          "$HERE"/libexec/vigilance/providers/*; do
+  [ -f "$_f" ] || continue
+  _d=$(grep -oE '^[_a-zA-Z][_a-zA-Z0-9]*\(\)' "$_f" | sort | uniq -d)
+  [ -n "$_d" ] && _dupes="$_dupes $(basename "$_f"):$(echo $_d | tr ' ' ',')"
+done
+[ -z "$_dupes" ] || fail "function(s) defined twice in one file:$_dupes
+
+The later definition wins and the earlier is dead code. A refactor that leaves
+the old body behind passes every test -- the shadowing copy behaves the same --
+right up until someone fixes the copy that is never called."
+
 pass "$(ls "$HERE"/bin | wc -l | tr -d ' ') tools + $(ls \
   "$HERE"/libexec/vigilance/hooks | wc -l | tr -d ' ') hooks + setup.sh parse"

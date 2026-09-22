@@ -60,6 +60,39 @@ if [ ! -r "$LOG" ]; then
   exit 78
 fi
 
+# IS THE HEARTBEAT ACTUALLY ARMED IN THE RUNNING DAEMON?
+#
+# A DAEMON PINS ITS ARGV AT START. The heartbeat is a timeout armed when the
+# idle timer launches, so an instance that predates it emits nothing however
+# healthy it is -- and this hook would read the stale log as a wedge and say
+# so once an hour, about a timer that is working perfectly.
+#
+# That is not hypothetical: it fired within a day of shipping. swayidle had
+# been up four days, had no `idle-tick` in its argv, and had fired an idle-lock
+# six hours earlier -- demonstrably alive, reported wedged.
+#
+# The expectation this hook compares silence against DOES NOT EXIST until the
+# unit is restarted, so saying "I cannot tell, restart it" is the only honest
+# answer. Asserting the PRECONDITION rather than the outcome, which is the
+# discipline this suite keeps relearning.
+# The cmdline SOURCE is overridable for the same reason report's is: without
+# it this branch can only be exercised against whatever the developer's own
+# swayidle happens to be armed with, which is a verdict about the substrate.
+MARK=${VIGILANCE_HEARTBEAT_MARK:-idle-tick}
+_cl=${VIGILANCE_IDLE_CMDLINE:-}
+if [ -z "$_cl" ]; then
+  _pid=$(pgrep -x swayidle 2>/dev/null | head -1)
+  [ -n "${_pid:-}" ] && _cl=/proc/$_pid/cmdline
+fi
+if [ -n "${_cl:-}" ] && [ -r "$_cl" ]; then
+  if ! tr '\0' '\n' < "$_cl" 2>/dev/null | grep -q -- "$MARK"; then
+    echo "the running idle timer has no '$MARK' heartbeat in its argv, so it"\
+" emits nothing to watch however healthy it is. It predates the heartbeat;"\
+" restart vigilance-idle.service (or relogin) and this becomes answerable."
+    exit 78
+  fi
+fi
+
 # --- how long has it been silent? -------------------------------------------
 _last=$(date -r "$LOG" +%s 2>/dev/null || echo 0)
 case "$_last" in ''|*[!0-9]*) _last=0 ;; esac

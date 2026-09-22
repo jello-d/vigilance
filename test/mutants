@@ -384,3 +384,15 @@ f bin/vigilant
 t standing-recheck coverage
 -   if [ "$(_depth)" != "$_rq_d" ] || [ "$(_depth_at)" != "$_rq_t" ]; then
 +   if true; then
+
+= watchdog-judges-an-unarmed-timer
+f libexec/vigilance/hooks/swayidle-watchdog
+t swayidle-watchdog
+- MARK=${VIGILANCE_HEARTBEAT_MARK:-idle-tick}
++ MARK=
+
+= verify-dark-calls-a-reasserted-device-drift
+f libexec/vigilance/hooklib.sh
+t hooklib
+-       if [ -f "$_sf" ] && [ "$_cur" = "$(cat "$_sf" 2>/dev/null)" ]; then
++       if false; then

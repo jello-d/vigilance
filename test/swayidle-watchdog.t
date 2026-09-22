@@ -41,6 +41,12 @@ chmod +x "$T/bin/vigilant"
 PATH="$T/bin:$PATH"; export PATH
 PGREP_FOUND=1; export PGREP_FOUND
 SWAYIDLE_LOG_DIR=$T/state/swayidle-mgr; export SWAYIDLE_LOG_DIR
+# THE ARMED COMMAND LIST IS PINNED. A daemon pins its argv at start, so the
+# heartbeat this hook watches for only exists in an instance launched AFTER it
+# was added -- and without a fixture every case here would judge whatever the
+# developer's own swayidle happens to be armed with.
+VIGILANCE_IDLE_CMDLINE=$T/cmdline; export VIGILANCE_IDLE_CMDLINE
+printf 'swayidle\0timeout\060\0swayidle-mgr event idle-tick\0' > "$T/cmdline"
 # PINNED, never the host's. Every case below depends on how long the machine
 # has been up, and reading the real /proc/uptime meant these passed only
 # because THIS box had been up for days -- the VM tier, booted seconds
@@ -154,5 +160,34 @@ rm -f "$LOG"
 _run; [ "$RC" = 78 ] || fail "with no event log the hook returned a verdict. The
 heartbeat is what makes silence mean anything, so without it there is no
 expectation to compare against and 0 would be a false all-clear"
+
+# --- AN UNARMED TIMER CANNOT BE JUDGED -------------------------------------
+# A DAEMON PINS ITS ARGV AT START. The heartbeat is a timeout armed when the
+# idle timer launches, so an instance predating it emits nothing however
+# healthy it is -- and this hook would read the stale log as a wedge and say so
+# once an hour about a timer working perfectly.
+#
+# It fired within a day of shipping: swayidle had been up four days, had no
+# `idle-tick` in its argv, and had fired an idle-lock six hours earlier. Alive,
+# reported wedged. The expectation silence is measured against DOES NOT EXIST
+# until the unit is restarted, so the only honest answer is "I cannot tell".
+_age 20000
+printf 'swayidle\0timeout\0480\0swayidle-mgr event idle-lock\0' > "$T/cmdline"
+_run; [ "$RC" = 78 ] || fail "a timer with no heartbeat in its argv was judged
+(rc=$RC). It emits nothing to watch, so silence proves nothing -- and calling
+that a wedge accuses a daemon that is working of the one fault it does not have"
+case "$(_out)" in
+  *restart*) ;;
+  *) printf '%s\n' "$(_out)" >&2
+     fail "the finding did not say how to make it answerable. 'Restart the
+unit' is the whole remedy and leaving it out sends a reader hunting a wedge" ;;
+esac
+
+# ...and an ARMED timer is judged normally, or the guard would switch the whole
+# hook off on every box.
+printf 'swayidle\0timeout\060\0swayidle-mgr event idle-tick\0' > "$T/cmdline"
+_run; [ "$RC" = 1 ] || fail "an ARMED timer silent for 20000s at the open rung
+returned $RC instead of reporting. The precondition guard must gate the
+question, not replace it"
 
 pass

@@ -37,13 +37,22 @@ edge=${1:-${VIGILANCE_EDGE:-}}
 _intent=$(hook_intent "$edge")
 if [ "$_intent" = none ]; then exit 0; fi
 
-_rc=0
+_rc=0 _na=0 _checked=0
 for _l in $LEDS; do
   [ -e "/sys/class/leds/$_l/brightness" ] || continue
   _save=${VIGILANCE_STATE_DIR:-/tmp}/$_l
   if [ "${VIGILANCE_KIND:-act}" = verify ]; then
+    # COUNT n/a APART FROM FAILURE, the same way the runner does across
+    # hooks. `|| _rc=1` collapsed them, so a device this hook DECLINED to
+    # judge -- one something else owns and keeps relighting -- was reported as
+    # a failed check. That is the conflation the 78 contract exists to break,
+    # reappearing inside a hook that drives two devices.
+    _vrc=0
     hook_verify_level "$_save" "$_intent" --class=leds --device="$_l" \
-      || _rc=1
+      || _vrc=$?
+    if [ "$_vrc" = 78 ]; then _na=$((_na + 1))
+    elif [ "$_vrc" != 0 ]; then _rc=1
+    else _checked=$((_checked + 1)); fi
     continue
   fi
   case "$_intent" in
@@ -51,4 +60,10 @@ for _l in $LEDS; do
     lit)  hook_lit  "$_save" --class=leds --device="$_l" ;;
   esac
 done
+# NOTHING CHECKED AND SOMETHING DECLINED is n/a for the whole hook, not
+# success: 0 there would claim a verdict about both LEDs when neither was
+# judged.
+if [ "$_rc" = 0 ] && [ "$_checked" = 0 ] && [ "$_na" -gt 0 ]; then
+  exit 78
+fi
 exit "$_rc"

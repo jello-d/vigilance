@@ -325,4 +325,56 @@ what fails every later ascent about hardware that is simply not there"
 
 unset -f level_get level_set 2>/dev/null || true
 
+# --- A DEVICE THAT WILL NOT STAY DARK IS NOT OURS TO DARKEN ----------------
+# Measured on a live box: `mute-on-lock` mutes at the lock edge, the driver
+# lights the ThinkPad mute LED because the LED IS the mute state, and at the
+# sleep rung these two hooks want opposite things. The driver settles it,
+# putting the LED back about two seconds after every write.
+#
+# 278 drift alerts across ONE twelve-hour sleep, about a fight that cannot be
+# won. A tier that cries about the unwinnable gets ignored for the winnable.
+#
+# DETECTED IN VERIFY, not at the crossing: the reassertion takes seconds, so a
+# read-back in the act tier fires before the device can bounce and costs a call
+# to learn nothing. That was the first attempt and it detected zero.
+_reset 70
+rm -f "$SF.notours"
+hook_dark "$SF" -d x || fail "setup: the descent failed"
+echo 70 > "$BC_LEVEL"          # something else puts it straight back
+_vr=0
+hook_verify_level "$SF" dark -d x 2>>"$T/stderr" || _vr=$?
+[ "$_vr" = 78 ] || fail "a device that returned to EXACTLY the level we saved
+was reported as drift (rc=$_vr), not declined. It was set to 0 and something
+put it back; that is a fight we lose, and reporting it once a minute forever
+is a complaint rather than a finding"
+[ -f "$SF.notours" ] || fail "no marker was left, so the next pass re-litigates
+the same unwinnable device"
+
+# ...and it stays quiet afterwards, which is the whole point.
+_vr=0
+hook_verify_level "$SF" dark -d x 2>>"$T/stderr" || _vr=$?
+[ "$_vr" = 78 ] || fail "the second pass reported rc=$_vr instead of declining"
+
+# A LIT EDGE RE-OPENS THE QUESTION. Whatever drove the device may have stopped
+# -- the mute LED goes out when audio is unmuted -- so tomorrow's dark edge
+# must test it again rather than inherit today's verdict.
+hook_lit "$SF" -d x 2>>"$T/stderr" || true
+[ -f "$SF.notours" ] && fail "a lit edge left the not-ours marker in place; a
+device excused once would be excused forever, including after the condition
+that was driving it went away"
+
+# --- ...BUT A GENUINELY LIT DEVICE IS STILL DRIFT --------------------------
+# The exclusion is narrow on purpose: EXACTLY the level we saved. A device at
+# some OTHER bright value was not reasserted, it just never went dark, and
+# that is the finding this tier exists for.
+_reset 70
+rm -f "$SF.notours"
+hook_dark "$SF" -d x || fail "setup"
+echo 90 > "$BC_LEVEL"          # bright, but NOT the level we saved
+_vr=0
+hook_verify_level "$SF" dark -d x 2>>"$T/stderr" || _vr=$?
+[ "$_vr" = 1 ] || fail "a device sitting at 90 when it should be dark returned
+rc=$_vr. Only a return to the EXACT saved level means something else drives it;
+anything else is a device that simply did not go dark"
+
 pass

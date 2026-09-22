@@ -214,6 +214,10 @@ hook_level_dark() {   # <save-file>
 
 hook_level_lit() {   # <save-file>
   _sf=$1
+  # A LIT EDGE RE-OPENS THE QUESTION. Whatever was driving the device may have
+  # stopped -- the mute LED goes out when audio is unmuted -- so the next dark
+  # edge should test it again rather than inherit a verdict from yesterday.
+  rm -f "$_sf.notours" 2>/dev/null || true
   if [ ! -f "$_sf" ]; then return 0; fi        # nobody dimmed it; leave it
   _hll_lvl=$(cat "$_sf" 2>/dev/null || true)
   case "${_hll_lvl:-}" in
@@ -265,7 +269,45 @@ hook_verify_level() {
   case "$_cur$_max" in *[!0-9]*|'') return 0 ;; esac
   [ "$_max" -gt 0 ] || return 0
   if [ "$_want" = dark ]; then
+    # NOBODY DIMMED IT, SO THERE IS NOTHING TO ASSERT -- the same rule the lit
+    # direction below already applies. A device we declined to darken (because
+    # something else owns it) leaves no save, and reporting drift about it once
+    # a minute is a complaint rather than a finding. screen-dark still asserts
+    # what the RUNG means, so the machine is not unwatched.
+    # ALREADY ESTABLISHED AS NOT OURS. The marker outlives the save file so a
+    # device something else drives is not re-litigated once a minute; a lit
+    # edge clears it, so a changed condition is re-tested rather than
+    # permanently excused.
+    if [ -f "$_sf.notours" ]; then
+      echo "device is driven by something else; not asserting it" >&2
+      return 78
+    fi
     if [ "$_cur" -gt $((_max / 10)) ]; then
+      # A DEVICE THAT WILL NOT STAY DARK IS NOT OURS TO DARKEN, and THIS is
+      # where it shows: the descent set 0 and something put the value back.
+      #
+      # Detected here rather than at the crossing because the reassertion takes
+      # SECONDS -- measured at about two on a ThinkPad mute LED -- so a
+      # read-back in the act tier fires before the device can bounce and would
+      # cost a brightnessctl call on the lock path to learn nothing.
+      #
+      # The test is EXACT: back at the level we SAVED. A panel that floors at 1
+      # of 400 is obeying; one that returns to precisely the value it held is
+      # being driven. Measured case: `mute-on-lock` mutes at the lock edge, the
+      # driver lights the mute LED because the LED IS the mute state, and at
+      # the sleep rung these two hooks want opposite things. 278 drift alerts
+      # across one twelve-hour sleep, about a fight that cannot be won.
+      #
+      # The save is DROPPED, so the next pass sees "nobody dimmed this" and
+      # stays quiet. screen-dark still asserts what the RUNG means, so the
+      # machine is not left unwatched.
+      if [ -f "$_sf" ] && [ "$_cur" = "$(cat "$_sf" 2>/dev/null)" ]; then
+        rm -f "$_sf"
+        : > "$_sf.notours" 2>/dev/null || true
+        echo "device is back at $_cur and something else owns it (it was set"\
+" to 0 and reasserted); not treating that as drift" >&2
+        return 78
+      fi
       echo "expected dark, found $_cur/$_max" >&2
       return 1
     fi
@@ -279,51 +321,4 @@ hook_verify_level() {
     fi
   fi
   return 0
-}
-
-# hook_lit <save-file> [brightnessctl-selector...]
-#
-# THE SAVE FILE IS THE EVIDENCE, so it only goes when the restore WORKED.
-#
-# This used to be `_bc set "$(cat "$_sf")" || true; rm -f "$_sf"`, and that one
-# line defeated both things that could have noticed a screen staying dark:
-#
-#   the exit status      swallowed, so the runner logged a clean crossing and
-#                        raised no alert
-#   report's "saved       could never fire, because the evidence it looks for
-#   levels outstanding    had just been deleted by the thing that failed
-#   at a lit rung"
-#
-# Keeping the file on failure also means a LATER ascent can still restore the
-# real level -- `force open`, the rescue key, or simply the next unlock -- so
-# the brightness is recoverable instead of lost.
-hook_lit() {
-  _sf=$1; shift
-  if [ ! -f "$_sf" ]; then return 0; fi        # nobody dimmed it; leave it
-  _hl_lvl=$(cat "$_sf" 2>/dev/null || true)
-  case "${_hl_lvl:-}" in
-    ''|*[!0-9]*)
-      echo "hooklib: saved level '$_hl_lvl' is not a number; not restoring" >&2
-      return 1 ;;
-  esac
-  # AN ABSENT DEVICE IS NOT A FAILED RESTORE, the same distinction hook_dark
-  # already draws on `get`. If the device cannot even be READ there is nothing
-  # here to restore TO: the save is a leftover from a machine that has since
-  # changed -- a dock unplugged, a hook rescoped, a monitor retired.
-  #
-  # Keeping it would fail this edge on EVERY ascent, forever, and raise an alert
-  # each time, while report cried drift about hardware that is not there. That
-  # is not hypothetical: a stale save from an older hooklib outlived the fix and
-  # failed every wake on a live box, because hook_dark short-circuits on the
-  # file's existence and so never re-created the condition that made it.
-  if ! brightnessctl "$@" get >/dev/null 2>&1; then
-    rm -f "$_sf"
-    return 0
-  fi
-  if ! _bc "$@" set "$_hl_lvl"; then
-    echo "hooklib: could not restore $* to $_hl_lvl; keeping $_sf so the level"\
-" is not lost and report can see it" >&2
-    return 1
-  fi
-  rm -f "$_sf"
 }
