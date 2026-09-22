@@ -177,4 +177,66 @@ $(_alerts). 'I could not look' must not be reported as 'the machine is wrong'"
 grep -q "STILL-DRIFTED" "$VIGILANCE_LOG" && \
   [ "$(grep -c 'STILL-DRIFTED' "$VIGILANCE_LOG")" -gt 0 ] || true
 
+# --- 9. A CROSSING IN FLIGHT IS NOT DRIFT ----------------------------------
+# THE RACE, observed on manifold. The verify tier takes a second or more (a
+# ddcutil round trip, a screen capture) and this runs on a one-minute timer, so
+# a crossing can start and finish inside a single recheck. The verdict then
+# describes a rung the machine has already LEFT, against hardware correctly
+# matching the new one:
+#
+#   22:24:01  cross wake: sleep -> lock      (hooks restore the LEDs to lit)
+#   22:24:02  HOOK FAILED: sleep.verify 30-kbd-backlight
+#   22:24:02  HOOK FAILED: sleep.verify 40-mute-leds
+#   22:24:03  STILL-DRIFTED at 'sleep'
+#
+# The minute before was CLEAN, which is what ruled out genuinely-lit LEDs. A
+# few percent of wakes land in that window -- often enough to teach a reader
+# that drift alerts are noise, which is the one thing this tier cannot afford.
+#
+# Reproduced by a verify hook that CROSSES AN EDGE while it runs, which is what
+# a real wake does to a recheck already in progress.
+: > "$T/alerts"
+# case 8 removed this tree to test the no-verify-hooks path; put it back
+mkdir -p "$VIGILANCE_HOOK_ROOT/sleep.verify.d"
+go sleep
+cat > "$VIGILANCE_HOOK_ROOT/sleep.verify.d/10-probe" <<EOF
+#!/bin/sh
+# the machine moves out from under the recheck, exactly as a wake does
+"$VIGILANT" go lock >/dev/null 2>&1
+exit 1
+EOF
+chmod +x "$VIGILANCE_HOOK_ROOT/sleep.verify.d/10-probe"
+[ "$(_enforce)" = 0 ] || fail "a verify that FAILED while the machine crossed
+an edge was reported as drift. The answer is about the rung we left, and the
+hardware it judged had already moved on -- so the verdict is not about
+anything. This fired on a live box one second after a wake"
+# grep the FILE, not `_alerts` -- that helper returns a COUNT, so matching it
+# against a kind name is an assertion that can never fire either way.
+if grep -q '^drift$' "$T/alerts" 2>/dev/null; then
+  fail "a crossing in flight raised a DRIFT alert. A few percent of wakes land
+inside a recheck, and an alert that fires on a correct machine is how the
+enforce timer got stopped by hand once already"
+fi
+
+# ...AND A REAL DRIFT STILL LANDS. Without this the fix could be "never report
+# anything", which passes the case above and switches the tier off entirely.
+#
+# THE COOLDOWN GOES OFF FOR THIS ONE. Earlier cases in this file raised the
+# same drift message and case 3 deliberately turned dedup ON, so a correct
+# alert here is suppressed as a repeat -- and the assertion would then be about
+# what its NEIGHBOURS did rather than about the guard. That is the trap this
+# file's own header warns about.
+: > "$T/alerts"
+go open
+go sleep
+_verifier 1
+VIGILANCE_ALERT_COOLDOWN=0; export VIGILANCE_ALERT_COOLDOWN
+[ "$(_enforce)" != 0 ] || fail "with the machine sitting still, a failing
+verify was not reported. Discarding a verdict is only correct when an edge
+moved underneath it"
+grep -q '^drift$' "$T/alerts" 2>/dev/null \
+  || fail "a genuine drift raised no alert after the race guard was added.
+Discarding a verdict is only correct when an edge moved underneath it; doing it
+always would pass the case above and switch the tier off"
+
 pass

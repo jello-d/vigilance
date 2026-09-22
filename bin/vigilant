@@ -2529,8 +2529,38 @@ _flatten() {   # multi-line transcript -> one line, vigilant's own echo removed
 }
 
 _enforce_recheck() {   # from
+  # A CROSSING IN FLIGHT IS NOT DRIFT.
+  #
+  # The verify tier takes a second or more -- a ddcutil round trip, a screen
+  # capture -- and this runs on a one-minute timer, so a crossing can start and
+  # finish inside a single recheck. The verdict then describes a rung the
+  # machine has already LEFT, with the hardware correctly matching the new one.
+  #
+  # Observed on manifold, and the log shows it plainly:
+  #
+  #   22:24:01  cross wake: sleep -> lock       (hooks restore the LEDs to lit)
+  #   22:24:02  HOOK FAILED: sleep.verify 30-kbd-backlight
+  #   22:24:02  HOOK FAILED: sleep.verify 40-mute-leds
+  #   22:24:03  STILL-DRIFTED at 'sleep'
+  #
+  # The minute BEFORE was clean, which is what rules out genuinely-lit LEDs at
+  # the sleep rung: the same question passed at 22:23 and failed one second
+  # after the wake. A crossing takes a few seconds and the timer fires every
+  # sixty, so this misfires on a few percent of wakes -- often enough to train
+  # a reader that drift alerts are noise, which is the one thing this tier
+  # cannot afford.
+  #
+  # So the depth AND the moment it was recorded are captured before and after.
+  # If either moved, an edge was crossed while we were looking and the answer
+  # is about the wrong rung. Discard it: the next pass will ask again, and a
+  # real drift persists.
+  _rq_d=$(_depth); _rq_t=$(_depth_at)
   _rv=$(cmd_verify 2>&1) || _rvrc=$?
   _rv=$(_flatten "$_rv")
+  if [ "$(_depth)" != "$_rq_d" ] || [ "$(_depth_at)" != "$_rq_t" ]; then
+    echo "enforce: an edge was crossed while verifying '$_rq_d'; no verdict"
+    return 0
+  fi
   case "${_rvrc:-0}" in
     0) return 0 ;;
     # NOT DRIFT. Drift means we looked and the machine was wrong; 78 means

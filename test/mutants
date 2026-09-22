@@ -373,3 +373,14 @@ f bin/vigilant
 t intent
 - _lt() { printf '%s\n' "$LADDER_TABLE"; }
 + _lt() { printf '%s\n' ""; }
+= recheck-ignores-a-crossing-in-flight
+f bin/vigilant
+t standing-recheck
+-   if [ "$(_depth)" != "$_rq_d" ] || [ "$(_depth_at)" != "$_rq_t" ]; then
++   if false; then
+
+= recheck-discards-every-verdict
+f bin/vigilant
+t standing-recheck coverage
+-   if [ "$(_depth)" != "$_rq_d" ] || [ "$(_depth_at)" != "$_rq_t" ]; then
++   if true; then
