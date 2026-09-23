@@ -38,6 +38,15 @@ export SCENARIO_CAPS
 PASS=0; FAIL=0; ERR=0
 
 _parses() {   # file -> 0 if it still parses under ITS OWN shell
+  # NOT EVERY TARGET IS SHELL. A systemd unit is declarative, and running
+  # `dash -n` over it fails on the first `[Unit]` -- which the driver then
+  # reported as "invalid code kills every test", a corpus ERROR about a
+  # perfectly good mutation. Config and unit files carry guards worth mutating
+  # (a pinned verify edge, an ExecStart argument), so exempt them by extension
+  # rather than refusing to cover them.
+  case "$1" in
+    *.service|*.timer|*.conf|*.ini) return 0 ;;
+  esac
   case "$(head -1 "$1")" in
     *bash) bash -n "$1" 2>/dev/null ;;
     *)     dash -n "$1" 2>/dev/null ;;

@@ -80,10 +80,16 @@ guards when written, so this has lost coverage rather than gained it"
 
 # EVERY GUARDED FILE SHOULD BE ONE THE SUITE ACTUALLY SHIPS. A record pointing
 # at a scratch path would validate and never protect anything real.
+#
+# systemd/ COUNTS. The units are rendered and placed by the installer, and they
+# carry guards as load-bearing as any line of shell: which command an ExecStart
+# runs, whether a verify pins an edge, the TimeoutStartSec the edge budget is
+# measured against. Leaving them out meant the one place a wrong argument is
+# invisible to `dash -n` was also the one place nothing could mutate.
 while IFS= read -r _line; do
   case "$_line" in
     'f '*) case "${_line#??}" in
-             bin/*|libexec/*|install|setup.sh) ;;
+             bin/*|libexec/*|systemd/*|install|setup.sh) ;;
              *) fail "a record targets '${_line#??}', which is not shipped
 code. The corpus must guard what the package installs, not a fixture" ;;
            esac ;;

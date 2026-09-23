@@ -450,3 +450,9 @@ f bin/vigilant
 t atleast
 -       if ($0 ~ ("deeper than ." e ".")) { found = 1 }
 +       if (0) { found = 1 }
+
+= suspend-unit-pins-the-wrong-verify-edge
+f systemd/lock-on-sleep.service
+t locker-up
+- ExecStartPost=@VIGILANT@ verify
++ ExecStartPost=@VIGILANT@ verify lock

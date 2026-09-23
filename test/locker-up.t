@@ -96,9 +96,19 @@ esac
 _unit=$HERE/systemd/lock-on-sleep.service
 # Matches the PLACEHOLDER, not a literal path: the units carry @VIGILANT@ now
 # and the installer substitutes it, precisely so no unit hardcodes a prefix.
-grep -qE '^ExecStartPost=.*(@VIGILANT@|vigilant) verify lock' "$_unit" \
-  || fail "lock-on-sleep.service crosses the lock edge but never verifies it, so
-a suspend can still report success while the session is not secured"
+#
+# AND IT MUST NOT PIN AN EDGE. This asked for `verify lock` until ExecStart
+# gained `atleast`, which may leave the machine at `sleep` rather than raising
+# it. `verify lock` there runs the lock rung's tier, whose peripheral hooks
+# assert the screen is LIT -- so a correctly dark box would fail this unit and
+# alert, moments before suspending. Bare `verify` asks about the rung the
+# machine is actually at, and the lock claim survives because `locker-up`
+# belongs in every verify tier at or below `lock`.
+grep -qE '^ExecStartPost=.*(@VIGILANT@|vigilant) verify[[:space:]]*$' "$_unit" \
+  || fail "lock-on-sleep.service must run a bare 'verify' after crossing. Either
+it never verifies at all -- so a suspend can report success while the session is
+not secured -- or it pins an edge, which asks the wrong rung's question whenever
+ExecStart declines to raise a machine that was already deeper"
 # ...and it must come AFTER the crossing, or it verifies the previous state.
 awk '/^ExecStart=/{s=NR} /^ExecStartPost=/{p=NR}
      END{exit (s && p && p > s) ? 0 : 1}' "$_unit" \
