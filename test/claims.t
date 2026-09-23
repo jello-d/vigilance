@@ -147,4 +147,22 @@ Every VIGILANCE_* name has to appear in the man page or the README. A knob is a
 promise that something is adjustable, and one nobody can find is a promise to
 whoever reads the source and nobody else."
 
+# --- THEORY.md NAMES THE CHECK THAT ENFORCES EACH INVARIANT ----------------
+# The whole value of that map is that it lets a reader go and READ the check,
+# and separates the invariants that are enforced from the ones that are only
+# hoped for. A renamed or deleted test turns an entry into a dead reference,
+# and a dead reference is worse than a blank: it reads as coverage.
+#
+# Only the existence of the file is asserted. Whether it still checks what the
+# table says is a judgement no grep can make, and claiming otherwise here would
+# be the same false confidence the document is about.
+_gone=
+for _t in $(grep -ohE '\b[a-z][a-z0-9-]+\.t\b' "$HERE/THEORY.md" | sort -u); do
+  [ -f "$HERE/test/$_t" ] || _gone="$_gone $_t"
+done
+[ -z "$_gone" ] || fail "THEORY.md names test(s) that no longer exist:$_gone
+
+The invariant map is the only place that says which check enforces which
+promise. An entry pointing at nothing reads as enforcement and is not."
+
 pass

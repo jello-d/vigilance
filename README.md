@@ -52,6 +52,9 @@ everything, so the saved state is stale and the hook must re-assert from config.
 Same hook, same direction, different correct behaviour, which is why the runner
 passes the rung being **left** as `$2`.
 
+Why it is built this way, what it assumes about the platform, and which
+check enforces which invariant: `THEORY.md`.
+
 ## Commands
 
     vigilant go <state>       traverse to state, crossing every edge between
