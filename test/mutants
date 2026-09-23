@@ -424,7 +424,7 @@ t idle-suspend
 = atleast-raises-the-machine
 f bin/vigilant
 t atleast
--     if [ "$_dnow" -ge "$_dto" ]; then
+-     if [ "$_dnow" -gt "$_dto" ]; then
 +     if false; then
 
 = atleast-mode-is-dropped-by-the-dispatcher
@@ -498,3 +498,9 @@ f bin/vigilant
 t idle-ceiling
 -   if ! _is_descent "$1"; then _note_ascent; fi
 +   _note_ascent
+
+= atleast-conflates-equal-with-deeper
+f bin/vigilant
+t atleast
+-     if [ "$_dnow" -gt "$_dto" ]; then
++     if [ "$_dnow" -ge "$_dto" ]; then

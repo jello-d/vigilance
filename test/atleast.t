@@ -47,12 +47,23 @@ expect_depth sleep
 expect_record "lock open 10-rec
 sleep lock 10-rec"
 
-# --- 2. AT THE RUNG IT IS A NO-OP ------------------------------------------
+# --- 2. AT THE RUNG IT IS A NO-OP, AND SAYS SO PLAINLY ---------------------
+# EQUAL IS NOT DEEPER. Folding the two into one message printed "already at
+# 'lock', deeper than 'lock'; not raising" on a live box: a sentence that
+# contradicts itself and describes a raise that was never possible. At the rung
+# this is the ordinary no-op, worded as every other caller words it.
+true > "$T/vigilant.log"
 _atleast sleep
 expect_rc 0
 expect_depth sleep
 expect_record "lock open 10-rec
 sleep lock 10-rec"
+grep -q "already at 'sleep'; nothing to do" "$T/vigilant.log" \
+  || fail "at the target rung the decline did not log the plain no-op. Got:
+$(cat "$T/vigilant.log")"
+grep -q "deeper than" "$T/vigilant.log" \
+  && fail "a request for the rung the machine is ALREADY AT was logged as
+'deeper than' it, which is a claim about nothing"
 
 # --- 3. FROM BELOW IT DECLINES, AND SAYS SO --------------------------------
 # The whole finding. At `sleep` the session is already locked -- every route

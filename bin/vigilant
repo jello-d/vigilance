@@ -940,7 +940,13 @@ cmd_go() {   # <state> [force|only|atleast]
   # kind of thing that must not vanish.
   if [ "$_mode" = atleast ]; then
     _dnow=$(_depth_of "$(_depth)") || _dnow=0
-    if [ "$_dnow" -ge "$_dto" ]; then
+    # STRICTLY DEEPER. `-ge` here emitted "already at 'lock', deeper than
+    # 'lock'; not raising" on a live box: a sentence that contradicts itself
+    # and describes a raise that was never on the table. The equal case needs
+    # no branch at all -- falling through reaches the shared "already at 'X';
+    # nothing to do" that every other caller logs, which is the right words and
+    # one less place for them to be written.
+    if [ "$_dnow" -gt "$_dto" ]; then
       # The audit tier reconciles on this line, and it names BOTH rungs so the
       # match can anchor on the ASSERTED one: "already at 'sleep'" alone cannot
       # satisfy an assertion about `lock` without teaching awk the rank order.
