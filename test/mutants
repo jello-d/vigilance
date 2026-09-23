@@ -508,20 +508,26 @@ t atleast
 = lost-lock-race-reported-as-failure
 f libexec/vigilance/providers/swaylock
 t lock-race
-- if _unit_active; then
-+ if false; then
+-     active)
++     nosuchstate)
 
 = provider-starts-a-locker-that-is-already-up
 f libexec/vigilance/providers/swaylock
 t lock-race
-- if _unit_active; then exit 0; fi
-+ if false; then exit 0; fi
+- case "$(_unit_state)" in active|activating|reloading) exit 0 ;; esac
++ case "$(_unit_state)" in nosuchstate) exit 0 ;; esac
 
 = lock-failure-always-reported-as-success
 f libexec/vigilance/providers/swaylock
 t lock-race
-- if _unit_active; then
-+ if true; then
+-     *) break ;;                       # inactive or failed; it is not coming
++     *) ;;
+
+= a-settling-unit-is-called-a-failure
+f libexec/vigilance/providers/swaylock
+t lock-race
+-     activating|reloading) ;;          # still coming up; keep waiting
++     nosuchstate) ;;
 
 = crossings-are-not-serialised
 f bin/vigilant

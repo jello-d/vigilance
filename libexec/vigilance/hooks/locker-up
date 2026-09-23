@@ -73,6 +73,14 @@ esac
 # Overridable for the same reason `report`'s probe is: without it a test's
 # verdict depends on whether the DEVELOPER's screen happens to be locked while
 # the suite runs, which has already caused a false failure here once.
+#
+# `is-active` IS STRICT HERE ON PURPOSE, and that is the opposite of the
+# provider, which had to learn to accept ACTIVATING. The two ask different
+# questions: the provider asks "did someone start it", where a unit on its way
+# up is a yes; this asks "is the session SECURED", where a locker that has not
+# committed its session lock yet is emphatically not. Loosening this to match
+# would turn a verifier into one that passes before the thing it verifies has
+# happened -- the exact false green the tier exists to prevent.
 _up() {
   if [ -n "${VIGILANCE_LOCKER_UP+x}" ]; then
     [ "$VIGILANCE_LOCKER_UP" = 1 ]

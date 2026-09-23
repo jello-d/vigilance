@@ -520,10 +520,16 @@ repeat-alert suppression; 0 disables
 how far an event may sit from its edge
 .TP
 .B VIGILANCE_LOCK_ACTIVE_FILE
-PROBE OVERRIDE, tests only. A path whose existence stands in for the lock unit
-being active, so the provider's lost\-race branch can be exercised without a
-user systemd bus. Setting it in production makes the provider believe a file
-instead of the machine.
+PROBE OVERRIDE, tests only. A path whose CONTENT stands in for the lock unit's
+ActiveState (absent means inactive), so the provider's lost\-race branch can be
+exercised without a user systemd bus. Setting it in production makes the
+provider believe a file instead of the machine.
+.TP
+.B VIGILANCE_LOCK_SETTLE
+how long the lock provider waits for a concurrently\-started locker to finish
+coming up, seconds (default 5). Only reached when our own start was refused
+because the unit already exists; a unit that is inactive rather than
+activating is not waited for at all.
 .TP
 .B VIGILANCE_CROSS_WAIT
 how long a second crossing waits for the first, seconds (default 2). One
