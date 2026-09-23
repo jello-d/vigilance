@@ -50,11 +50,30 @@ LOCKER=${VIGILANCE_LOCKER:-swaylock}
 command -v "$LOCKER" >/dev/null 2>&1 || {
   echo "swaylock provider: '$LOCKER' not found" >&2; exit 1; }
 
-# Already up: nothing to do. The unit name makes this cheap and racy-safe in a
-# way flock never was, because systemd is the one arbitrating.
-if systemctl --user is-active --quiet "$UNIT" 2>/dev/null; then
-  exit 0
-fi
+# IS OUR UNIT UP? Deliberately narrower than locker-up's probe, which asks
+# whether the SESSION is secured by anything at all. This asks only about the
+# unit this hook owns, which is the right question both for "already done" and
+# for "did the other racer win".
+#
+# OVERRIDABLE BY A PATH, whose existence stands in for the unit being active.
+# Without it the race branch below is untestable in BOTH substrates: the stub
+# tier must not create transient units on the developer's systemd, and the VM
+# has no user bus at all ("Failed to connect to bus: No medium found"). An
+# error path nothing can exercise is an error path that ships unexercised, and
+# a file lets a fixture model the state CHANGING mid-run, which is the whole
+# nature of a race.
+_unit_active() {
+  if [ -n "${VIGILANCE_LOCK_ACTIVE_FILE:-}" ]; then
+    [ -e "$VIGILANCE_LOCK_ACTIVE_FILE" ]
+    return $?
+  fi
+  systemctl --user is-active --quiet "$UNIT" 2>/dev/null
+}
+
+# Already up: nothing to do. The unit name is the singleton, and systemd is the
+# one arbitrating -- but this check ALONE is a test-then-act, and the window
+# between it and the systemd-run below is real. See the race note down there.
+if _unit_active; then exit 0; fi
 systemctl --user reset-failed "$UNIT" >/dev/null 2>&1 || true
 
 # The argv is computed by a separate helper so THIS file knows nothing about
@@ -65,11 +84,34 @@ if command -v vigilance-lock-argv >/dev/null 2>&1; then
   _args=$(vigilance-lock-argv 2>/dev/null || true)
 fi
 
+# LOSING THE RACE IS NOT FAILING. Two lock requests can arrive together -- a
+# double hotkey press, or a keybind and a logind Session.Lock landing in the
+# same second -- and then BOTH pass the is-active check above before either
+# starts the unit. systemd arbitrates correctly and refuses the second with
+# "unit already exists"; treating that refusal as an error is the bug, because
+# the postcondition this hook exists for is satisfied either way.
+#
+# Measured on manifold, four times over three days, each one an alert on the
+# most security-critical edge there is about a lock that came up fine:
+#
+#   12:58:55  cross lock: open -> lock          (twice, same second)
+#   12:58:56  Started screen-lock.service        <- the winner
+#   12:58:56  HOOK FAILED (rc=1): lock 10-swaylock   <- the loser
+#
+# So the failure path asks the question again rather than assuming. A hook that
+# cannot survive being run twice at once is not idempotent, which this package
+# requires of anything that mutates state.
 # shellcheck disable=SC2086
-systemd-run --user --collect --unit="$UNIT" \
-  --property=Type=forking \
-  --property=GuessMainPID=no \
-  --property="ExecStopPost=$_vigilant go open" \
-  -- "$LOCKER" -f $_args >/dev/null 2>&1 \
-  || { echo "swaylock provider: could not start $UNIT" >&2; exit 1; }
-exit 0
+if systemd-run --user --collect --unit="$UNIT" \
+     --property=Type=forking \
+     --property=GuessMainPID=no \
+     --property="ExecStopPost=$_vigilant go open" \
+     -- "$LOCKER" -f $_args >/dev/null 2>&1; then
+  exit 0
+fi
+if _unit_active; then
+  echo "swaylock provider: $UNIT was started concurrently; locker is up" >&2
+  exit 0
+fi
+echo "swaylock provider: could not start $UNIT" >&2
+exit 1

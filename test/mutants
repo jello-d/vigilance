@@ -504,3 +504,21 @@ f bin/vigilant
 t atleast
 -     if [ "$_dnow" -gt "$_dto" ]; then
 +     if [ "$_dnow" -ge "$_dto" ]; then
+
+= lost-lock-race-reported-as-failure
+f libexec/vigilance/providers/swaylock
+t lock-race
+- if _unit_active; then
++ if false; then
+
+= provider-starts-a-locker-that-is-already-up
+f libexec/vigilance/providers/swaylock
+t lock-race
+- if _unit_active; then exit 0; fi
++ if false; then exit 0; fi
+
+= lock-failure-always-reported-as-success
+f libexec/vigilance/providers/swaylock
+t lock-race
+- if _unit_active; then
++ if true; then

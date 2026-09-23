@@ -519,6 +519,12 @@ repeat-alert suppression; 0 disables
 .B VIGILANCE_AUDIT_WINDOW
 how far an event may sit from its edge
 .TP
+.B VIGILANCE_LOCK_ACTIVE_FILE
+PROBE OVERRIDE, tests only. A path whose existence stands in for the lock unit
+being active, so the provider's lost\-race branch can be exercised without a
+user systemd bus. Setting it in production makes the provider believe a file
+instead of the machine.
+.TP
 .B VIGILANCE_CROSSING_MAX
 how long an in\-flight crossing stays believable, seconds (default 120). The
 standing recheck skips a machine that is mid\-crossing, because the depth is
