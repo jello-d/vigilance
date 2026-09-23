@@ -98,8 +98,13 @@ _need_vigilant() {
 # but only at 600s when the blank timer's `go sleep` traversed open -> lock ->
 # sleep and crossed the lock edge on its way past. Two minutes late, by
 # accident, via the wrong timer.
+# `atleast`, because the IDLE LOCK is a security descent and can never
+# legitimately want to raise the machine. The `resume` arm further down keeps
+# plain `go lock` -- that one is the ascent, and it is the only way a woken box
+# gets its screen back. Two arms of the same daemon, opposite intents, and the
+# verb used to be identical for both.
 # Overridable, so a test never locks a real screen.
-LOCK_CMD=${LOCK_CMD:-$VIGILANT_CMD go lock}
+LOCK_CMD=${LOCK_CMD:-$VIGILANT_CMD go lock atleast}
 # The peripherals now ride VIGILANT, not swaylock. The patched swaylock used
 # to fork $HOME/bin/panel-power on its own blank-after timer; that path went
 # stale when vigilance extracted panel-power to ~/.local/bin, the execl failed,

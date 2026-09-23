@@ -10,6 +10,7 @@
 # promise):
 #
 #   vigilant go <state>       traverse to state, respecting the ladder
+#   vigilant go <state> atleast   deepen to state; NEVER raise toward it
 #   vigilant force <state>    assert state, ignoring the recorded depth
 #   vigilant only <state>     cross ONE edge into state, no traversal
 #   vigilant status           where we are, and where hooks live
@@ -828,7 +829,7 @@ _cross_one() {   # edge leaving to [note]
   return "$_crc"
 }
 
-cmd_go() {   # <state> [force|only]
+cmd_go() {   # <state> [force|only|atleast]
   _to=$1
   _mode=${2:-}
   _forced=
@@ -838,6 +839,40 @@ cmd_go() {   # <state> [force|only]
     return 2
   fi
   mkdir -p "$RUN_DIR" "$STATE_ROOT"
+
+  # A SECURITY REQUEST MAY DEEPEN THE MACHINE, NEVER RAISE IT.
+  #
+  # `go <rung>` means "be AT this rung" and correctly travels in either
+  # direction: the resume path relies on that, since `go lock` from `sleep` is
+  # how a woken box comes back up. But a LOCK REQUEST is a different question
+  # wearing the same verb -- it asks to be AT LEAST this deep -- and answering
+  # it by ascending turns the screen ON in response to the single most
+  # unambiguous "I am leaving" gesture there is.
+  #
+  # MEASURED ON A LIVE BOX, twice in one evening. Closing the lid on AC makes
+  # logind emit Session.Lock; the trigger ran plain `go lock`; the machine was
+  # at `sleep`, so it crossed `wake` and lit the panel. Nothing brought it back
+  # down, because swayidle had already spent its `timeout 600` and never saw a
+  # resume -- a lid switch is not seat input to the compositor. The box sat lit
+  # with the lid shut for 30 minutes, and the only thing that ended it was a
+  # human opening the lid again.
+  #
+  # DEEPER ALREADY IMPLIES LOCKED, so declining is a real answer and not a
+  # dodge: every route to `sleep` or below crosses the `lock` edge on the way,
+  # and the standing recheck re-asserts that every minute. It is LOGGED rather
+  # than silent, because a security request that was declined is exactly the
+  # kind of thing that must not vanish.
+  if [ "$_mode" = atleast ]; then
+    _dnow=$(_depth_of "$(_depth)") || _dnow=0
+    if [ "$_dnow" -ge "$_dto" ]; then
+      # The audit tier reconciles on this line, and it names BOTH rungs so the
+      # match can anchor on the ASSERTED one: "already at 'sleep'" alone cannot
+      # satisfy an assertion about `lock` without teaching awk the rank order.
+      log "already at '$(_depth)', deeper than '$_to'; not raising"
+      return 0
+    fi
+    _mode=
+  fi
 
   if [ "$_mode" = only ]; then
     _dfrom=$(_depth_of "$(_depth)") || _dfrom=0
@@ -2791,6 +2826,11 @@ _log_has_edge() {   # epoch edge
       # ARRIVED at the rung by another edge. The trailing guard stops `lock`
       # matching a longer rung name, and tolerates the " (forced)" suffix.
       if ($0 ~ ("-> " e "( |$)")) { found = 1 }
+      # ALREADY DEEPER, and so already locked: a Session.Lock arriving at
+      # `sleep` is declined rather than answered by raising the machine, and
+      # that decline satisfies the assertion just as firmly. Anchored on the
+      # ASSERTED rung, which is why cmd_go names both in that line.
+      if ($0 ~ ("deeper than ." e ".")) { found = 1 }
     }
     END { exit(found ? 0 : 1) }' "$LOG_FILE"
 }
@@ -2900,7 +2940,7 @@ _audit_verdict() {
   return 0
 }
 
-_U="usage: vigilant go <open|lock|sleep|suspend>
+_U="usage: vigilant go <open|lock|sleep|suspend> [atleast]
                  | force <state> | only <state> | status
                  | verify [edge] | hooks [edge] | plan [edge]
                  | report | rescue
@@ -2913,7 +2953,17 @@ case "$_sub" in
     if [ "$#" -lt 1 ]; then
       echo "vigilant: 'go' needs a state" >&2; echo "$_U" >&2; exit 2
     fi
-    cmd_go "$1" ;;
+    # AN UNRECOGNISED MODE IS A USAGE ERROR, never something to drop. This arm
+    # used to ignore everything after the state, so a caller asking for a mode
+    # would have silently got the DEFAULT -- and the default is the one that
+    # raises. A safety qualifier that can be misspelt into nothing is not a
+    # safety qualifier, and this stack has already paid for one dead config
+    # word (`blank-after`) that nothing validated.
+    case "${2:-}" in
+      ''|atleast) ;;
+      *) echo "vigilant: 'go' has no mode '$2'" >&2; echo "$_U" >&2; exit 2 ;;
+    esac
+    cmd_go "$1" "${2:-}" ;;
   force)
     if [ "$#" -lt 1 ]; then
       echo "vigilant: 'force' needs a state" >&2; echo "$_U" >&2; exit 2

@@ -36,7 +36,11 @@ User=@USER@
 Environment=VIGILANCE_SOURCE=suspend
 Environment=XDG_RUNTIME_DIR=/run/user/@UID@
 Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/@UID@/bus
-ExecStart=@VIGILANT@ go lock
+# `atleast`: secure the session, never RAISE it. Suspending from the `sleep`
+# rung is the ordinary path (idle -> lock -> sleep -> lid or timer), and a
+# plain `go lock` there would ascend and light the panel in the last moment
+# before S3. Deeper already implies locked, so there is nothing to do.
+ExecStart=@VIGILANT@ go lock atleast
 # PROVE IT LOCKED, do not assume it. `go lock` succeeding means the hooks
 # returned 0; it does not mean a locker is up. systemd waits for this unit
 # before reaching sleep.target, so the check costs nothing anyone notices, and
@@ -49,7 +53,15 @@ ExecStart=@VIGILANT@ go lock
 # abort the transition, and nothing supported does. What it buys is that
 # sleeping unlocked is recorded and alerted instead of reported as success, and
 # the audit tier reconciles it afterwards.
-ExecStartPost=@VIGILANT@ verify lock
+#
+# NO EDGE NAMED, which matters now that ExecStart may decline to raise. Pinned
+# to `lock`, this asked the `lock` rung's question about a machine sitting at
+# `sleep`, where the peripheral verifiers assert the screen is LIT -- so a
+# correctly dark box would have failed this unit and alerted, moments before
+# suspending. Bare `verify` asks about the rung the machine is ACTUALLY at.
+# The lock claim survives the change because `locker-up` belongs in every
+# verify tier at or below `lock`, which is what the line above depends on.
+ExecStartPost=@VIGILANT@ verify
 # Cap the unit so a missing or slow session can never wedge the suspend
 # transition. A box that will not sleep is worse than one that sleeps late.
 TimeoutStartSec=25

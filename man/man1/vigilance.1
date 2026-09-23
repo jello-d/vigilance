@@ -4,6 +4,7 @@ vigilance \- edge framework for what a machine does when you step away
 .SH SYNOPSIS
 .B vigilant go
 .RB { open | lock | sleep | suspend }
+.RI [ atleast ]
 .br
 .B vigilant force
 .IR state ", " "vigilant only " state
@@ -51,6 +52,21 @@ between is crossed.
 crosses exactly one edge.
 .B force
 ignores the recorded depth, for when reality has drifted from the record.
+.PP
+Being declarative,
+.B go
+travels in EITHER direction. That is correct for a resume, since
+.B "go lock"
+from
+.B sleep
+is how a woken machine gets its screen back, and wrong for a lock request,
+which asks only that the session be SECURED. The
+.B atleast
+qualifier is that second sense: it deepens toward the state and never raises
+toward it, so a machine already at
+.B sleep
+stays dark. Use it wherever the intent is security rather than placement.
+Answering a lid\-close with the plain verb lit the panel and left it lit.
 .PP
 .B "vigilant go suspend"
 does NOT suspend. It fires that edge's hooks, invoked BY the unit ordered

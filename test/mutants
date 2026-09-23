@@ -420,3 +420,33 @@ f bin/swayidle-mgr
 t idle-suspend
 -   if [ -n "${ARGV_ONLY:-}" ]; then
 +   if false; then
+
+= atleast-raises-the-machine
+f bin/vigilant
+t atleast
+-     if [ "$_dnow" -ge "$_dto" ]; then
++     if false; then
+
+= atleast-mode-is-dropped-by-the-dispatcher
+f bin/vigilant
+t atleast
+-     cmd_go "$1" "${2:-}" ;;
++     cmd_go "$1" ;;
+
+= atleast-swallows-the-ordinary-descent
+f bin/vigilant
+t atleast
+-     _mode=
++     _mode=only
+
+= go-accepts-an-unknown-mode
+f bin/vigilant
+t atleast
+-       *) echo "vigilant: 'go' has no mode '$2'" >&2; echo "$_U" >&2; exit 2 ;;
++       *) ;;
+
+= decline-is-not-reconciled-by-audit
+f bin/vigilant
+t atleast
+-       if ($0 ~ ("deeper than ." e ".")) { found = 1 }
++       if (0) { found = 1 }

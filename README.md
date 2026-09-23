@@ -30,6 +30,13 @@ between is crossed. `go suspend` from `lock` therefore fires the `sleep` hooks
 as well, which is why suspending actually powers the monitor down instead of
 leaving it lit.
 
+Because it is declarative, `go` travels in **either** direction, which is right
+for a resume (`go lock` from `sleep` is how a woken box gets its screen back)
+and wrong for a lock request. `go <state> atleast` is the second kind: it
+deepens toward the state and **never raises** toward it, so a machine already at
+`sleep` stays dark. Anything asking for the session to be *secured* wants that
+form. Answering a lid-close with the plain verb lit the panel and left it lit.
+
 **Edges** are the transitions, and hooks are keyed by them. A descent edge
 shares its name with the state it enters; only the ascent needs words of its
 own:
@@ -48,6 +55,7 @@ passes the rung being **left** as `$2`.
 ## Commands
 
     vigilant go <state>       traverse to state, crossing every edge between
+    vigilant go <state> atleast   deepen to state; never raise toward it
     vigilant force <state>    assert state, ignoring the recorded depth
     vigilant only <state>     cross exactly one edge into state
     vigilant status           where we are, and where hooks live
