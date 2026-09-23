@@ -376,14 +376,14 @@ t intent
 = recheck-ignores-a-crossing-in-flight
 f bin/vigilant
 t standing-recheck
--   if [ "$(_depth)" != "$_rq_d" ] || [ "$(_depth_at)" != "$_rq_t" ]; then
-+   if false; then
+-   if [ "$(_depth)" != "$_rq_d" ] || [ "$(_depth_at)" != "$_rq_t" ] \
++   if false \
 
 = recheck-discards-every-verdict
 f bin/vigilant
 t standing-recheck coverage
--   if [ "$(_depth)" != "$_rq_d" ] || [ "$(_depth_at)" != "$_rq_t" ]; then
-+   if true; then
+-   if [ "$(_depth)" != "$_rq_d" ] || [ "$(_depth_at)" != "$_rq_t" ] \
++   if true \
 
 = watchdog-judges-an-unarmed-timer
 f libexec/vigilance/hooks/swayidle-watchdog
@@ -456,3 +456,45 @@ f systemd/lock-on-sleep.service
 t locker-up
 - ExecStartPost=@VIGILANT@ verify
 + ExecStartPost=@VIGILANT@ verify lock
+
+= recheck-judges-during-a-crossing
+f bin/vigilant
+t standing-recheck
+-   if _crossing_inflight; then
++   if false; then
+
+= crossing-marker-is-never-cleared
+f bin/vigilant
+t standing-recheck
+-   _crossing_end
++   true
+
+= leaked-marker-disables-the-recheck
+f bin/vigilant
+t standing-recheck
+-   kill -0 "$_cp" 2>/dev/null || return 1
++   true
+
+= stale-marker-disables-the-recheck
+f bin/vigilant
+t standing-recheck
+-   [ "$(( $(date +%s) - _ct ))" -le "$CROSSING_MAX" ] || return 1
++   true
+
+= idle-ceiling-is-not-applied
+f bin/vigilant
+t idle-ceiling
+-       if [ "$_isince" -lt "$_imin" ]; then _imin=$_isince; fi
++       if false; then _imin=$_isince; fi
+
+= idle-ceiling-invents-a-measurement
+f bin/vigilant
+t idle-ceiling
+-   if [ -n "$_imin" ]; then
++   if true; then
+
+= a-descent-counts-as-activity
+f bin/vigilant
+t idle-ceiling
+-   if ! _is_descent "$1"; then _note_ascent; fi
++   _note_ascent

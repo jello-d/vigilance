@@ -519,6 +519,13 @@ repeat-alert suppression; 0 disables
 .B VIGILANCE_AUDIT_WINDOW
 how far an event may sit from its edge
 .TP
+.B VIGILANCE_CROSSING_MAX
+how long an in\-flight crossing stays believable, seconds (default 120). The
+standing recheck skips a machine that is mid\-crossing, because the depth is
+committed before the act tier and the record is ahead of the machine on
+purpose. This caps how long a marker left behind by a killed vigilant can
+suppress that check; the writer being alive is the primary test.
+.TP
 .B VIGILANCE_SLEEP_BUDGET
 the suspend unit's TimeoutStartSec, for report
 .TP

@@ -522,6 +522,74 @@ _set_depth() {   # rung
   return 1
 }
 
+# --- the crossing is IN FLIGHT ----------------------------------------------
+# THE RECORD IS DELIBERATELY AHEAD OF THE MACHINE WHILE AN EDGE IS BEING
+# CROSSED, and until now nothing said so.
+#
+# _cross_one commits the depth and THEN runs the act tier, which is the right
+# order: a hook must be able to read the rung it is acting for, and a failure
+# to write a file must never suppress the lock. But it means that between the
+# commit and the provider finishing, `lock` is recorded while no locker is up
+# yet -- asserted-vs-actual drift that is CORRECT and transient.
+#
+# Measured on manifestor, on a hotkey press:
+#
+#   23:51:13  vigilance-enforce.service starts (the standing recheck)
+#   23:51:13  HOOK FAILED: lock.verify 50-locker-up
+#   23:51:13  Starting screen-lock.service ... swaylock     <- after the verify
+#   23:51:14  STILL-DRIFTED at 'lock': no locker is up
+#
+# Two alerts about a lock that was working. The existing guard cannot see this
+# one: it discards a verdict when the depth MOVES during the verify, and here
+# the depth was already committed and perfectly still. The window is not
+# between two reads, it is between the record and the machine.
+#
+# A LEAKED MARKER MUST NEVER SILENTLY DISABLE THE TIER, which is the obvious
+# way to make this cure worse than the disease: vigilant killed mid-crossing
+# (systemd reaping lock-on-sleep on its 25s timeout is the realistic case)
+# would otherwise leave a file that switches off the only check that watches a
+# settled machine. So the marker is only believed while its writer is ALIVE,
+# and capped in time as a backstop against a recycled pid.
+CROSSING_MARK=$RUN_DIR/crossing
+CROSSING_MAX=${VIGILANCE_CROSSING_MAX:-120}
+
+_crossing_begin() {
+  printf '%s %s\n' "$$" "$(date +%s)" > "$CROSSING_MARK" 2>/dev/null || true
+}
+
+_crossing_end() {
+  rm -f "$CROSSING_MARK" 2>/dev/null || true
+}
+
+# WHEN DID SOMETHING LAST RAISE THE MACHINE? Recorded here rather than derived
+# from the depth file, because that carries only the CURRENT rung and its entry
+# time: once the box descends again the fact that an ascent happened is gone,
+# and it is precisely across that descent that the ceiling still matters.
+ASCENT_MARK=$RUN_DIR/last-ascent
+
+_note_ascent() {
+  printf '%s\n' "$(date +%s)" > "$ASCENT_MARK" 2>/dev/null || true
+}
+
+_last_ascent() {   # epoch of the last ascent, or 0
+  if [ ! -r "$ASCENT_MARK" ]; then echo 0; return 0; fi
+  _av=$(head -1 "$ASCENT_MARK" 2>/dev/null || true)
+  case "${_av:-}" in ''|*[!0-9]*) echo 0 ;; *) echo "$_av" ;; esac
+}
+
+_crossing_inflight() {   # 0 if an edge is genuinely being crossed right now
+  [ -r "$CROSSING_MARK" ] || return 1
+  _cp=$(cut -d' ' -f1 < "$CROSSING_MARK" 2>/dev/null || true)
+  _ct=$(cut -d' ' -f2 < "$CROSSING_MARK" 2>/dev/null || true)
+  case "${_cp:-}" in ''|*[!0-9]*) return 1 ;; esac
+  case "${_ct:-}" in ''|*[!0-9]*) return 1 ;; esac
+  # Fail OPEN on every doubt. `kill -0` also fails for a process we do not own,
+  # and the answer we want there is "judge the machine", not "stay silent".
+  kill -0 "$_cp" 2>/dev/null || return 1
+  [ "$(( $(date +%s) - _ct ))" -le "$CROSSING_MAX" ] || return 1
+  return 0
+}
+
 # --- hook enumeration -------------------------------------------------------
 # Descent runs ascending (10 -> 90); ascent runs descending (90 -> 10), so a
 # restore unwinds in the reverse order it wound down. Only executables count,
@@ -819,6 +887,13 @@ _cross_one() {   # edge leaving to [note]
   # record is only a reporting one, and _set_depth already logs it.
   _set_depth "$3" || true
   _log "cross $1: $2 -> $3${4:+ ($4)}"
+  # An ASCENT is the most recent evidence of activity vigilant can have, and it
+  # is the one evidence an idle clock can never be blind to. See _idle_secs.
+  if ! _is_descent "$1"; then _note_ascent; fi
+  # From here until the act tier finishes, the record is ahead of the machine
+  # ON PURPOSE. Anything judging the two against each other must skip this
+  # window rather than report the gap it is guaranteed to find.
+  _crossing_begin
   _crc=0
   _run_hooks "$1" "$2" || _crc=1
   # A reporting failure is loud in the log but does NOT change the exit status:
@@ -826,6 +901,7 @@ _cross_one() {   # edge leaving to [note]
   # tell logind is not that. A unit must not restart or alarm because a bar was
   # busy.
   _run_hooks "$1" "$2" .report || true
+  _crossing_end
   return "$_crc"
 }
 
@@ -2349,6 +2425,32 @@ _idle_secs() {   # -> seconds since last seat input, or empty if unknowable
 '
   done
   IFS=$_iifs
+  # THE LADDER'S OWN RECORD IS A CEILING ON IDLE TIME, and a ceiling is NOT a
+  # source: it bounds an answer, it cannot supply one. So it is applied after
+  # the minimum and only when something actually answered -- a box with no idle
+  # source still reports nothing, which is what keeps `report` honest about the
+  # deadline being unmeasurable.
+  #
+  # An ASCENT means something raised the machine, and whatever did also restarts
+  # the clock of the mechanism being judged: swayidle rearms every timeout on a
+  # resume. Our counters can miss the cause entirely -- a lid switch is not seat
+  # input, and `systemctl restart vigilance-idle.service` makes swayidle run its
+  # pending resume commands on SIGTERM, which is documented behaviour and not a
+  # bug. Both raise the ladder while /proc/interrupts sits perfectly still.
+  #
+  # Measured on manifold: a tackup run restarted the idle unit at 23:46:51, the
+  # shutdown resume crossed `wake`, and the overdue detector then alerted once a
+  # minute that `sleep` was 3000s late -- about a freshly armed timer that was
+  # going to fire on schedule. Without the ceiling the finding is not "the
+  # mechanism is broken" but "our clock is older than the mechanism's".
+  if [ -n "$_imin" ]; then
+    _ia=$(_last_ascent)
+    if [ "$_ia" -gt 0 ]; then
+      _isince=$(( $(date +%s) - _ia ))
+      if [ "$_isince" -lt 0 ]; then _isince=0; fi
+      if [ "$_isince" -lt "$_imin" ]; then _imin=$_isince; fi
+    fi
+  fi
   printf '%s' "$_imin"
 }
 
@@ -2612,10 +2714,20 @@ _enforce_recheck() {   # from
   # If either moved, an edge was crossed while we were looking and the answer
   # is about the wrong rung. Discard it: the next pass will ask again, and a
   # real drift persists.
+  # AND A CROSSING THAT IS STILL RUNNING IS NOT DRIFT EITHER, which the
+  # depth-moved check above cannot see: the depth is committed BEFORE the act
+  # tier, so mid-crossing it is both correct and perfectly still. Asked before
+  # the verify, not after, because the hook-failure alert is raised from INSIDE
+  # cmd_verify -- discarding the verdict afterwards would still have toasted.
+  if _crossing_inflight; then
+    echo "enforce: a crossing is in flight; no verdict"
+    return 0
+  fi
   _rq_d=$(_depth); _rq_t=$(_depth_at)
   _rv=$(cmd_verify 2>&1) || _rvrc=$?
   _rv=$(_flatten "$_rv")
-  if [ "$(_depth)" != "$_rq_d" ] || [ "$(_depth_at)" != "$_rq_t" ]; then
+  if [ "$(_depth)" != "$_rq_d" ] || [ "$(_depth_at)" != "$_rq_t" ] \
+     || _crossing_inflight; then
     echo "enforce: an edge was crossed while verifying '$_rq_d'; no verdict"
     return 0
   fi

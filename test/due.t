@@ -50,8 +50,16 @@ esac
   || fail "enforce fired while still inside the deadline"
 
 # Still inside GRACE, just past the deadline: must NOT act.
+# THE ASCENT MARK GOES BACK WITH IT, or the fixture models an impossible
+# machine: entered this rung 9999s ago, yet something raised the ladder two
+# seconds ago. An ascent is a CEILING on idle time (see _idle_secs), so a
+# fixture that ages only the depth record caps every idle reading at ~0 and no
+# overdue case below can ever fire. A stub describing a state no real machine
+# can be in is the class this suite already bans for hardware.
 _backdate() { printf '%s %s\n' "$1" "$(( $(date +%s) - $2 ))" \
-  > "$VIGILANCE_RUN_DIR/depth"; }
+  > "$VIGILANCE_RUN_DIR/depth"
+  printf '%s\n' "$(( $(date +%s) - $2 ))" \
+  > "$VIGILANCE_RUN_DIR/last-ascent"; }
 _backdate lock 610
 "$VIGILANT" enforce >/dev/null 2>>"$T/stderr" \
   || fail "enforce fired 610s into a 600s deadline; GRACE is 30s, so the

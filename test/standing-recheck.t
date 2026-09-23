@@ -239,6 +239,63 @@ grep -q '^drift$' "$T/alerts" 2>/dev/null \
 Discarding a verdict is only correct when an edge moved underneath it; doing it
 always would pass the case above and switch the tier off"
 
+# --- 9b. A CROSSING STILL RUNNING IS NOT DRIFT EITHER ----------------------
+# THE SECOND RACE, and the depth-moved guard above is structurally blind to it.
+# _cross_one commits the depth BEFORE running the act tier -- deliberately, so
+# a hook can read the rung it is acting for -- so mid-crossing the record is
+# ahead of the machine and perfectly STILL. Nothing moves for the guard to see.
+#
+# Observed on manifestor, on a hotkey press that worked:
+#
+#   23:51:13  vigilance-enforce.service starts (the recheck)
+#   23:51:13  HOOK FAILED: lock.verify 50-locker-up
+#   23:51:13  Starting screen-lock.service ... swaylock   <- AFTER the verify
+#   23:51:14  STILL-DRIFTED at 'lock': no locker is up
+#
+# Two alerts about a lock that was coming up normally.
+#
+# THE GUARD MUST RUN BEFORE THE VERIFY, not after. The hook-failure alert is
+# raised from INSIDE cmd_verify, so discarding the verdict afterwards would
+# still have toasted -- which is what the user actually saw.
+: > "$T/alerts"
+go open
+go sleep
+_verifier 1
+_mark=$VIGILANCE_RUN_DIR/crossing
+printf '%s %s\n' "$$" "$(date +%s)" > "$_mark"
+[ "$(_enforce)" = 0 ] || fail "a recheck judged the machine while a crossing was
+still running. The depth is committed before the act tier, so mid-crossing the
+record is ahead of the machine ON PURPOSE and the gap is guaranteed"
+if grep -q '^hook-failed$' "$T/alerts" 2>/dev/null; then
+  fail "the verify RAN during a crossing, raising a hook-failed alert from
+inside cmd_verify. The guard has to come before the verify, not after it"
+fi
+
+# A LEAKED MARKER MUST NOT SILENTLY DISABLE THE TIER. vigilant killed
+# mid-crossing -- systemd reaping lock-on-sleep on its 25s timeout is the
+# realistic case -- would otherwise leave a file that switches off the only
+# check watching a settled machine. That is a far worse bug than the one being
+# fixed, and it would be invisible: every report green, forever.
+: > "$T/alerts"
+printf '%s %s\n' 999999 "$(date +%s)" > "$_mark"       # a pid that is not alive
+[ "$(_enforce)" != 0 ] || fail "a marker naming a DEAD process suppressed the
+recheck. A crash mid-crossing would then disable drift detection permanently"
+
+# ...and so must a STALE one, in case the pid was recycled.
+: > "$T/alerts"
+printf '%s %s\n' "$$" "$(( $(date +%s) - 100000 ))" > "$_mark"
+[ "$(_enforce)" != 0 ] || fail "a marker older than VIGILANCE_CROSSING_MAX
+suppressed the recheck. The pid check alone cannot survive recycling"
+rm -f "$_mark"
+
+# --- 9c. AND A REAL CROSSING CLEARS ITS OWN MARKER -------------------------
+# Otherwise the first edge of the session disables the tier for good, and every
+# case above would still pass.
+go open
+go sleep
+[ ! -e "$_mark" ] || fail "a completed crossing left its in-flight marker
+behind, which suppresses every future recheck"
+
 # --- 10. A MESSAGE THAT COUNTS UPWARD MUST STILL DEDUP ---------------------
 # THE STORM THE DEDUP EXISTS TO PREVENT, caused by the dedup's own key. It
 # hashes the message text, and a watchdog says "emitted nothing for 45252s"
