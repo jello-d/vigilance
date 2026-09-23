@@ -64,6 +64,20 @@ xorriso -as mkisofs -R -J -V VIGILANCE -quiet \
 #
 # All output goes to a FILE and is dumped to the serial at the very end.
 # Writing to /dev/ttyS0 live interleaves with boot spam and gets lost.
+# NOTHING EXPLANATORY GOES INSIDE THE HEREDOC BELOW. It is unquoted, so the
+# HOST shell expands it -- and a backtick in a YAML *comment* there ran
+# `systemctl --user` on the developer's box and spliced its unit list into the
+# guest's cloud-config, which then failed to parse and the guest never
+# reported. Same family as awk -v expanding escapes: text crossing a layer
+# that interprets it. Prose lives out here, where it is inert.
+#
+# dbus-user-session is in `packages` for a load-bearing reason: without a
+# per-user bus `systemctl --user` answers "Failed to connect to bus: No medium
+# found", and everything vigilance builds on --user units (the locker's
+# transient unit, the idle supervisor, the logind trigger) is testable NOWHERE
+# except a live desktop. That gap is why the lock provider's race branch had to
+# be exercised through a file fixture, and why a fixture that could not express
+# ACTIVATING shipped a bug to a real box.
 _seed=$VM/seed
 rm -rf "$_seed"; mkdir -p "$_seed"
 cat > "$_seed/meta-data" <<EOF
@@ -77,6 +91,7 @@ packages:
   - util-linux
   - sway
   - swaylock
+  - dbus-user-session
 runcmd:
   - |
     {
@@ -96,6 +111,26 @@ runcmd:
       sh setup.sh install
       PATH="\$HOME/.local/bin:\$PATH"; export PATH
       sh setup.sh check || echo "SETUP_CHECK_DRIFT=\$?"
+
+      echo "=== user systemd instance (so --user units are REAL here) ==="
+      # The guest is root, and root gets no user manager by default because
+      # nothing logs it in. Lingering starts one anyway, which is exactly the
+      # shape a desktop session has.
+      loginctl enable-linger root >/dev/null 2>&1 || true
+      systemctl start user@0.service >/dev/null 2>&1 || true
+      export XDG_RUNTIME_DIR=/run/user/0
+      export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/0/bus
+      # CLAIMED ONLY IF IT WORKS, like the compositor below. A capability we
+      # assert but cannot provide makes a scenario pass against nothing, which
+      # is the precise failure this suite exists to refuse.
+      _userbus=
+      if systemctl --user show -p Version >/dev/null 2>&1; then
+        echo "  user manager up: \$(systemctl --user show -p Version --value)"
+        _userbus=userbus
+      else
+        echo "  NO user manager; --user scenarios will SKIP"
+        systemctl --user show -p Version 2>&1 | head -2 | sed 's/^/    /'
+      fi
 
       echo "=== session reality (what the probe must cope with) ==="
       loginctl list-sessions || true
@@ -128,6 +163,7 @@ runcmd:
         echo "  --- sway.log ---"; tail -15 /root/sway.log 2>/dev/null
         SCENARIO_CAPS_EXTRA=
       fi
+      SCENARIO_CAPS_EXTRA="\$SCENARIO_CAPS_EXTRA \$_userbus"
 
       echo "=== scenarios (VM substrate) ==="
       SCENARIO_CAPS="$CAPS \${SCENARIO_CAPS_EXTRA:-}"; export SCENARIO_CAPS
@@ -138,6 +174,19 @@ runcmd:
     cat /root/log > /dev/ttyS0
     poweroff -f
 EOF
+
+# PARSE THE GUEST SCRIPT BEFORE BOOTING IT. `dash -n` on this file checks the
+# HOST script; the runcmd above is a STRING to it, so a syntax error in the
+# guest is invisible until a three-minute boot ends in "guest never reported".
+# That has now happened twice in one sitting, both times from a quoting layer
+# eating a character on the way in -- an unquoted heredoc running a backtick on
+# the host, and an editor swallowing a closing quote. The guest script is
+# shipped code and gets the same cheapest-possible check as everything else.
+_gs=$VM/guest-script
+awk '/^  - \|$/ { f = 1; next } f' "$_seed/user-data" | sed 's/^    //' > "$_gs"
+[ -s "$_gs" ] || _die "could not extract the guest script from the seed"
+dash -n "$_gs" || _die "the guest runcmd does not parse; see $_gs"
+
 xorriso -as mkisofs -R -J -V CIDATA -quiet \
   -o "$VM/seed.iso" "$_seed" 2>/dev/null || _die "seed.iso failed"
 
