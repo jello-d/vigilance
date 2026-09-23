@@ -550,14 +550,155 @@ _set_depth() {   # rung
 # would otherwise leave a file that switches off the only check that watches a
 # settled machine. So the marker is only believed while its writer is ALIVE,
 # and capped in time as a backstop against a recycled pid.
-CROSSING_MARK=$RUN_DIR/crossing
+#
+# THE MARKER IS THE LOCK. One object answers both questions -- "may I cross?"
+# and "is it safe to judge?" -- because they are the same window, and the lock
+# is held from BEFORE the depth is read, which is strictly wider than the
+# marker used to be. That closes a gap the marker had: a recheck landing
+# between _set_depth and the marker write would still have misjudged.
+CROSSING_MARK=$RUN_DIR/crossing.lock
 CROSSING_MAX=${VIGILANCE_CROSSING_MAX:-120}
 
+# --- ONE CROSSING AT A TIME -------------------------------------------------
+# THE ROOT RACE, of which every concurrency defect here so far has been a
+# symptom. `cmd_go` is a read-modify-write over shared state:
+#
+#     read depth  ->  choose the edges  ->  commit depth  ->  actuate
+#
+# and nothing serialised it. Two `vigilant go lock` processes therefore both
+# read `open`, both compute the same path, and both run the entire act tier
+# concurrently. Measured on manifold: the Super+L binding fired twice, the log
+# carried `cross lock: open -> lock` twice in one second, and both the locker
+# provider and the mute hook failed because neither survived being run against
+# itself. Patching each hook to tolerate a twin is per-site and endless.
+#
+# ONE WRITER is the mechanism, and it is COMPLETE for vigilance against
+# vigilance: _set_depth and the act tier are reachable from _cross_one alone,
+# _cross_one from cmd_go alone, and cmd_go takes this lock. test/hermetic.t
+# ratchets that shape so a future path cannot quietly bypass it.
+#
+# THREE PROPERTIES, and the third outranks the other two:
+#
+#   ATOMIC      `set -C` makes `>` open with O_EXCL, so exactly one process
+#               creates the file. IN-SHELL ON PURPOSE, and this is not a style
+#               preference: the obvious primitive, `mkdir`, IS BROKEN ON THIS
+#               FLEET. /usr/bin/mkdir is uutils coreutils 0.10.0, which checks
+#               for existence and then creates, so a racing pair BOTH succeed.
+#               Measured here: correct 200/200 sequentially, non-exclusive in
+#               14 of 20 concurrent rounds, while mkdir(2) called directly was
+#               exclusive 20/20. A lock built on a separate PROGRAM can be
+#               swapped for one with a TOCTOU inside it; a shell redirection
+#               cannot. `ln` tested clean too, and is rejected for the same
+#               reason -- it is another binary.
+#   RE-ENTRANT  a hook that calls back into `vigilant go` would otherwise wait
+#               for its own parent. The token in the environment is how a
+#               nested call recognises itself; a SIBLING unit (the provider's
+#               ExecStopPost) carries no token and correctly serialises.
+#   FAIL-OPEN   A MUTEX ON THE LOCK PATH MUST NEVER BE ABLE TO PREVENT A LOCK.
+#               A stale holder, a read-only runtime dir, a holder that outlives
+#               the wait: every one of them ends in crossing anyway. The worst
+#               case is exactly the old behaviour -- a race, not a dark machine
+#               -- so this can only ever be an improvement on it.
+#
+# The waiter does not merely wait: on acquiring it RE-READS the depth, so a
+# duplicate request whose work the holder already did becomes "already at 'X';
+# nothing to do" rather than a second traversal. That is what turns two
+# requests into one crossing instead of two tolerable ones.
+CROSS_WAIT=${VIGILANCE_CROSS_WAIT-2}
+
+_crossing_held=
+
+_crossing_stale() {   # 0 if the lock's holder is gone
+  _cs_p=$(cut -d' ' -f1 < "$CROSSING_MARK" 2>/dev/null || true)
+  case "${_cs_p:-}" in
+    ''|*[!0-9]*)
+      # NO PID YET IS NOT A DEAD HOLDER. `mkdir` is the atomic claim and the
+      # pid lands microseconds later, so reading in between and calling the
+      # brand-new holder dead STEALS the lock. Caught by this mechanism's own
+      # test on its first run: two of four concurrent crossings got through,
+      # which is the exact defect the lock exists to prevent, rebuilt inside
+      # the lock.
+      #
+      # Age separates the two cases, because a claim takes microseconds and a
+      # crash between the two steps leaves the directory forever. Unreadable
+      # mtime reads as 0, i.e. ancient, i.e. breakable -- the fail-open
+      # direction, since the alternative is a lock nothing can clear.
+      #
+      # NOT `[ ... ] && return 0`. An AND-OR list whose test fails returns
+      # non-zero, and `set -e` kills the shell on it -- so a waiter reading a
+      # fresh claim would DIE here instead of waiting. The house rule this
+      # stack has already been bitten by twice, and it only showed up at full
+      # speed: under `sh -x` the pid was always written before the waiter
+      # looked, so the branch was never taken and the file passed.
+      # THE AGE COMES FROM THE INODE HERE, not from the file's contents: the
+      # whole point of this branch is that the contents are not written yet,
+      # so reading a timestamp out of them gives nothing and "nothing" reads
+      # as epoch 0, i.e. ancient, i.e. break it -- which is the steal this
+      # branch exists to prevent. Caught by the case below on its first run.
+      #
+      # `stat` is a pure read of an existing inode, so the uutils TOCTOU that
+      # rules out `mkdir` as the claim does not apply to it.
+      _cs_t=$(stat -c %Y "$CROSSING_MARK" 2>/dev/null || echo 0)
+      case "${_cs_t:-}" in ''|*[!0-9]*) _cs_t=0 ;; esac
+      if [ "$(( $(date +%s) - _cs_t ))" -gt 5 ]; then return 0; fi
+      return 1 ;;
+  esac
+  kill -0 "$_cs_p" 2>/dev/null && return 1
+  return 0
+}
+
 _crossing_begin() {
-  printf '%s %s\n' "$$" "$(date +%s)" > "$CROSSING_MARK" 2>/dev/null || true
+  # ALREADY INSIDE OUR ANCESTOR'S CRITICAL SECTION: a hook called back into
+  # vigilant. The token is the HOLDER's pid, inherited through the
+  # environment, and it is compared against the pid IN THE LOCK -- not against
+  # our own `$$`, which is what the first version did and which could never
+  # match, because a hook always runs as a different process. It failed
+  # silently: every nested call simply paid the full wait and then crossed
+  # unserialised, which is the behaviour the token exists to avoid.
+  _cb_t=${VIGILANCE_CROSS_TOKEN:-}
+  if [ -n "$_cb_t" ]; then
+    _cb_h=$(cut -d' ' -f1 < "$CROSSING_MARK" 2>/dev/null || true)
+    if [ "$_cb_t" = "${_cb_h:-}" ]; then return 0; fi
+  fi
+  # THE RUNTIME DIR MUST EXIST BEFORE THE CLAIM. cmd_go creates it, but this
+  # runs first, so on the first crossing after a boot the redirect failed with
+  # ENOENT, the wait ran out, and the edge crossed unserialised while logging
+  # "crossing anyway" -- once per boot, on every box, looking like a fault.
+  mkdir -p "$RUN_DIR" 2>/dev/null || true
+  _cb_n=0
+  while :; do
+    # `printf`, NOT `:`. A redirection error on a SPECIAL builtin exits the
+    # shell outright under POSIX, which here would mean losing the lock race
+    # killed vigilant mid-command. The subshell would contain it, but the rule
+    # is worth obeying on sight rather than reasoning about each time.
+    if ( set -C
+         printf '%s %s\n' "$$" "$(date +%s)" > "$CROSSING_MARK" ) 2>/dev/null
+    then
+      _crossing_held=1
+      VIGILANCE_CROSS_TOKEN=$$; export VIGILANCE_CROSS_TOKEN
+      return 0
+    fi
+    if _crossing_stale; then
+      _log "breaking a crossing lock whose holder is gone"
+      rm -f "$CROSSING_MARK" 2>/dev/null || true
+    fi
+    if [ "$_cb_n" -ge "$CROSS_WAIT" ]; then
+      # FAIL OPEN. Say so rather than crossing silently: an unserialised
+      # crossing is the old behaviour and a human should know it happened.
+      if [ "$CROSS_WAIT" -gt 0 ]; then
+        _log "crossing lock still held after ${CROSS_WAIT}s; crossing anyway"
+      fi
+      return 0
+    fi
+    _cb_n=$((_cb_n + 1))
+    sleep 1
+  done
 }
 
 _crossing_end() {
+  [ -n "$_crossing_held" ] || return 0
+  _crossing_held=
+  unset VIGILANCE_CROSS_TOKEN
   rm -f "$CROSSING_MARK" 2>/dev/null || true
 }
 
@@ -890,10 +1031,10 @@ _cross_one() {   # edge leaving to [note]
   # An ASCENT is the most recent evidence of activity vigilant can have, and it
   # is the one evidence an idle clock can never be blind to. See _idle_secs.
   if ! _is_descent "$1"; then _note_ascent; fi
-  # From here until the act tier finishes, the record is ahead of the machine
-  # ON PURPOSE. Anything judging the two against each other must skip this
-  # window rather than report the gap it is guaranteed to find.
-  _crossing_begin
+  # The crossing lock is already held by cmd_go, from BEFORE the depth was
+  # read. That is deliberate: acquiring it here would leave the read-choose
+  # part of the read-modify-write unprotected, which is where two requests
+  # actually collide.
   _crc=0
   _run_hooks "$1" "$2" || _crc=1
   # A reporting failure is loud in the log but does NOT change the exit status:
@@ -901,11 +1042,22 @@ _cross_one() {   # edge leaving to [note]
   # tell logind is not that. A unit must not restart or alarm because a bar was
   # busy.
   _run_hooks "$1" "$2" .report || true
-  _crossing_end
   return "$_crc"
 }
 
+# THE CRITICAL SECTION IS THE WHOLE COMMAND, not the actuation inside it. A
+# wrapper rather than a trap, because a trap is global and this file
+# deliberately sets none; and because cmd_go has eight return points, every one
+# of which must release.
 cmd_go() {   # <state> [force|only|atleast]
+  _crossing_begin
+  _gorc=0
+  _cmd_go "$@" || _gorc=$?
+  _crossing_end
+  return "$_gorc"
+}
+
+_cmd_go() {   # <state> [force|only|atleast]
   _to=$1
   _mode=${2:-}
   _forced=
@@ -2317,6 +2469,12 @@ cmd_rescue() {
 
   _log "RESCUE pressed; evidence in $_rl"
   _rrc=0
+  # THE PANIC KEY DOES NOT QUEUE. It is pressed blind by someone who cannot see
+  # the screen, so it tries the crossing lock once and crosses regardless --
+  # the fail-open rule taken to its limit, on the one path that exists to
+  # escape a stuck machine. Anything it collides with is trying to bring the
+  # machine to the same place or has already failed at it.
+  CROSS_WAIT=0
   cmd_go open force || _rrc=$?
   {
     echo "-- after recovery (rc=$_rrc) --"

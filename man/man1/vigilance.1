@@ -525,6 +525,21 @@ being active, so the provider's lost\-race branch can be exercised without a
 user systemd bus. Setting it in production makes the provider believe a file
 instead of the machine.
 .TP
+.B VIGILANCE_CROSS_WAIT
+how long a second crossing waits for the first, seconds (default 2). One
+crossing runs at a time; a request that arrives while another is in flight
+waits, then re\-reads the depth and usually finds the work already done. On
+expiry it crosses ANYWAY and says so in the log: a mutex on the lock path must
+never be able to prevent a lock. 0 disables the wait, which is what
+.B rescue
+uses.
+.TP
+.B VIGILANCE_CROSS_TOKEN
+set by vigilant, never by hand. Carries the crossing lock's holder to its own
+hooks so a hook that calls back into
+.B "vigilant go"
+is not made to wait for its own ancestor.
+.TP
 .B VIGILANCE_CROSSING_MAX
 how long an in\-flight crossing stays believable, seconds (default 120). The
 standing recheck skips a machine that is mid\-crossing, because the depth is

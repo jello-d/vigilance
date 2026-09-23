@@ -522,3 +522,45 @@ f libexec/vigilance/providers/swaylock
 t lock-race
 - if _unit_active; then
 + if true; then
+
+= crossings-are-not-serialised
+f bin/vigilant
+t cross-lock
+-   _crossing_begin
++   true
+
+= crossing-lock-is-never-released
+f bin/vigilant
+t cross-lock
+-   _crossing_end
++   true
+
+= a-stale-crossing-lock-is-obeyed
+f bin/vigilant
+t cross-lock
+-     if _crossing_stale; then
++     if false; then
+
+= crossing-lock-waits-forever
+f bin/vigilant
+t cross-lock
+-     if [ "$_cb_n" -ge "$CROSS_WAIT" ]; then
++     if false; then
+
+= crossing-lock-is-not-re-entrant
+f bin/vigilant
+t cross-lock
+-     if [ "$_cb_t" = "${_cb_h:-}" ]; then return 0; fi
++     if false; then return 0; fi
+
+= a-fresh-claim-is-mistaken-for-a-dead-holder
+f bin/vigilant
+t cross-lock
+-       if [ "$(( $(date +%s) - _cs_t ))" -gt 5 ]; then return 0; fi
++       if true; then return 0; fi
+
+= first-crossing-after-boot-has-no-runtime-dir
+f bin/vigilant
+t cross-lock
+-   mkdir -p "$RUN_DIR" 2>/dev/null || true
++   true

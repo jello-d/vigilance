@@ -261,7 +261,9 @@ always would pass the case above and switch the tier off"
 go open
 go sleep
 _verifier 1
-_mark=$VIGILANCE_RUN_DIR/crossing
+# THE MARKER IS THE CROSSING LOCK. One object answers both "may I cross?"
+# and "is it safe to judge?", because they are the same window.
+_mark=$VIGILANCE_RUN_DIR/crossing.lock
 printf '%s %s\n' "$$" "$(date +%s)" > "$_mark"
 [ "$(_enforce)" = 0 ] || fail "a recheck judged the machine while a crossing was
 still running. The depth is committed before the act tier, so mid-crossing the
