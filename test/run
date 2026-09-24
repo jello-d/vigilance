@@ -29,8 +29,22 @@ _rc=0
 _pass=0
 _skip=0
 _need=""
+# AN OPTIONAL FILTER, matched against the test's basename. A fault-injection
+# loop wants ONE scenario, not fifty-three, and in the VM the suite is most of
+# the wall clock. It is a SUBSTRING match rather than a glob so `sh test/run
+# lock` picks up every lock scenario.
+#
+# A FILTER THAT MATCHES NOTHING IS AN ERROR, not an empty pass. Otherwise a
+# typo reports "0 passed" in green, which is the reach-no-verdict failure this
+# runner already refuses one layer down.
+_only=${1:-}
+_seen=0
 for _t in "$_dir"/*.t; do
   [ -f "$_t" ] || continue
+  if [ -n "$_only" ]; then
+    case "$(basename "$_t" .t)" in *"$_only"*) ;; *) continue ;; esac
+  fi
+  _seen=$((_seen + 1))
   # The test's OWN status, kept apart from the run's, because "failed" and
   # "reached no verdict" are different findings and only one of them is news. A
   # failing test already says so in its own words; reporting it as verdictless
@@ -68,6 +82,12 @@ for _t in "$_dir"/*.t; do
       fi ;;
   esac
 done
+
+if [ -n "$_only" ] && [ "$_seen" = 0 ]; then
+  echo "no test matches '$_only' -- a filter that selects nothing is a typo,"
+  echo "not a clean run."
+  exit 1
+fi
 
 if [ "$_rc" -ne 0 ]; then
   echo "vigilance tests FAILED"

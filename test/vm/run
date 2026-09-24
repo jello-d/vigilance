@@ -32,6 +32,12 @@ VM=${VIGILANCE_VM_DIR:-/var/tmp/vigilancevm}
 # instead: asserted-versus-actual is the whole discipline here, and a substrate
 # quietly diverging from its subject is exactly that.
 RELEASE=${VIGILANCE_VM_RELEASE:-resolute}
+
+# THE MACHINE'S PACKAGES, declared here rather than in the run seed, because
+# they now belong to the PRESERVED image rather than to a run. Installing them
+# costs 93s of a 377s run, measured, and it is the same 93s every time.
+PKGS='dash util-linux sway swaylock swayidle dbus-user-session wayfire git
+greetd'
 IMG=$VM/$RELEASE-server-cloudimg-amd64.img
 URL=https://cloud-images.ubuntu.com/$RELEASE/current/${IMG##*/}
 CONSOLE=$VM/console.log
@@ -124,16 +130,6 @@ local-hostname: vigilance-vm
 EOF
 cat > "$_seed/user-data" <<'EOF'
 #cloud-config
-packages:
-  - dash
-  - util-linux
-  - sway
-  - swaylock
-  - swayidle
-  - dbus-user-session
-  - wayfire
-  - git
-  - greetd
 runcmd:
   - |
     {
@@ -397,7 +393,7 @@ runcmd:
       echo "=== scenarios (VM substrate) ==="
       SCENARIO_CAPS="@CAPS@ ${SCENARIO_CAPS_EXTRA:-}"; export SCENARIO_CAPS
       SCENARIO_SUSPEND_CMD="rtcwake -m mem -s 5"; export SCENARIO_SUSPEND_CMD
-      sh test/run
+      sh test/run @FILTER@
       echo "VIGILANCE_VM_EXIT=$?"
     } > /root/log 2>&1
     cat /root/log > /dev/ttyS0
@@ -412,6 +408,9 @@ EOF
 # both times it was broken a few edits later. A rule that needs remembering
 # is weaker than a structure that cannot go wrong.
 sed -i "s|@CAPS@|$CAPS|" "$_seed/user-data"
+# NARROWING THE RUN IS WHAT MAKES FAULT WORK ITERABLE. The suite is most
+# of the wall clock, and a fault loop wants ONE scenario, not 53.
+sed -i "s|@FILTER@|${VIGILANCE_VM_ONLY:-}|" "$_seed/user-data"
 
 # PARSE THE GUEST SCRIPT BEFORE BOOTING IT. `dash -n` on this file checks the
 # HOST script; the runcmd above is a STRING to it, so a syntax error in the
@@ -428,11 +427,77 @@ dash -n "$_gs" || _die "the guest runcmd does not parse; see $_gs"
 xorriso -as mkisofs -R -J -V CIDATA -quiet \
   -o "$VM/seed.iso" "$_seed" 2>/dev/null || _die "seed.iso failed"
 
+# --- the PRESERVED machine image --------------------------------------------
+# Two stages, and the split is what keeps the snapshot honest:
+#
+#   built.qcow2   THE MACHINE: packages, the vig user, greetd autologin,
+#                 wayfire, the user manager. Expensive, built once.
+#   per run       THE CODE UNDER TEST: the repo, setup.sh, the integrator,
+#                 the scenarios. Cheap, fresh every time.
+#
+# IF VIGILANCE'S OWN CODE WERE BAKED IN, every commit would invalidate the
+# image SILENTLY -- the staleness class this project keeps paying for (a
+# shadowed binary, a pinned argv, a checkout a commit behind). Keyed on the
+# release and the package list ONLY, so the key is small and stable while the
+# code under test is always current.
+BUILT=$VM/built.qcow2
+_bkey=$(printf '%s|%s' "$RELEASE" "$PKGS" | cksum | tr -d ' ')
+_bhave=$(cat "$VM/built.key" 2>/dev/null || true)
+if [ ! -f "$BUILT" ] || [ "$_bhave" != "$_bkey" ]; then
+  echo "vm: building the preserved machine image (once per release/packages)"
+  _bseed=$VM/bseed
+  rm -rf "$_bseed"; mkdir -p "$_bseed"
+  printf 'instance-id: vigilance-build-%s\nlocal-hostname: vigilance-vm\n' \
+    "$$" > "$_bseed/meta-data"
+  # WRITTEN WITH printf, NOT A HEREDOC. The package list is a host value, and
+  # an unquoted heredoc is how this harness twice executed prose on the
+  # developer's box. Building the YAML line by line has neither hazard.
+  {
+    echo "#cloud-config"
+    echo "packages:"
+    for _p in $PKGS; do echo "  - $_p"; done
+    echo "runcmd:"
+    echo "  - touch /var/lib/vigilance-built"
+    echo "  - sync"
+    echo "  - poweroff"
+  } > "$_bseed/user-data"
+  xorriso -as mkisofs -R -J -V CIDATA -quiet \
+    -o "$VM/bseed.iso" "$_bseed" 2>/dev/null || _die "build seed failed"
+  rm -f "$BUILT.part"
+  qemu-img create -q -f qcow2 -F qcow2 -b "$IMG" "$BUILT.part" 8G \
+    || _die "build overlay failed"
+  qemu-system-x86_64 -enable-kvm -machine q35 -m 2048 -smp 2 \
+    -drive file="$BUILT.part",if=virtio \
+    -drive file="$VM/bseed.iso",if=virtio,media=cdrom \
+    -netdev user,id=n0 -device virtio-net-pci,netdev=n0 \
+    -display none -serial "file:$VM/build-console.log" -monitor none \
+    -no-reboot >/dev/null 2>&1 &
+  _bpid=$!
+  _bw=0
+  while [ "$_bw" -lt "${VM_BUILD_TIMEOUT:-600}" ]; do
+    if ! kill -0 "$_bpid" 2>/dev/null; then break; fi
+    sleep 2; _bw=$((_bw + 2))
+  done
+  kill "$_bpid" 2>/dev/null || true
+  wait "$_bpid" 2>/dev/null || true
+  # THE MARKER IS THE PROOF. A guest that died early still leaves a qcow2, and
+  # keeping it would preserve a half-built machine as "known good" -- the
+  # false-green shape, baked into an image and reused for weeks.
+  if ! grep -q "Reached target.*[Pp]ower" "$VM/build-console.log" 2>/dev/null \
+     && ! grep -q "reboot: Power down" "$VM/build-console.log" 2>/dev/null; then
+    rm -f "$BUILT.part"
+    _die "the build guest never powered down; see $VM/build-console.log"
+  fi
+  mv "$BUILT.part" "$BUILT"
+  printf '%s\n' "$_bkey" > "$VM/built.key"
+  echo "vm: preserved image built"
+fi
+
 # --- a fresh overlay per run ------------------------------------------------
 # cloud-init runs once per instance-id, so a reused overlay would silently
 # skip the whole test and look like a pass.
 rm -f "$VM/boot.qcow2"
-qemu-img create -q -f qcow2 -F qcow2 -b "$IMG" "$VM/boot.qcow2" 8G \
+qemu-img create -q -f qcow2 -F qcow2 -b "$BUILT" "$VM/boot.qcow2" 8G \
   || _die "overlay failed"
 
 : > "$CONSOLE"
