@@ -457,7 +457,13 @@ _check_path_unique() {   # <cmd>...
     done
     IFS=$_u_ifs
     if [ "$_u_n" -eq 0 ]; then
-      bad "$_u_cmd not on PATH"
+      # Nowhere on THIS shell's PATH. That is not the same as missing, and the
+      # difference has an owner: where we installed it is ours, what is on the
+      # caller's PATH is the caller's. An integrator checking from a non-login
+      # context (ssh command, cron, agent) has no ~/.local/bin by construction,
+      # so failing here is a false finding it cannot clear. A genuinely absent
+      # install is caught by do_check's own loop, which looks on disk.
+      warn "$_u_cmd not on THIS shell's PATH (cannot audit shadowing)"
     elif [ "$_u_n" -eq 1 ]; then
       ok "$_u_cmd resolves from exactly one place ($_u_found)"
     else
@@ -570,9 +576,15 @@ _check_root_inputs() {
 
 do_check() {
   echo "== $PKG (lock / screen-power / idle) =="
+  # Installed is OURS (a failure); on the caller's PATH is THEIRS (a warning).
+  # Check both prefixes: an integrator may PUBLISH a command system-wide
+  # (/usr/local/bin -> /opt/<pkg>) and delete the ~/.local copy so exactly one
+  # lands on PATH, which is what tackup does for its shared tools.
   for _t in "$_root"/bin/*; do _n=$(basename "$_t")
     if command -v "$_n" >/dev/null 2>&1; then ok "$_n present"
-    else bad "$_n not on PATH"; fi; done
+    elif [ -e "$_bin/$_n" ] || [ -e "/usr/local/bin/$_n" ]; then
+      warn "$_n installed but not on THIS shell's PATH"
+    else bad "$_n not installed ($_bin/$_n)"; fi; done
   for _d in $DEPS; do
     command -v "$_d" >/dev/null 2>&1 && ok "dep $_d present" \
       || warn "dep $_d absent: $(_dep_why "$_d") degrades"; done
