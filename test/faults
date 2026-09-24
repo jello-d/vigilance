@@ -111,6 +111,17 @@ f a Session.Lock arriving at the sleep rung
 e REFUSE: decline to raise, and log it
 t session-ladder
 
+# THE INJECTOR WORKS AND THE SCENARIO DOES NOT, and the cells stay empty
+# until it does. Verified in the guest: a uinput SW_LID switch is found by
+# udev and logind logs its own "Lid closed." -- the same line the live box
+# emitted. But the scenario built on it HANGS the guest inside cloud-final,
+# and a scenario that hangs the harness is worse than an empty cell: the
+# empty cell is at least visible. Work in progress, not coverage.
+#
+# State of play when it was set down: case 1 (no raise from `sleep`) passes,
+# but may be VACUOUS -- "still at sleep" is also what a lid nobody noticed
+# looks like, which is why the precondition assertion was being added when
+# the hang appeared. Case 2 (must lock from `open`) FAILED, cause unknown.
 = lid-close-at-sleep
 m logind
 f a real SW_LID close event via uinput, at the sleep rung

@@ -1,0 +1,113 @@
+#!/usr/bin/env python3
+"""uinject - synthesise real input events in a throwaway guest.
+
+WHY THIS EXISTS. Two of the faults worth injecting cannot be reached any other
+way, and both have already cost this project a live failure:
+
+  a LID CLOSE. Answering logind's Session.Lock from the `sleep` rung once lit
+  the panel and left it lit for thirty minutes. Every test of that path so far
+  has approximated it with `loginctl lock-session`, which is the SIGNAL rather
+  than the CAUSE -- and the whole bug was about what a lid does, not what a
+  signal does.
+
+  INPUT ITSELF. The idle clock counts kernel input events, so on a machine with
+  no countable input device it correctly DECLINES, and the overdue tier is
+  structurally inert. That is the guest today: session-idle.t reports
+  "not checked: idle-ceiling(no-countable-input-device)". A uinput keyboard
+  gives the clock something to count, which makes the tier answerable here for
+  the first time.
+
+IT WRITES EVENTS AND NOTHING ELSE. No key is ever read from a real device; the
+only events in this process are ones it invented. That matters because the
+alternative anybody reaches for first is reading /dev/input, which is
+keylogger-shaped however well intentioned, and which this project deliberately
+refuses.
+
+Usage:
+  uinject lid close [hold]   create a lid switch, report CLOSED, hold it
+  uinject lid open  [hold]   ... report OPEN, hold it
+  uinject key       [n]      create a keyboard and tap a key n times
+
+`hold` matters for the lid: a switch is a STATE, not an edge, so the device has
+to stay alive for logind to keep seeing it shut. The process sleeps for `hold`
+seconds and destroys the device on exit, which is also what makes it safe to
+leave in a background job a test later kills.
+"""
+import fcntl, os, struct, sys, time
+
+UI_DEV_CREATE, UI_DEV_DESTROY = 0x5501, 0x5502
+UI_SET_EVBIT, UI_SET_KEYBIT = 0x40045564, 0x40045565
+UI_SET_SWBIT = 0x4004556D
+EV_SYN, EV_KEY, EV_SW = 0x00, 0x01, 0x05
+SYN_REPORT, SW_LID, KEY_A = 0x00, 0x00, 30
+
+
+def _open():
+    for path in ("/dev/uinput", "/dev/input/uinput"):
+        try:
+            return os.open(path, os.O_WRONLY | os.O_NONBLOCK)
+        except OSError:
+            continue
+    sys.exit("uinject: no /dev/uinput (try: modprobe uinput)")
+
+
+def _emit(fd, etype, code, value):
+    # input_event: two longs of timeval, then type, code, value.
+    os.write(fd, struct.pack("@llHHi", 0, 0, etype, code, value))
+
+
+def _create(fd, name):
+    # The LEGACY setup path (write a uinput_user_dev) rather than UI_DEV_SETUP:
+    # fewer ioctls, and it is still supported. name[80], id{4 shorts},
+    # ff_effects_max, then four 64-entry abs arrays this device never uses.
+    os.write(fd, struct.pack("@80sHHHHi256i", name.encode()[:79],
+                             0x03, 0x1234, 0x5678, 1, 0, *([0] * 256)))
+    fcntl.ioctl(fd, UI_DEV_CREATE)
+    # udev has to see the device and tag it before logind will care about it.
+    time.sleep(1.0)
+
+
+def lid(state, hold):
+    fd = _open()
+    fcntl.ioctl(fd, UI_SET_EVBIT, EV_SW)
+    fcntl.ioctl(fd, UI_SET_SWBIT, SW_LID)
+    fcntl.ioctl(fd, UI_SET_EVBIT, EV_SYN)
+    _create(fd, "uinject-lid")
+    _emit(fd, EV_SW, SW_LID, 1 if state == "close" else 0)
+    _emit(fd, EV_SYN, SYN_REPORT, 0)
+    print("uinject: lid %s, holding %ss" % (state, hold), flush=True)
+    try:
+        time.sleep(hold)
+    finally:
+        fcntl.ioctl(fd, UI_DEV_DESTROY)
+        os.close(fd)
+
+
+def key(taps):
+    fd = _open()
+    fcntl.ioctl(fd, UI_SET_EVBIT, EV_KEY)
+    fcntl.ioctl(fd, UI_SET_KEYBIT, KEY_A)
+    fcntl.ioctl(fd, UI_SET_EVBIT, EV_SYN)
+    _create(fd, "uinject-kbd")
+    for _ in range(taps):
+        for value in (1, 0):
+            _emit(fd, EV_KEY, KEY_A, value)
+            _emit(fd, EV_SYN, SYN_REPORT, 0)
+        time.sleep(0.02)
+    print("uinject: %d key taps" % taps, flush=True)
+    # HELD BRIEFLY AFTER THE TAPS. The device vanishing in the same instant can
+    # race whatever is counting, and a counter that missed the event reads
+    # exactly like a counter that does not work.
+    time.sleep(1.0)
+    fcntl.ioctl(fd, UI_DEV_DESTROY)
+    os.close(fd)
+
+
+if __name__ == "__main__":
+    a = sys.argv[1:]
+    if len(a) >= 2 and a[0] == "lid" and a[1] in ("close", "open"):
+        lid(a[1], int(a[2]) if len(a) > 2 else 30)
+    elif a and a[0] == "key":
+        key(int(a[1]) if len(a) > 1 else 5)
+    else:
+        sys.exit(__doc__.split("Usage:")[1])

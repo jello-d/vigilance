@@ -148,6 +148,11 @@ runcmd:
       echo "=== from-scratch install ==="
       sh setup.sh install
       PATH="$HOME/.local/bin:$PATH"; export PATH
+      # UNITS TOO, not just the tools. `install` places binaries and hooks;
+      # `service` renders the --user Session.Lock listener, and without it a
+      # lid close reaches logind and stops there. A real box has both, so a
+      # guest with only the first cannot host the trigger's scenarios.
+      sh setup.sh service || echo "SETUP_SERVICE_RC=$?"
       sh setup.sh check || echo "SETUP_CHECK_DRIFT=$?"
 
       echo "=== user systemd instance (so --user units are REAL here) ==="
@@ -205,14 +210,12 @@ runcmd:
         # screen-lock.service" and no clue why.
         systemctl --user import-environment WAYLAND_DISPLAY XDG_RUNTIME_DIR \
           >/dev/null 2>&1 || true
-        SCENARIO_CAPS_EXTRA=compositor
+        _compositor=compositor
       else
         echo "  sway did NOT come up headless; compositor scenarios will SKIP"
         echo "  --- sway.log ---"; tail -15 /root/sway.log 2>/dev/null
-        SCENARIO_CAPS_EXTRA=
+        _compositor=
       fi
-      SCENARIO_CAPS_EXTRA="$SCENARIO_CAPS_EXTRA $_userbus $_wayfire"
-      SCENARIO_CAPS_EXTRA="$SCENARIO_CAPS_EXTRA $_tackup"
       # THE SESSION TIER'S SAFETY INTERLOCK. It drives real daemons and locks
       # a real screen, so capabilities alone must not be enough to aim it: it
       # refuses to run without this, and only a throwaway guest sets it.
@@ -389,6 +392,45 @@ runcmd:
       else
         echo "  no TACKUP disk; integrator scenarios will SKIP"
       fi
+
+      echo "=== uinput (synthetic lid + key events) ==="
+      # A LID IS A STATE, NOT A SIGNAL, and every test of the lid path so far
+      # has approximated it with `loginctl lock-session` -- which is the signal
+      # rather than the cause, while the whole bug was about what a lid does.
+      # Whether logind picks up a SYNTHETIC switch is the open question: it
+      # finds lid devices through udev tags, and a uinput device has to be
+      # tagged like any other before logind will care.
+      modprobe uinput >/dev/null 2>&1 || true
+      _uinput=
+      if [ -e /dev/uinput ]; then
+        python3 /root/vigilance/test/uinject lid close 6 >/dev/null 2>&1 &
+        sleep 4
+        _lidsw=$(grep -c "uinject-lid" /proc/bus/input/devices 2>/dev/null \
+          || echo 0)
+        echo "  device seen by the kernel: $_lidsw"
+        # THE DECISIVE EVIDENCE is logind's OWN journal line -- the same
+        # "Lid closed." that appeared on manifold when the real bug fired.
+        # Anything less is inference: the kernel seeing a switch says nothing
+        # about whether logind found it through udev and acted on it.
+        _lidlog=$(journalctl -u systemd-logind --no-pager --since "-30s" \
+          2>/dev/null | grep -c "Lid closed" || echo 0)
+        echo "  logind said 'Lid closed': $_lidlog"
+        wait 2>/dev/null || true
+        python3 /root/vigilance/test/uinject key 5 2>&1 | sed 's/^/  /'
+        _uinput=uinput
+      else
+        echo "  NO /dev/uinput; lid and input faults will SKIP"
+      fi
+
+      # ASSEMBLED AFTER EVERY PROBE, which is the only place it can be. It
+      # used to sit beside the compositor probe, so the capabilities discovered
+      # LATER -- the integrator and uinput -- were empty when the list was
+      # built, and their scenarios skipped while the guest could in fact provide
+      # them. A capability that is available and not claimed is as bad as the
+      # reverse: both make a scenario report something that is not true.
+      SCENARIO_CAPS_EXTRA="$_compositor $_userbus $_wayfire"
+      SCENARIO_CAPS_EXTRA="$SCENARIO_CAPS_EXTRA $_tackup $_uinput"
+      echo "  capabilities: $SCENARIO_CAPS_EXTRA"
 
       echo "=== scenarios (VM substrate) ==="
       SCENARIO_CAPS="@CAPS@ ${SCENARIO_CAPS_EXTRA:-}"; export SCENARIO_CAPS
