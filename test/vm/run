@@ -91,6 +91,7 @@ packages:
   - util-linux
   - sway
   - swaylock
+  - swayidle
   - dbus-user-session
 runcmd:
   - |
@@ -157,6 +158,14 @@ runcmd:
       if [ -n "\$(_sock)" ]; then
         export WAYLAND_DISPLAY=\$(basename "\$(_sock)")
         echo "  sway up, WAYLAND_DISPLAY=\$WAYLAND_DISPLAY"
+        # WHAT A REAL SESSION DOES, and the session tier cannot work without
+        # it: the lock provider starts swaylock as a --user unit, and a unit
+        # inherits the MANAGER's environment, not its caller's. On a desktop
+        # the compositor's startup imports these; here nothing had, so the
+        # provider's first real run in this VM failed with "could not start
+        # screen-lock.service" and no clue why.
+        systemctl --user import-environment WAYLAND_DISPLAY XDG_RUNTIME_DIR \\
+          >/dev/null 2>&1 || true
         SCENARIO_CAPS_EXTRA=compositor
       else
         echo "  sway did NOT come up headless; compositor scenarios will SKIP"
@@ -164,6 +173,10 @@ runcmd:
         SCENARIO_CAPS_EXTRA=
       fi
       SCENARIO_CAPS_EXTRA="\$SCENARIO_CAPS_EXTRA \$_userbus"
+      # THE SESSION TIER'S SAFETY INTERLOCK. It drives real daemons and locks
+      # a real screen, so capabilities alone must not be enough to aim it: it
+      # refuses to run without this, and only a throwaway guest sets it.
+      VIGILANCE_VM=1; export VIGILANCE_VM
 
       echo "=== scenarios (VM substrate) ==="
       SCENARIO_CAPS="$CAPS \${SCENARIO_CAPS_EXTRA:-}"; export SCENARIO_CAPS

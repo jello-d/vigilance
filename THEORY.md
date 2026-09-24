@@ -141,6 +141,14 @@ a screen capture shows what the display emits
 a daemon picks up new code when you deploy it
 : It pins its argv at start. Three separate outages came from that gap.
 
+a `--user` unit can see the session it is started from
+: It inherits the user MANAGER's environment, not its caller's. The lock
+  provider starts swaylock as a transient `--user` unit, so without
+  `WAYLAND_DISPLAY` imported into the manager it cannot reach the compositor
+  and every lock fails with nothing but "could not start". On a desktop the
+  compositor's startup imports it and the dependency is invisible; the session
+  tier found it on its first run by not having one.
+
 ### Hard dependencies, stated rather than discovered
 
 systemd and logind are a trust root, not a plugin: the units, the transient
@@ -174,8 +182,16 @@ timer is a systemd unit rather than a daemon of ours.
 
 Two substrates run the SAME scenarios:
 
-    test/run      stub: fast, no root. Actuators are recorder hooks.
-    test/vm/run   VM:   real systemd, logind, suspend, user bus, headless sway.
+    test/run      stub:    fast, no root. Actuators are recorder hooks.
+    test/vm/run   VM:      real systemd, logind, suspend, user bus, sway.
+                  session: the REAL hooks, wired, driven by the REAL daemons.
+
+THE SESSION TIER IS THE ANSWER TO THE FOURTH SHORTFALL BELOW. Both other tiers
+replace the shipped hooks with recorders, so nothing ever ran the real hook set
+through a real ladder cycle. It uses the guest's real paths on purpose -- the
+real log, the real hook tree, the real units -- because sandboxing them would
+put the recorders back one layer down. A VM marker gates it, so a capability
+granted by mistake cannot aim it at a desk.
 
 The rule that keeps it honest: **the stub tier stubs actuators, never the trust
 root.** A stubbed `systemctl` lies, and a lying stub is exactly how a green test
@@ -208,6 +224,10 @@ On top of that:
    written under the same misunderstanding that caused it, and ships within
    hours. `test/lock-race-real.t` exists because the fix for a race contained
    the same race.
+3b. **Fidelity beats diversity, measured.** Classifying the last ten defects by
+   what would have caught them: six are real-component integration, one is a
+   platform primitive, and NONE is environment diversity. A second stack (X11)
+   would have caught nothing; running the real components did.
 4. **Nothing gates deployment.** The package pin tracks `head`, so a push
    reaches the machines on the next integrator run. The operator is the canary.
 

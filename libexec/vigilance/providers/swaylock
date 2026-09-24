@@ -143,5 +143,20 @@ while [ "$_w" -le "$SETTLE" ]; do
   _w=$((_w + 1))
   sleep 1
 done
+# NAME THE LIKELIEST CAUSE RATHER THAN JUST THE SYMPTOM. A --user unit inherits
+# the user MANAGER's environment, not its caller's, so the locker cannot reach
+# the compositor unless the session imported WAYLAND_DISPLAY into it. On a
+# desktop the compositor's startup does that and it is invisible; where it has
+# not happened, every lock fails with nothing but "could not start", which is
+# how this cost a debugging round the first time the session tier ran.
+#
+# Checked only on the FAILURE path: it is a diagnosis, not a precondition, and
+# a locker that started needs no explaining.
 echo "swaylock provider: could not start $UNIT" >&2
+if ! systemctl --user show-environment 2>/dev/null | grep -q '^WAYLAND_DISPLAY='
+then
+  echo "swaylock provider: the user manager has no WAYLAND_DISPLAY, so the" \
+    "unit cannot reach the compositor. A session normally imports it" \
+    "(systemctl --user import-environment WAYLAND_DISPLAY)." >&2
+fi
 exit 1
