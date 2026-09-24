@@ -105,9 +105,14 @@ session_idle_start() {   # <lock-secs> <sleep-secs>
   SESSION_IDLE_PID=$!
   # Wait for the daemon to actually be up. Asserting on a timer that has not
   # started yet is how a scenario measures nothing and calls it a pass.
+  # `if`, NOT `pgrep && return`. An AND-OR list whose left side fails returns
+  # non-zero, and `set -e` kills the shell on it -- so the FIRST poll, before
+  # swayidle is up, killed the test silently: no output, no verdict, nothing
+  # for test/run to print but a bare non-zero exit. Fourth time this stack has
+  # paid for the shape, and I wrote it within an hour of documenting it.
   _n=0
   while [ "$_n" -lt 50 ]; do
-    pgrep -x swayidle >/dev/null 2>&1 && return 0
+    if pgrep -x swayidle >/dev/null 2>&1; then return 0; fi
     sleep 0.2; _n=$((_n + 1))
   done
   fail "swayidle did not come up within 10s; this tier cannot proceed"
@@ -115,7 +120,9 @@ session_idle_start() {   # <lock-secs> <sleep-secs>
 
 session_stop_idle() {
   swayidle-mgr stop >/dev/null 2>&1 || true
-  [ -n "${SESSION_IDLE_PID:-}" ] && kill "$SESSION_IDLE_PID" 2>/dev/null
+  if [ -n "${SESSION_IDLE_PID:-}" ]; then
+    kill "$SESSION_IDLE_PID" 2>/dev/null || true
+  fi
   SESSION_IDLE_PID=
   return 0
 }
@@ -147,7 +154,14 @@ await() {
 
 locker_up() { pgrep -x swaylock >/dev/null 2>&1; }
 
-session_done() {
+# SILENT, UNCONDITIONALLY. This runs from the EXIT trap, i.e. AFTER `pass` has
+# printed, and test/run matches the LAST line of a test's output to decide its
+# verdict. So a single stray line from cleanup turns a passing test into "NO
+# VERDICT" -- observed, under `set -x`, where the trace alone was enough. Any
+# teardown that can speak is a teardown that can invalidate a result.
+session_done() { _session_done_quiet >/dev/null 2>&1 || true; }
+
+_session_done_quiet() {
   session_stop_idle
   systemctl --user stop screen-lock.service >/dev/null 2>&1 || true
   systemctl --user reset-failed screen-lock.service >/dev/null 2>&1 || true
