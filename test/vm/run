@@ -133,6 +133,7 @@ packages:
   - dbus-user-session
   - wayfire
   - git
+  - greetd
 runcmd:
   - |
     {
@@ -253,11 +254,39 @@ runcmd:
       _asvig="$_asvig DBUS_SESSION_BUS_ADDRESS=unix:path=$_vrun/bus"
       _asvig="$_asvig HOME=/home/vig"
 
-      _wfenv="XDG_RUNTIME_DIR=$_vrun WLR_BACKENDS=headless"
-      _wfenv="$_wfenv WLR_RENDERER=pixman WLR_LIBINPUT_NO_DEVICES=1"
-      _wfenv="$_wfenv XDG_SESSION_TYPE=wayland"
-      _wfcmd="$_wfenv nohup wayfire -c /home/vig/.config/wayfire.ini"
-      su - vig -c "$_wfcmd > /home/vig/wayfire.log 2>&1 &" || true
+      # THROUGH greetd, NOT `su`. A user is not a SESSION: an account driven
+      # by sudo has none of its own, and logind then answers
+      # "SetLockedHint true failed for session 2" -- which took the whole lock
+      # edge with it and could not be told apart from a compositor fault.
+      # greetd's initial_session IS autologin, which is what production uses,
+      # so the guest gets a real seat, a real session and a real session type
+      # rather than three approximations of them.
+      # NO HEREDOC INSIDE THIS BLOCK. cloud-init's runcmd is a YAML literal
+      # scalar, so every line must stay indented -- and a heredoc delimiter
+      # cannot be. A `[terminal]` at column 0 ended the block, the runcmd was
+      # truncated, and the guest never reported. printf keeps everything
+      # indented and needs no delimiter at all.
+      _gc=/etc/greetd/config.toml
+      printf '[terminal]\nvt = 1\n\n' > "$_gc"
+      printf '[default_session]\ncommand = "sleep infinity"\n' >> "$_gc"
+      # THE GREETER USER MUST EXIST or greetd refuses to start at all:
+      # "configured default session user 'greeter' not found", then a restart
+      # loop into start-limit-hit. The package does not create one, and this
+      # path is never reached anyway (initial_session autologins), so it points
+      # at an account we know is there rather than one a package might make.
+      printf 'user = "vig"\n\n' >> "$_gc"
+      printf '[initial_session]\n' >> "$_gc"
+      printf 'command = "/usr/local/bin/vig-session"\n' >> "$_gc"
+      printf 'user = "vig"\n' >> "$_gc"
+      _vs=/usr/local/bin/vig-session
+      printf '#!/bin/sh\n' > "$_vs"
+      printf 'export WLR_BACKENDS=headless WLR_RENDERER=pixman\n' >> "$_vs"
+      printf 'export WLR_LIBINPUT_NO_DEVICES=1 XDG_SESSION_TYPE=wayland\n' \
+        >> "$_vs"
+      printf 'exec wayfire -c /home/vig/.config/wayfire.ini\n' >> "$_vs"
+      chmod +x /usr/local/bin/vig-session
+      systemctl reset-failed greetd >/dev/null 2>&1 || true
+      systemctl enable --now greetd >/dev/null 2>&1 || true
       _n=0
       while [ "$_n" -lt 24 ]; do
         if ls "$_vrun"/wayland-* 2>/dev/null | grep -qv '\.lock$'
@@ -269,7 +298,34 @@ runcmd:
       _wayfire=
       if [ -n "$_wfsock" ]; then
         echo "  wayfire up as vig: $(basename $_wfsock)"
-        echo "  $(wayfire --version 2>&1 | head -1)"
+        # THE SESSION WITH A SEAT, not merely one owned by vig. logind gives
+        # the user a "manager" session too, and picking the first match
+        # reported that one -- so the field that matters is the seat, which is
+        # what makes a session a real one rather than a bookkeeping entry.
+        _vsess=
+        for _s in $(loginctl list-sessions --no-legend | awk '{print $1}'); do
+          _su=$(loginctl show-session "$_s" -p Name --value 2>/dev/null)
+          _st=$(loginctl show-session "$_s" -p Seat --value 2>/dev/null)
+          if [ "$_su" = vig ] && [ -n "$_st" ]; then _vsess=$_s; break; fi
+        done
+        if [ -n "$_vsess" ]; then
+          _sty=$(loginctl show-session "$_vsess" -p Type --value)
+          _sse=$(loginctl show-session "$_vsess" -p Seat --value)
+          echo "  vig session $_vsess: type=$_sty seat=$_sse"
+          # THE ACID TEST. This is what failed under a sudo-driven account
+          # ("SetLockedHint true failed for session 2") and took the lock edge
+          # with it. If it works here, the guest can host the lock path.
+          if $_asvig loginctl lock-session "$_vsess" >/dev/null 2>&1; then
+            echo "  lock-session: accepted"
+          else
+            echo "  lock-session: REFUSED -- the lock path cannot work here"
+          fi
+          _lh=$(loginctl show-session "$_vsess" -p LockedHint --value)
+          echo "  LockedHint after lock-session: $_lh"
+          $_asvig loginctl unlock-session "$_vsess" >/dev/null 2>&1 || true
+        else
+          echo "  NO seated logind session for vig -- the lock path needs one"
+        fi
         _wayfire=wayfire
         # The session's own job, and the lock provider cannot work without it:
         # a --user unit inherits the MANAGER's environment, not its caller's.
@@ -277,6 +333,12 @@ runcmd:
           WAYLAND_DISPLAY XDG_RUNTIME_DIR >/dev/null 2>&1 || true
       else
         echo "  wayfire did NOT come up; wayfire scenarios will SKIP"
+        echo "  greetd: $(systemctl is-active greetd) / $(systemctl is-enabled \
+          greetd 2>&1)"
+        journalctl -u greetd --no-pager -n 12 2>/dev/null | sed 's/^/    /'
+        echo "  --- vts / seats ---"
+        ls /dev/tty1 2>&1 | sed 's/^/    /'
+        loginctl list-seats --no-legend 2>&1 | sed 's/^/    /'
         tail -12 /home/vig/wayfire.log 2>/dev/null | sed 's/^/    /'
       fi
 
