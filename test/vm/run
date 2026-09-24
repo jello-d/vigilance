@@ -21,8 +21,19 @@ set -eu
 
 HERE=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 VM=${VIGILANCE_VM_DIR:-/var/tmp/vigilancevm}
-IMG=$VM/noble-server-cloudimg-amd64.img
-URL=https://cloud-images.ubuntu.com/noble/current/${IMG##*/}
+
+# THE GUEST SHOULD BE THE RELEASE THE FLEET RUNS. It was pinned to `noble`
+# while both boxes moved to 26.04, so every VM verdict was about an Ubuntu a
+# full release behind the one in production -- a fidelity gap hiding inside the
+# tier that exists to close fidelity gaps, and one nothing would have reported.
+#
+# PINNED rather than derived from the host, because a run has to mean the same
+# thing on both boxes and on a third machine later. The drift is WARNED about
+# instead: asserted-versus-actual is the whole discipline here, and a substrate
+# quietly diverging from its subject is exactly that.
+RELEASE=${VIGILANCE_VM_RELEASE:-resolute}
+IMG=$VM/$RELEASE-server-cloudimg-amd64.img
+URL=https://cloud-images.ubuntu.com/$RELEASE/current/${IMG##*/}
 CONSOLE=$VM/console.log
 KEEP=${1:-}
 
@@ -44,8 +55,16 @@ done
 mkdir -p "$VM"
 
 # --- base image -------------------------------------------------------------
+# Say it when the substrate and the subject have drifted apart. Not fatal: a
+# developer on another release should still be able to run this, and a hard
+# stop would make the tier unusable exactly when someone needs it most.
+_host=$(. /etc/os-release 2>/dev/null && printf '%s' "${VERSION_CODENAME:-}")
+if [ -n "$_host" ] && [ "$_host" != "$RELEASE" ]; then
+  echo "vm: NOTE host runs '$_host', guest is '$RELEASE' -- the VM is testing"
+  echo "vm:      a different release than this machine does."
+fi
 if [ ! -f "$IMG" ]; then
-  echo "vm: fetching base cloud image (once)"
+  echo "vm: fetching $RELEASE base cloud image (once)"
   curl -fSL -o "$IMG.part" "$URL" || _die "image download failed"
   mv "$IMG.part" "$IMG"
 fi
@@ -93,6 +112,7 @@ packages:
   - swaylock
   - swayidle
   - dbus-user-session
+  - wayfire
 runcmd:
   - |
     {
@@ -177,6 +197,36 @@ runcmd:
       # a real screen, so capabilities alone must not be enough to aim it: it
       # refuses to run without this, and only a throwaway guest sets it.
       VIGILANCE_VM=1; export VIGILANCE_VM
+
+      echo "=== wayfire probe: as ROOT, then as a real USER ==="
+      # Wayfire refuses to run as root ("Unable to drop root"), and the guest
+      # is root-only. So the question is whether a real unprivileged user with
+      # their own runtime dir and bus can bring it up headless -- which is also
+      # the shape any honest session test needs, and what provisioning properly
+      # would give us anyway.
+      useradd -m -s /bin/bash vig 2>/dev/null || true
+      loginctl enable-linger vig >/dev/null 2>&1 || true
+      _vuid=\$(id -u vig)
+      install -d -o vig -g vig -m 700 /run/user/\$_vuid
+      install -d -o vig -g vig /home/vig/.config
+      printf '[core]\nplugins = \n' > /home/vig/.config/wayfire.ini
+      chown vig:vig /home/vig/.config/wayfire.ini
+      _wfenv="XDG_RUNTIME_DIR=/run/user/\$_vuid WLR_BACKENDS=headless"
+      _wfenv="\$_wfenv WLR_RENDERER=pixman WLR_LIBINPUT_NO_DEVICES=1"
+      _wfenv="\$_wfenv XDG_SESSION_TYPE=wayland"
+      su - vig -c "\$_wfenv nohup wayfire -c /home/vig/.config/wayfire.ini \
+        > /home/vig/wayfire.log 2>&1 &" || true
+      _n=0
+      while [ "\$_n" -lt 24 ]; do
+        if ls /run/user/\$_vuid/wayland-* 2>/dev/null | grep -qv '\.lock\$'
+        then break; fi
+        sleep 0.5; _n=\$((_n + 1))
+      done
+      echo "  vig sockets: \$(ls /run/user/\$_vuid/wayland-* 2>/dev/null \
+        | tr '\n' ' ')"
+      echo "  --- wayfire.log (last 12) ---"
+      tail -12 /home/vig/wayfire.log 2>/dev/null | sed 's/^/    /'
+      pkill -u vig -x wayfire 2>/dev/null || true
 
       echo "=== scenarios (VM substrate) ==="
       SCENARIO_CAPS="$CAPS \${SCENARIO_CAPS_EXTRA:-}"; export SCENARIO_CAPS
