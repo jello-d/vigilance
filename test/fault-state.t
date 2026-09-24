@@ -32,7 +32,11 @@ wire lock .verify locker-up
 mount -t tmpfs -o ro,size=1k tmpfs "$RUN" \
   || fail "could not mount a read-only tmpfs over $RUN; this fault cannot be
 injected on this substrate and the case would prove nothing"
-if printf 'x' > "$RUN/canary" 2>/dev/null; then
+# STDERR REDIRECTED FIRST. Redirections apply left to right, so with `>` ahead
+# of it the failing output redirect is reported by the shell while stderr is
+# still the terminal -- and this probe is MEANT to fail, so it printed an
+# alarming "Read-only file system" line on every successful run.
+if printf 'x' 2>/dev/null > "$RUN/canary"; then
   fail "the fault did not take: $RUN is still writable, so everything below
 would pass for the wrong reason"
 fi

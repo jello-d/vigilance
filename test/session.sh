@@ -67,7 +67,13 @@ list has regressed and this tier would pass against nothing"
   # in the guest, so an assertion counting "how many times did X happen" has to
   # mean "since this test began" or it reads another scenario's traffic.
   mkdir -p "$(dirname "$LOG")"
-  LOG_FROM=$(wc -l < "$LOG" 2>/dev/null || echo 0)
+  # GUARDED ON EXISTENCE, not with `2>/dev/null`. Redirections are applied left
+  # to right, so in `wc -l < "$LOG" 2>/dev/null` the input redirect fails while
+  # stderr is still the terminal and the SHELL prints "cannot open ...". The
+  # `|| echo 0` handled the value and not the noise, and a scenario running
+  # before anything had logged emitted a line that reads like a fault.
+  LOG_FROM=0
+  if [ -f "$LOG" ]; then LOG_FROM=$(wc -l < "$LOG"); fi
 
   session_stop_idle
   "$VIGILANT" force open >/dev/null 2>&1 || true
