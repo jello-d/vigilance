@@ -1,0 +1,154 @@
+# test/faults - the declared FAULT SPACE, and what each one must produce.
+#
+# A fault suite with no denominator is a pile of anecdotes: you poke at the
+# machine, nothing catches fire, and "it did not crash" quietly becomes the
+# bar. This file is the denominator. Every fault the VM can inject is declared
+# here WITH ITS EXPECTED RESPONSE, whether or not anything exercises it yet, so
+# the gap between "faults we know about" and "faults we check" is visible
+# instead of imagined. Same move as test/mutants for guards and THEORY.md for
+# invariants.
+#
+# THE EXPECTED RESPONSE IS THE POINT. "It survived" is not a result; a fault
+# that produces NO response is a FINDING, because every one of these is
+# something an operator would need to be told about. The responses are drawn
+# from the vocabulary the package already has:
+#
+#   ACT      the edge still happens -- the lock is never suppressed
+#   ALERT    a human is told (hook-failed, drift, overdue)
+#   DEGRADE  the tier reports n/a or declines, and says so
+#   RECOVER  the ladder returns to a coherent rung on its own
+#   REFUSE   the request is declined, loudly, and nothing changes
+#
+# INJECT THE REAL FAULT, NOT ITS SIMULATION. The probe knobs
+# (VIGILANCE_LOCKER_UP, VIGILANCE_SYS_BACKLIGHT, ...) exist so the STUB tier
+# can model a device it does not have. Using them here would measure a fixture
+# again, which is exactly how `activating` shipped. In a guest we can kill the
+# real process, chmod the real directory and cut the real power.
+#
+# Format, one record per fault:
+#
+#   = <id>                a short name, unique
+#   m <mechanism>         what is being faulted
+#   f <fault>             what is DONE to it, in the guest
+#   e <response>          what must happen, from the vocabulary above
+#   t <test>|-            the scenario that exercises it, or `-` for not yet
+
+= locker-killed-while-locked
+m the lock provider
+f SIGKILL swaylock while the machine is at the lock rung
+e RECOVER: ExecStopPost crosses unlock, depth returns to open
+t fault-locker
+
+= locker-dies-before-committing
+m the lock provider
+f a locker that exits non-zero before taking the session lock
+e ALERT: the provider fails loudly and verify lock FAILS
+t -
+
+= hook-hangs-before-the-provider
+m the act tier
+f a lock.d hook ordered ahead of the provider that sleeps forever
+e ACT: the per-hook bound fires and the lock STILL happens
+t -
+
+= hook-fails
+m the act tier
+f a lock.d hook that exits 1
+e ALERT: hook-failed raised, and the edge still crosses
+t -
+
+= every-verify-hook-declines
+m the verify tier
+f all wired verify hooks exit 78
+e DEGRADE: "NOTHING CHECKED" is a FAILURE, never a pass
+t -
+
+= runtime-dir-read-only
+m the depth record
+f chmod a-w on the runtime dir before a crossing
+e ACT: the depth write fails and THE LOCK STILL HAPPENS
+t -
+
+= crossing-lock-leaked
+m the crossing lock
+f leave a lock file behind naming a dead process
+e ACT: it is broken and the crossing proceeds
+t cross-lock
+
+= idle-timer-killed
+m the idle timer
+f SIGKILL swayidle
+e ALERT: report says it is not running; the watchdog DECLINES, not accuses
+t -
+
+= idle-timer-restarted-from-sleep
+m the idle timer
+f restart the idle unit while the machine is at the sleep rung
+e DEGRADE: the ascent ceilings the clock; no false overdue
+t session-idle
+
+= two-lock-requests-at-once
+m the crossing
+f two `go lock` in the same instant
+e ACT: one crossing, both callers succeed
+t session-ladder
+
+= lock-request-from-a-deeper-rung
+m the ladder
+f a Session.Lock arriving at the sleep rung
+e REFUSE: decline to raise, and log it
+t session-ladder
+
+= lid-close-at-sleep
+m logind
+f a real SW_LID close event via uinput, at the sleep rung
+e REFUSE: the machine must NOT be raised
+t -
+
+= lid-close-at-open
+m logind
+f a real SW_LID close event via uinput, at the open rung
+e ACT: descend to lock; the screen is not left lit
+t -
+
+= suspend-mid-crossing
+m the depth record
+f a real S3 cycle while an edge is being crossed
+e RECOVER: depth survives and the resume lands coherent
+t depth-survives-suspend
+
+= power-cut-mid-crossing
+m the depth record
+f hard-kill the machine mid-crossing, then boot it again
+e RECOVER: no dark rung with no way back
+t -
+
+= clock-jumped-forward
+m the supervision timer
+f set the guest clock forward an hour
+e DEGRADE: no alert storm; the ceiling and the dedup cooldown hold
+t -
+
+= lock-signal-storm
+m the logind trigger
+f a hundred lock-session signals in a burst
+e ACT: one crossing; the dedup holds
+t -
+
+= user-bus-killed
+m the lock provider
+f kill the user dbus so the transient unit cannot be started
+e ALERT: the provider fails LOUDLY rather than reporting a lock
+t -
+
+= backlight-device-removed
+m the peripheral actuators
+f remove the sysfs backlight between a descent and its ascent
+e DEGRADE: the hook goes n/a and drops its stale save
+t hooks
+
+= soak-a-thousand-cycles
+m the ladder
+f a thousand lock/unlock cycles back to back
+e ACT: no leaked lock, no saved state at a lit rung, no alert storm
+t -
