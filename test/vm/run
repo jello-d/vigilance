@@ -77,6 +77,25 @@ echo "vm: packing the repo"
 xorriso -as mkisofs -R -J -V VIGILANCE -quiet \
   -o "$VM/repo.iso" "$HERE" 2>/dev/null || _die "repo.iso failed"
 
+# THE INTEGRATOR, so the guest can be wired by the thing that actually wires a
+# real box. The session tier otherwise invents a "representative" wiring, which
+# is explicitly NOT tackup's -- so the code that decides where every hook goes
+# on a live machine was tested nowhere.
+#
+# OPTIONAL. Someone with this repo and not that one must still be able to run
+# the VM; without it the tackup scenarios skip, visibly.
+TACKUP_SRC=${VIGILANCE_VM_TACKUP:-$HOME/src/tackup}
+_tackup_drive=
+if [ -d "$TACKUP_SRC" ]; then
+  echo "vm: packing the integrator ($TACKUP_SRC)"
+  xorriso -as mkisofs -R -J -V TACKUP -quiet -m .git \
+    -o "$VM/tackup.iso" "$TACKUP_SRC" 2>/dev/null || _die "tackup.iso failed"
+  _tackup_drive="-drive file=$VM/tackup.iso,if=virtio,media=cdrom"
+else
+  echo "vm: no tackup checkout at $TACKUP_SRC; its scenarios will SKIP"
+  rm -f "$VM/tackup.iso"
+fi
+
 # --- cloud-init seed --------------------------------------------------------
 # Tools come from `packages:`, never an apt-get inside runcmd: a script's apt
 # races cloud-init's own package lock and DEADLOCKS.
@@ -103,7 +122,7 @@ cat > "$_seed/meta-data" <<EOF
 instance-id: vigilance-$$
 local-hostname: vigilance-vm
 EOF
-cat > "$_seed/user-data" <<EOF
+cat > "$_seed/user-data" <<'EOF'
 #cloud-config
 packages:
   - dash
@@ -118,11 +137,11 @@ runcmd:
     {
       # cloud-init's runcmd has NO HOME. The tools derive their own, but this
       # script must not assume one either: with HOME unset, a PATH built from
-      # "\$HOME/.local/bin" silently becomes "/.local/bin" and every tool then
+      # "$HOME/.local/bin" silently becomes "/.local/bin" and every tool then
       # reads as not-installed. That is a harness bug that looks exactly like
       # a product failure, so set it explicitly and once.
       HOME=/root; export HOME
-      mkdir -p /mnt/repo /root/vigilance
+      mkdir -p /mnt/repo /mnt/tackup /root/vigilance
       mount -o ro /dev/disk/by-label/VIGILANCE /mnt/repo
       cp -a /mnt/repo/. /root/vigilance/
       cd /root/vigilance
@@ -130,8 +149,8 @@ runcmd:
 
       echo "=== from-scratch install ==="
       sh setup.sh install
-      PATH="\$HOME/.local/bin:\$PATH"; export PATH
-      sh setup.sh check || echo "SETUP_CHECK_DRIFT=\$?"
+      PATH="$HOME/.local/bin:$PATH"; export PATH
+      sh setup.sh check || echo "SETUP_CHECK_DRIFT=$?"
 
       echo "=== user systemd instance (so --user units are REAL here) ==="
       # The guest is root, and root gets no user manager by default because
@@ -146,7 +165,7 @@ runcmd:
       # is the precise failure this suite exists to refuse.
       _userbus=
       if systemctl --user show -p Version >/dev/null 2>&1; then
-        echo "  user manager up: \$(systemctl --user show -p Version --value)"
+        echo "  user manager up: $(systemctl --user show -p Version --value)"
         _userbus=userbus
       else
         echo "  NO user manager; --user scenarios will SKIP"
@@ -162,29 +181,31 @@ runcmd:
       # GuessMainPID latches ITS daemonized child, and whether ExecStopPost
       # fires when it CRASHES. A synthetic forker cannot answer either.
       export XDG_RUNTIME_DIR=/run/user/0
-      mkdir -p "\$XDG_RUNTIME_DIR"; chmod 700 "\$XDG_RUNTIME_DIR"
+      mkdir -p "$XDG_RUNTIME_DIR"; chmod 700 "$XDG_RUNTIME_DIR"
       mkdir -p /root/.config/sway
-      printf 'exec true\\n' > /root/.config/sway/config
+      printf 'exec true\n' > /root/.config/sway/config
       export WLR_BACKENDS=headless WLR_LIBINPUT_NO_DEVICES=1
       export XDG_SESSION_TYPE=wayland
       ( sway >/root/sway.log 2>&1 & ) 
-      _sock() { ls "\$XDG_RUNTIME_DIR"/wayland-* 2>/dev/null \
-        | grep -v '\.lock\$' | head -1; }
+      _sock() {
+        ls "$XDG_RUNTIME_DIR"/wayland-* 2>/dev/null \
+          | grep -v '\.lock$' | head -1
+      }
       _n=0
-      while [ "\$_n" -lt 20 ]; do
-        if [ -n "\$(_sock)" ]; then break; fi
-        sleep 0.5; _n=\$((_n + 1))
+      while [ "$_n" -lt 20 ]; do
+        if [ -n "$(_sock)" ]; then break; fi
+        sleep 0.5; _n=$((_n + 1))
       done
-      if [ -n "\$(_sock)" ]; then
-        export WAYLAND_DISPLAY=\$(basename "\$(_sock)")
-        echo "  sway up, WAYLAND_DISPLAY=\$WAYLAND_DISPLAY"
+      if [ -n "$(_sock)" ]; then
+        export WAYLAND_DISPLAY=$(basename "$(_sock)")
+        echo "  sway up, WAYLAND_DISPLAY=$WAYLAND_DISPLAY"
         # WHAT A REAL SESSION DOES, and the session tier cannot work without
         # it: the lock provider starts swaylock as a --user unit, and a unit
         # inherits the MANAGER's environment, not its caller's. On a desktop
         # the compositor's startup imports these; here nothing had, so the
         # provider's first real run in this VM failed with "could not start
         # screen-lock.service" and no clue why.
-        systemctl --user import-environment WAYLAND_DISPLAY XDG_RUNTIME_DIR \\
+        systemctl --user import-environment WAYLAND_DISPLAY XDG_RUNTIME_DIR \
           >/dev/null 2>&1 || true
         SCENARIO_CAPS_EXTRA=compositor
       else
@@ -192,51 +213,142 @@ runcmd:
         echo "  --- sway.log ---"; tail -15 /root/sway.log 2>/dev/null
         SCENARIO_CAPS_EXTRA=
       fi
-      SCENARIO_CAPS_EXTRA="\$SCENARIO_CAPS_EXTRA \$_userbus"
+      SCENARIO_CAPS_EXTRA="$SCENARIO_CAPS_EXTRA $_userbus $_wayfire"
+      SCENARIO_CAPS_EXTRA="$SCENARIO_CAPS_EXTRA $_tackup"
       # THE SESSION TIER'S SAFETY INTERLOCK. It drives real daemons and locks
       # a real screen, so capabilities alone must not be enough to aim it: it
       # refuses to run without this, and only a throwaway guest sets it.
       VIGILANCE_VM=1; export VIGILANCE_VM
 
-      echo "=== wayfire probe: as ROOT, then as a real USER ==="
-      # Wayfire refuses to run as root ("Unable to drop root"), and the guest
-      # is root-only. So the question is whether a real unprivileged user with
-      # their own runtime dir and bus can bring it up headless -- which is also
-      # the shape any honest session test needs, and what provisioning properly
-      # would give us anyway.
+      echo "=== a real user session (wayfire needs one) ==="
+      # WAYFIRE REFUSES TO RUN AS ROOT ("Unable to drop root"), and the guest
+      # was root-only. So the compositor production actually runs is only
+      # testable here behind a real unprivileged user -- which is the honest
+      # shape for a session test anyway, and what provisioning properly would
+      # have given us regardless.
       useradd -m -s /bin/bash vig 2>/dev/null || true
+      printf 'vig ALL=(ALL) NOPASSWD:ALL\n' > /etc/sudoers.d/vig
+      chmod 440 /etc/sudoers.d/vig
+      # AFTER useradd, and OWNED BY vig. Creating these earlier made root
+      # the owner of /home/vig, so `useradd -m` found the home already
+      # there and left it that way -- and every user-mode install then
+      # died on `mkdir -p /home/vig/.local/bin: Permission denied`, which
+      # reads as a packaging fault and is an ordering one.
+      chown vig:vig /home/vig
+      install -d -o vig -g vig /home/vig/tackup
       loginctl enable-linger vig >/dev/null 2>&1 || true
-      _vuid=\$(id -u vig)
-      install -d -o vig -g vig -m 700 /run/user/\$_vuid
+      _vuid=$(id -u vig)
+      _vrun=/run/user/$_vuid
+      install -d -o vig -g vig -m 700 "$_vrun"
       install -d -o vig -g vig /home/vig/.config
       printf '[core]\nplugins = \n' > /home/vig/.config/wayfire.ini
       chown vig:vig /home/vig/.config/wayfire.ini
-      _wfenv="XDG_RUNTIME_DIR=/run/user/\$_vuid WLR_BACKENDS=headless"
-      _wfenv="\$_wfenv WLR_RENDERER=pixman WLR_LIBINPUT_NO_DEVICES=1"
-      _wfenv="\$_wfenv XDG_SESSION_TYPE=wayland"
-      su - vig -c "\$_wfenv nohup wayfire -c /home/vig/.config/wayfire.ini \
-        > /home/vig/wayfire.log 2>&1 &" || true
+      # `-H env`, not a bare `sudo -u`. Without -H the CALLER's HOME survives,
+      # so a user-mode install run as vig tried to write into /root and died
+      # "mkdir: Permission denied" -- a harness fault wearing the costume of a
+      # packaging one. `env` because sudo rejects VAR=val assignments unless
+      # sudoers grants it.
+      _asvig="sudo -u vig -H env XDG_RUNTIME_DIR=$_vrun"
+      _asvig="$_asvig DBUS_SESSION_BUS_ADDRESS=unix:path=$_vrun/bus"
+      _asvig="$_asvig HOME=/home/vig"
+
+      _wfenv="XDG_RUNTIME_DIR=$_vrun WLR_BACKENDS=headless"
+      _wfenv="$_wfenv WLR_RENDERER=pixman WLR_LIBINPUT_NO_DEVICES=1"
+      _wfenv="$_wfenv XDG_SESSION_TYPE=wayland"
+      _wfcmd="$_wfenv nohup wayfire -c /home/vig/.config/wayfire.ini"
+      su - vig -c "$_wfcmd > /home/vig/wayfire.log 2>&1 &" || true
       _n=0
-      while [ "\$_n" -lt 24 ]; do
-        if ls /run/user/\$_vuid/wayland-* 2>/dev/null | grep -qv '\.lock\$'
+      while [ "$_n" -lt 24 ]; do
+        if ls "$_vrun"/wayland-* 2>/dev/null | grep -qv '\.lock$'
         then break; fi
-        sleep 0.5; _n=\$((_n + 1))
+        sleep 0.5; sleep 0; _n=$((_n + 1))
       done
-      echo "  vig sockets: \$(ls /run/user/\$_vuid/wayland-* 2>/dev/null \
-        | tr '\n' ' ')"
-      echo "  --- wayfire.log (last 12) ---"
-      tail -12 /home/vig/wayfire.log 2>/dev/null | sed 's/^/    /'
-      pkill -u vig -x wayfire 2>/dev/null || true
+      _wfsock=$(ls "$_vrun"/wayland-* 2>/dev/null \
+        | grep -v '\.lock$' | head -1)
+      _wayfire=
+      if [ -n "$_wfsock" ]; then
+        echo "  wayfire up as vig: $(basename $_wfsock)"
+        echo "  $(wayfire --version 2>&1 | head -1)"
+        _wayfire=wayfire
+        # The session's own job, and the lock provider cannot work without it:
+        # a --user unit inherits the MANAGER's environment, not its caller's.
+        $_asvig systemctl --user import-environment \
+          WAYLAND_DISPLAY XDG_RUNTIME_DIR >/dev/null 2>&1 || true
+      else
+        echo "  wayfire did NOT come up; wayfire scenarios will SKIP"
+        tail -12 /home/vig/wayfire.log 2>/dev/null | sed 's/^/    /'
+      fi
+
+      echo "=== the INTEGRATOR wires it (tackup lock) ==="
+      # THE REAL WIRING, not a representative one. modules/lock is the code
+      # that decides where every hook goes on a live box, and it was tested
+      # nowhere: the session tier invents its own wiring and says so.
+      _tackup=
+      if mount -o ro /dev/disk/by-label/TACKUP /mnt/tackup 2>/dev/null; then
+        cp -a /mnt/tackup/. /home/vig/tackup/
+        chown -R vig:vig /home/vig/tackup
+        # THE PIN POINTS AT THIS REPO, not GitHub. A clone takes COMMITS, so
+        # the guest tests what is committed HERE without anything being pushed
+        # -- which is the whole point, and it is why the repo ISO carries .git.
+        # The guest's COPY of the integrator is edited, never the real one.
+        sed -i 's#^pkg vigilance .*#pkg vigilance file:///mnt/repo head#' \
+          /home/vig/tackup/install/deps/lock
+        echo "  pin: $(cat /home/vig/tackup/install/deps/lock | tail -1)"
+        # SATISFY THE ONE DEPENDENCY THE WAY THE PKG INSTALL ENDS UP. `tackup
+        # install` harvests EVERY active domain's deps -- docker, fonts, the
+        # lot -- which is not what this guest is for. modules/lock's dep is a
+        # single vigilance pkg whose install phase finishes by placing the tree
+        # under ~/.local, and vigilance's own setup.sh does exactly that in
+        # user mode. STATED rather than hidden: the pkg CLONE mechanics are not
+        # what this exercises. modules/lock's WIRING is, and that is the code
+        # that was tested nowhere.
+        # FROM A WRITABLE COPY. /mnt/repo is a read-only ISO mount, and an
+        # install that creates anything relative to its own tree died there
+        # with a bare "mkdir: Permission denied" -- which reads like a
+        # packaging fault and is a harness one. A real pkg clone is writable.
+        # WHAT tackup's OWN pkg install DOES, in the same two steps:
+        # clone the pin, then run the package's installer from the CLONE.
+        # modules/lock reads the units out of that clone (pkg_dir), so a
+        # copy somewhere else is not a substitute -- it said so itself:
+        # "vigilance clone missing; the pkg install must run first".
+        _pkgd=/home/vig/.cache/tackup/pkgs/vigilance
+        _clone="git clone -q file:///mnt/repo $_pkgd"
+        $_asvig sh -c "$_clone" >> /home/vig/pkg-install.log 2>&1 || true
+        _dep="cd $_pkgd && sh setup.sh install"
+        if ! $_asvig sh -c "$_dep" > /home/vig/pkg-install.log 2>&1; then
+          echo "  dep install FAILED:"
+          tail -8 /home/vig/pkg-install.log | sed 's/^/    /'
+        fi
+        _lrc=0
+        _lk="cd /home/vig/tackup && ./tackup lock"
+        $_asvig sh -c "$_lk" > /home/vig/tackup-lock.log 2>&1 || _lrc=$?
+        echo "  tackup lock rc=$_lrc"
+        # The tail, not the whole log: this reports how far the integrator
+        # got, and the last lines are where it stopped.
+        tail -6 /home/vig/tackup-lock.log | sed 's/^/    /'
+        [ "$_lrc" = 0 ] && _tackup=tackup
+      else
+        echo "  no TACKUP disk; integrator scenarios will SKIP"
+      fi
 
       echo "=== scenarios (VM substrate) ==="
-      SCENARIO_CAPS="$CAPS \${SCENARIO_CAPS_EXTRA:-}"; export SCENARIO_CAPS
+      SCENARIO_CAPS="@CAPS@ ${SCENARIO_CAPS_EXTRA:-}"; export SCENARIO_CAPS
       SCENARIO_SUSPEND_CMD="rtcwake -m mem -s 5"; export SCENARIO_SUSPEND_CMD
       sh test/run
-      echo "VIGILANCE_VM_EXIT=\$?"
+      echo "VIGILANCE_VM_EXIT=$?"
     } > /root/log 2>&1
     cat /root/log > /dev/ttyS0
     poweroff -f
 EOF
+# THE ONE HOST VALUE, substituted AFTER the fact. The heredoc above is now
+# QUOTED, so NOTHING in it expands on this box -- the only way to make prose
+# inside it safe. Twice a BACKTICK in a COMMENT there ran here: once
+# `systemctl --user`, splicing its unit list into the guest config, and once
+# `env`, splicing the developer's whole environment. Both times the rule
+# "keep prose out of the heredoc" was already written at the top of it, and
+# both times it was broken a few edits later. A rule that needs remembering
+# is weaker than a structure that cannot go wrong.
+sed -i "s|@CAPS@|$CAPS|" "$_seed/user-data"
 
 # PARSE THE GUEST SCRIPT BEFORE BOOTING IT. `dash -n` on this file checks the
 # HOST script; the runcmd above is a STRING to it, so a syntax error in the
@@ -276,6 +388,7 @@ qemu-system-x86_64 -enable-kvm -machine q35 -m 2048 -smp 2 \
   -global ICH9-LPC.disable_s3=0 \
   -drive file="$VM/boot.qcow2",if=virtio \
   -drive file="$VM/seed.iso",if=virtio,media=cdrom \
+  ${_tackup_drive} \
   -drive file="$VM/repo.iso",if=virtio,media=cdrom \
   -netdev user,id=n0 -device virtio-net-pci,netdev=n0 \
   -display none -serial "file:$CONSOLE" -monitor none -no-reboot \
