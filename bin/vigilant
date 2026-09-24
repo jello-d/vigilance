@@ -643,6 +643,12 @@ _crossing_stale() {   # 0 if the lock's holder is gone
       if [ "$(( $(date +%s) - _cs_t ))" -gt 5 ]; then return 0; fi
       return 1 ;;
   esac
+  # SAFE ONLY BECAUSE OF THE CALL CONTEXT, which is worth saying out loud. In
+  # `A && B` under set -e, A failing is exempt (it is not the last command of
+  # the list) but B is NOT: here B is `return 1`, so the list's status is 1, and
+  # a plain statement-position call to this function would abort the shell. The
+  # sole caller is `if _crossing_stale`, and a condition suppresses -e. Move
+  # that call out of a condition and this becomes a silent exit.
   kill -0 "$_cs_p" 2>/dev/null && return 1
   return 0
 }
