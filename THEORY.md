@@ -76,9 +76,11 @@ wishes are visible.
     18  a test that reaches no verdict is a failure
         test/run
     19  a guard nothing can kill is not a guard
-        test/mutate (90 records), mutants.t
+        test/mutate (93 records), mutants.t
     20  a check must not read the developer's live box
         hermetic.t
+    21  a verdict that may be discarded must not notify before it is accepted
+        standing-recheck.t section 9
 
 ### Invariants with no enforcing check
 
@@ -224,6 +226,17 @@ On top of that:
    written under the same misunderstanding that caused it, and ships within
    hours. `test/lock-race-real.t` exists because the fix for a race contained
    the same race.
+3a. **A reader racing a writer cannot be fixed by exclusion here.** The crossing
+   lock eliminates writer-against-writer (invariant 8). The standing recheck is
+   a READER, and it must not hold that lock across its verify: a verify is
+   seconds of ddcutil round trips and screen captures, and making a lock request
+   wait on one would trade a reporting fault for a security one. So the recheck
+   uses optimistic concurrency instead -- measure, then check whether the state
+   moved, and discard if it did. **That is only valid if the discarded work had
+   no externally visible effect**, which is invariant 21 and which took three
+   attempts to get right: the verdict was discarded correctly all along while
+   the alert inside it had already reached a human. The general form: a
+   transaction that can be rolled back must not emit before it commits.
 3b. **Fidelity beats diversity, measured.** Classifying the last ten defects by
    what would have caught them: six are real-component integration, one is a
    platform primitive, and NONE is environment diversity. A second stack (X11)

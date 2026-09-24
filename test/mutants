@@ -570,3 +570,21 @@ f bin/vigilant
 t cross-lock
 -   mkdir -p "$RUN_DIR" 2>/dev/null || true
 +   true
+
+= a-recheck-verify-alerts-before-its-verdict-is-weighed
+f bin/vigilant
+t standing-recheck
+-   if [ -n "${ALERT_DEFER:-}" ]; then
++   if false; then
+
+= the-recheck-does-not-defer-its-verify-alerts
+f bin/vigilant
+t standing-recheck
+-   ALERT_DEFER=1
++   ALERT_DEFER=
+
+= a-discarded-verdict-is-never-logged
+f bin/vigilant
+t standing-recheck
+-     _log "NO-VERDICT: a crossing was in flight; not judging '$(_depth)'"
++     true

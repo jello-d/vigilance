@@ -28,9 +28,24 @@ cat > "$VIGILANCE_HOOK_ROOT/alert.d/10-sink" <<EOF
 printf '%s\n' "\$1" >> $T/alerts
 EOF
 chmod +x "$VIGILANCE_HOOK_ROOT/alert.d/10-sink"
-_verifier() { printf '#!/bin/sh\nexit %s\n' "$1" \
-                > "$VIGILANCE_HOOK_ROOT/sleep.verify.d/10-probe"
-              chmod +x "$VIGILANCE_HOOK_ROOT/sleep.verify.d/10-probe"; }
+# A VERIFIER WITH AN OPTIONAL MESSAGE. Two faults that differ only by exit
+# code and say nothing are not two findings: the drift alert carries the verify
+# OUTPUT, so with no output they read identically and dedup is right to collapse
+# them. A second fault a human could tell apart has different words.
+_verifier() {   # <rc> [message]
+  _vp=$VIGILANCE_HOOK_ROOT/sleep.verify.d/10-probe
+  # AND IT RECORDS THAT IT RAN. Some guards here are about whether the verify
+  # tier EXECUTED AT ALL rather than about its verdict, and no outcome
+  # assertion can tell "ran, then the verdict was discarded" from "never ran":
+  # both are a silent pass with no alert. `printf`, never `: >` -- a redirection
+  # error on a special builtin exits the shell outright under dash.
+  printf '#!/bin/sh\nprintf "" > %s/ran\n' "$T" > "$_vp"
+  if [ -n "${2:-}" ]; then
+    printf 'echo "%s" >&2\n' "$2" >> "$_vp"
+  fi
+  printf 'exit %s\n' "$1" >> "$_vp"
+  chmod +x "$_vp"
+}
 _enforce() { _r=0; "$VIGILANT" enforce >/dev/null 2>>"$T/stderr" || _r=$?
              printf '%s' "$_r"; }
 _alerts() { wc -l < "$T/alerts" 2>/dev/null | tr -d ' '; }
@@ -109,7 +124,7 @@ suppressed; an operator debugging a notifier has no way to see every event"
 # Dedup keyed too broadly would swallow a new problem because an old one is
 # still open, which is worse than the storm it prevents.
 : > "$T/alerts"
-_verifier 4                       # a different failing exit == a different msg
+_verifier 4 "a second, unrelated fault with words of its own"
 [ "$(_enforce)" != 0 ] || fail "a second, different fault was not reported"
 [ "$(_alerts)" != 0 ] || fail "a DIFFERENT fault was swallowed because an
 earlier one was still within its cooldown. Dedup must key on the fault, not on
@@ -195,6 +210,14 @@ grep -q "STILL-DRIFTED" "$VIGILANCE_LOG" && \
 #
 # Reproduced by a verify hook that CROSSES AN EDGE while it runs, which is what
 # a real wake does to a recheck already in progress.
+#
+# THE COOLDOWN GOES OFF FOR THE WHOLE OF CASE 9. Case 3 turned dedup ON because
+# dedup was ITS subject; here the race guard is, and the alerts this case must
+# see or not see repeat messages earlier cases already raised. Left on, every
+# assertion below reads whatever its NEIGHBOURS happened to do -- which is the
+# trap this file's header warns about, and it made two mutations survive: the
+# alert they were meant to catch was suppressed as a repeat, not by the guard.
+VIGILANCE_ALERT_COOLDOWN=0; export VIGILANCE_ALERT_COOLDOWN
 : > "$T/alerts"
 # case 8 removed this tree to test the no-verify-hooks path; put it back
 mkdir -p "$VIGILANCE_HOOK_ROOT/sleep.verify.d"
@@ -217,20 +240,38 @@ if grep -q '^drift$' "$T/alerts" 2>/dev/null; then
 inside a recheck, and an alert that fires on a correct machine is how the
 enforce timer got stopped by hand once already"
 fi
+# NOR A hook-failed ONE, which is the half that kept reaching live screens.
+# Discarding the VERDICT is not enough: the hook's failure is alerted from
+# inside cmd_verify, so by the time the recheck decides its answer is worthless
+# the toast has already been delivered, and nothing can unring a notification.
+# Observed on manifold 2026-09-24T17:51:20, with both earlier guards deployed:
+#
+#   17:51:13  cross lock: open -> lock
+#   17:51:20  HOOK FAILED (rc=1): lock.verify 50-locker-up      <- toasted
+#   17:51:21  an edge was crossed while verifying 'lock'; no verdict
+#
+# 9b's marker covers a crossing already running when the recheck begins; this
+# covers one that STARTS while it is measuring, which no ordering of the
+# in-flight check can catch.
+if grep -q '^hook-failed$' "$T/alerts" 2>/dev/null; then
+  fail "a crossing that began DURING the verify still notified hook-failed. The
+recheck threw its verdict away and the alert had already gone out, so the user
+sees a lock failure for a lock that came up perfectly"
+fi
+# ...and the finding is still RECORDED. Deferring a notification must never
+# thin the log: the audit tier reads it, and this is the one place where a
+# suppressed alert is about a hook that genuinely did return non-zero.
+grep -q "HOOK FAILED (rc=1): sleep.verify 10-probe" "$VIGILANCE_LOG" \
+  || fail "the deferred hook failure was not written to the log at all.
+Throttling is a courtesy to the human, never a gap in the record"
 
 # ...AND A REAL DRIFT STILL LANDS. Without this the fix could be "never report
 # anything", which passes the case above and switches the tier off entirely.
-#
-# THE COOLDOWN GOES OFF FOR THIS ONE. Earlier cases in this file raised the
-# same drift message and case 3 deliberately turned dedup ON, so a correct
-# alert here is suppressed as a repeat -- and the assertion would then be about
-# what its NEIGHBOURS did rather than about the guard. That is the trap this
-# file's own header warns about.
+# (Dedup is off from the top of case 9; see the note there.)
 : > "$T/alerts"
 go open
 go sleep
 _verifier 1
-VIGILANCE_ALERT_COOLDOWN=0; export VIGILANCE_ALERT_COOLDOWN
 [ "$(_enforce)" != 0 ] || fail "with the machine sitting still, a failing
 verify was not reported. Discarding a verdict is only correct when an edge
 moved underneath it"
@@ -264,10 +305,26 @@ _verifier 1
 # THE MARKER IS THE CROSSING LOCK. One object answers both "may I cross?"
 # and "is it safe to judge?", because they are the same window.
 _mark=$VIGILANCE_RUN_DIR/crossing.lock
+rm -f "$T/ran"
 printf '%s %s\n' "$$" "$(date +%s)" > "$_mark"
 [ "$(_enforce)" = 0 ] || fail "a recheck judged the machine while a crossing was
 still running. The depth is committed before the act tier, so mid-crossing the
 record is ahead of the machine ON PURPOSE and the gap is guaranteed"
+# THE VERIFY MUST NOT HAVE RUN, and that is the ONLY thing separating this guard
+# from the post-verify one below. Both discard the verdict and neither notifies
+# (the verify's own alerts are deferred either way), so an assertion about the
+# outcome passes with this check deleted -- which is exactly how the mutation
+# removing it survived. What the pre-check uniquely buys is that the verify tier
+# never runs CONCURRENTLY with the act tier: they touch the same hardware, and a
+# ddcutil round trip or a screen capture taken mid-crossing measures a machine
+# in motion. Cheaper, too, but the concurrency is the reason.
+[ ! -e "$T/ran" ] || fail "the verify tier RAN while a crossing was in flight.
+Its hooks read the hardware the act tier is still writing, so the measurement is
+of a machine in motion -- and the verdict is thrown away afterwards anyway"
+grep -q "NO-VERDICT: a crossing was in flight" "$VIGILANCE_LOG" \
+  || fail "the pre-verify guard fired and the log does not say so. Both guards
+end in the same silent outcome, so only the RECORD can tell a reader which one
+declined to judge"
 if grep -q '^hook-failed$' "$T/alerts" 2>/dev/null; then
   fail "the verify RAN during a crossing, raising a hook-failed alert from
 inside cmd_verify. The guard has to come before the verify, not after it"

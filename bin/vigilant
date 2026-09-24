@@ -399,6 +399,31 @@ _alert_repeat() {   # kind message -> 0 if this is a suppressible repeat
 
 _alert() {   # kind message
   _log "ALERT [$1] $2"
+  # DEFERRED, AND THE LOG IS STILL WRITTEN. The standing recheck owns the
+  # verdict for the verify it runs, so it must own the ALERT too -- a hook
+  # failing inside that verify is not an independent finding, it is the
+  # evidence the recheck is about to weigh, and the recheck already carries the
+  # hook's own words into its `drift` message.
+  #
+  # OBSERVED ON A LIVE BOX, and it is the third variant of one race:
+  #
+  #   17:51:13  cross lock: open -> lock
+  #   17:51:20  cross unlock: lock -> open        <- unlocked DURING the verify
+  #   17:51:20  HOOK FAILED: lock.verify 50-locker-up
+  #   17:51:21  enforce: an edge was crossed while verifying 'lock'; no verdict
+  #
+  # The first three lines are from the LOG; the fourth was in the journal only,
+  # which is why the discard is now logged too -- the log recorded a deferred
+  # hook failure and then never said what it had been deferred to.
+  #
+  # The recheck discarded its verdict exactly as designed. The toast had
+  # already gone out, because it is raised from INSIDE cmd_verify, and NOTHING
+  # CAN UNRING A NOTIFICATION. Skipping when a crossing is already in flight
+  # cannot help: this one started after the verify began.
+  if [ -n "${ALERT_DEFER:-}" ]; then
+    _log "  (deferred to the standing recheck's verdict; logged, not notified)"
+    return 0
+  fi
   if _alert_repeat "$1" "$2"; then
     _log "  (repeat within ${ALERT_COOLDOWN}s; logged, not notified)"
     return 0
@@ -2889,16 +2914,30 @@ _enforce_recheck() {   # from
   # tier, so mid-crossing it is both correct and perfectly still. Asked before
   # the verify, not after, because the hook-failure alert is raised from INSIDE
   # cmd_verify -- discarding the verdict afterwards would still have toasted.
+  # AND THE DISCARD GOES IN THE LOG, not only on stdout. Once the verify's own
+  # alerts are DEFERRED "to the standing recheck's verdict", the log owes the
+  # reader that verdict: otherwise a hook failure is recorded, marked as
+  # deferred, and then nothing ever says what it was deferred TO. A drift is
+  # already logged (STILL-DRIFTED); a discarded pass was the one outcome
+  # visible nowhere but the journal, which the audit tier does not read.
   if _crossing_inflight; then
     echo "enforce: a crossing is in flight; no verdict"
+    _log "NO-VERDICT: a crossing was in flight; not judging '$(_depth)'"
     return 0
   fi
   _rq_d=$(_depth); _rq_t=$(_depth_at)
+  # ALERTS ARE THE RECHECK'S TO RAISE, not its verify's. Set across the call
+  # and cleared straight after, so an ordinary crossing-time verify -- which
+  # has no verdict to weigh and no chance to be invalidated -- still alerts
+  # immediately.
+  ALERT_DEFER=1
   _rv=$(cmd_verify 2>&1) || _rvrc=$?
+  ALERT_DEFER=
   _rv=$(_flatten "$_rv")
   if [ "$(_depth)" != "$_rq_d" ] || [ "$(_depth_at)" != "$_rq_t" ] \
      || _crossing_inflight; then
     echo "enforce: an edge was crossed while verifying '$_rq_d'; no verdict"
+    _log "NO-VERDICT: an edge was crossed while verifying '$_rq_d'"
     return 0
   fi
   case "${_rvrc:-0}" in

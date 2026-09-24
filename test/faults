@@ -111,6 +111,18 @@ f a Session.Lock arriving at the sleep rung
 e REFUSE: decline to raise, and log it
 t session-ladder
 
+# THE ONLY CELL WITH THREE SHIPPED FIXES BEHIND IT. Each was right about the
+# variant in front of it: the depth moving, a crossing already running, and a
+# crossing that STARTS mid-verify. The last one is not a state the recheck can
+# check for at any point, because the alert has already left the process by the
+# time the state could be re-read -- so the response is DEGRADE (the verdict is
+# discarded and nothing is notified), and the log carries the whole finding.
+= crossing-during-a-recheck
+m the standing recheck
+f a real `go` crossing an edge while the recheck is inside its verify tier
+e DEGRADE: no verdict and NO notification; the log keeps the record
+t fault-recheck
+
 # THE INJECTOR WORKS AND THE SCENARIO DOES NOT, and the cells stay empty
 # until it does. Verified in the guest: a uinput SW_LID switch is found by
 # udev and logind logs its own "Lid closed." -- the same line the live box
