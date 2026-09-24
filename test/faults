@@ -23,7 +23,19 @@
 # (VIGILANCE_LOCKER_UP, VIGILANCE_SYS_BACKLIGHT, ...) exist so the STUB tier
 # can model a device it does not have. Using them here would measure a fixture
 # again, which is exactly how `activating` shipped. In a guest we can kill the
-# real process, chmod the real directory and cut the real power.
+# real process, mount over the real directory and cut the real power.
+#
+# THAT RULE IS ABOUT THE MACHINE, NOT ABOUT EXIT CODES. A hook that exits 78 IS
+# the fault -- there is no device being pretended at -- so a cell whose fault is
+# purely a hook's exit status is honestly covered in the stub tier, and saying
+# so beats writing a slower duplicate to look thorough. What may never be faked
+# is the MACHINE: a device, a process, a filesystem, a clock.
+#
+# AND SOME FAULTS CANNOT BE INJECTED AS ROOT AT ALL. `chmod a-w` does nothing
+# to root, so "unwritable" needs a read-only MOUNT; the same reason
+# test/actuators declares `require unprivileged`. A fault that did not take
+# makes every assertion after it pass for the wrong reason, so each cell
+# asserts its own precondition.
 #
 # Format, one record per fault:
 #
@@ -49,25 +61,25 @@ t -
 m the act tier
 f a lock.d hook ordered ahead of the provider that sleeps forever
 e ACT: the per-hook bound fires and the lock STILL happens
-t -
+t fault-act
 
 = hook-fails
 m the act tier
 f a lock.d hook that exits 1
 e ALERT: hook-failed raised, and the edge still crosses
-t -
+t fault-act
 
 = every-verify-hook-declines
 m the verify tier
 f all wired verify hooks exit 78
 e DEGRADE: "NOTHING CHECKED" is a FAILURE, never a pass
-t -
+t not-applicable
 
 = runtime-dir-read-only
 m the depth record
-f chmod a-w on the runtime dir before a crossing
+f a read-only tmpfs mounted over the runtime dir (root ignores modes)
 e ACT: the depth write fails and THE LOCK STILL HAPPENS
-t -
+t fault-state
 
 = crossing-lock-leaked
 m the crossing lock
