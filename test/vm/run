@@ -132,6 +132,7 @@ packages:
   - swayidle
   - dbus-user-session
   - wayfire
+  - git
 runcmd:
   - |
     {
