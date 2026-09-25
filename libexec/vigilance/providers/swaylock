@@ -153,10 +153,32 @@ done
 # Checked only on the FAILURE path: it is a diagnosis, not a precondition, and
 # a locker that started needs no explaining.
 echo "swaylock provider: could not start $UNIT" >&2
-if ! systemctl --user show-environment 2>/dev/null | grep -q '^WAYLAND_DISPLAY='
-then
-  echo "swaylock provider: the user manager has no WAYLAND_DISPLAY, so the" \
-    "unit cannot reach the compositor. A session normally imports it" \
-    "(systemctl --user import-environment WAYLAND_DISPLAY)." >&2
+# TWO CAUSES, AND THEY NEED DIFFERENT REMEDIES. The first version of this piped
+# `show-environment` into grep, so THE PIPELINE'S STATUS WAS GREP'S: a
+# `systemctl --user` that failed outright was indistinguishable from one that
+# succeeded without the variable, and both printed the WAYLAND_DISPLAY advice.
+#
+# Measured with the user manager stopped, which is the one way the
+# transient-unit design fails outright:
+#
+#   swaylock provider: could not start screen-lock.service
+#   swaylock provider: the user manager has no WAYLAND_DISPLAY, ...
+#     A session normally imports it (systemctl --user import-environment ...).
+#
+# That sends the reader to import a variable INTO A MANAGER THAT DOES NOT
+# EXIST, on the most security-critical edge there is, while the real cause is
+# one status check away. A wrong diagnosis is worse than none: it is
+# confidently actionable.
+if _env=$(systemctl --user show-environment 2>/dev/null); then
+  if ! printf '%s\n' "$_env" | grep -q '^WAYLAND_DISPLAY='; then
+    echo "swaylock provider: the user manager has no WAYLAND_DISPLAY, so the" \
+      "unit cannot reach the compositor. A session normally imports it" \
+      "(systemctl --user import-environment WAYLAND_DISPLAY)." >&2
+  fi
+else
+  echo "swaylock provider: cannot reach the user bus, so NO transient unit" \
+    "can be started at all. The locker runs as a --user unit, so a dead or" \
+    "absent per-user systemd instance disables locking entirely" \
+    "(check: systemctl --user show-environment)." >&2
 fi
 exit 1

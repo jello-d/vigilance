@@ -51,11 +51,20 @@ f SIGKILL swaylock while the machine is at the lock rung
 e RECOVER: ExecStopPost crosses unlock, depth returns to open
 t fault-locker
 
+# THE WORSE HALF OF THE SAME MECHANISM. Above, a locker that was up dies and
+# must be RECOVERED from; here one never comes up and must be REPORTED, or
+# `go lock` returns success about a session nothing is guarding and
+# lock-on-sleep lets the box suspend on the strength of it.
+#
+# VIGILANCE_LOCKER is a SHIPPED KNOB, not a probe override: the locker is the
+# integrator's choice, so supplying one that exits non-zero is a real locker
+# behaving badly. It fakes no device, process, filesystem or clock, which is the
+# line this file draws.
 = locker-dies-before-committing
 m the lock provider
 f a locker that exits non-zero before taking the session lock
 e ALERT: the provider fails loudly and verify lock FAILS
-t -
+t fault-locker
 
 = hook-hangs-before-the-provider
 m the act tier
@@ -225,11 +234,19 @@ f a hundred lock-session signals in a burst
 e ACT: one crossing; the dedup holds
 t -
 
+# THE MOST LIKELY OUTSIDE-INTEGRATOR FAILURE, now that the repo is public.
+# Everything about the lock leans on a per-user systemd bus: the provider starts
+# the locker as a transient --user unit and locker-up asks systemd whether it is
+# active. A reader whose stack has no such bus cannot lock, and the only
+# question is whether vigilance SAYS SO or reports a locked session.
+#
+# The bus is really STOPPED (the socket unit), not simulated with a bogus
+# DBUS_SESSION_BUS_ADDRESS, which would be faking a process.
 = user-bus-killed
 m the lock provider
-f kill the user dbus so the transient unit cannot be started
+f stop the user dbus socket so the transient unit cannot be started
 e ALERT: the provider fails LOUDLY rather than reporting a lock
-t -
+t fault-userbus
 
 = backlight-device-removed
 m the peripheral actuators

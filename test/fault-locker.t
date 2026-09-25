@@ -61,4 +61,47 @@ reports outstanding state. The fault is over; its wreckage should be too"
 await 10 locker_up || fail "the second lock crossed its edge but brought up no
 locker; the recovery left the provider unable to work"
 
+# --- FAULT: locker-dies-before-committing -----------------------------------
+# The other half of the same mechanism, and the WORSE half. Above, a locker that
+# was up dies; here one never comes up at all. The distinction matters because
+# the response differs: a dead locker must be RECOVERED from, but a locker that
+# never committed must be REPORTED, loudly, or `go lock` returns success about a
+# session nothing is guarding.
+#
+# THE LOCKER IS REAL, not a stub of one. VIGILANCE_LOCKER is a shipped knob
+# precisely because the locker is the integrator's choice, so supplying one that
+# exits non-zero is a real locker behaving badly rather than a fixture standing
+# in for a machine. That is the line test/faults draws: a device, a process, a
+# filesystem or a clock may not be faked, and this fakes none of them.
+session_reset
+wire lock ''      swaylock
+wire lock .verify locker-up
+mkdir -p "$T/bin"
+printf '#!/bin/sh\nexit 1\n' > "$T/bin/deadlocker"
+chmod +x "$T/bin/deadlocker"
+
+_rc=0
+VIGILANCE_LOCKER="$T/bin/deadlocker" PATH="$T/bin:$PATH" \
+  "$VIGILANT" go lock >>"$T/out" 2>>"$T/stderr" || _rc=$?
+
+# 1 IS THE WHOLE POINT: "crossed, but a hook failed". 0 would tell
+# lock-on-sleep.service that the box is safe to suspend, and it reads nothing
+# but the status.
+[ "$_rc" = 1 ] || fail "a locker that exits non-zero gave rc=$_rc from go lock.
+1 means 'crossed but a hook failed'; 0 tells the suspend unit the session is
+secured and the box sleeps UNLOCKED, which is the founding failure of this
+package"
+locker_up && fail "a locker is running after one that exits 1"
+said "HOOK FAILED" || fail "the provider could not bring a locker up and nothing
+was logged. Silence here is the false green: the edge is recorded, no locker
+exists, and every tier that trusts the record says the session is secured"
+
+# AND THE VERIFY TIER MUST AGREE. The record and the machine disagree at this
+# moment by design, so the tier whose job is to notice that has to.
+_vrc=0
+"$VIGILANT" verify lock >>"$T/out" 2>>"$T/stderr" || _vrc=$?
+[ "$_vrc" != 0 ] || fail "verify lock reported success with no locker running.
+That is the exact claim lock-on-sleep.service checks as ExecStartPost before
+allowing a suspend"
+
 pass

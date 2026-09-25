@@ -272,6 +272,13 @@ On top of that:
    would have caught nothing; running the real components did.
 4. **Nothing gates deployment.** The package pin tracks `head`, so a push
    reaches the machines on the next integrator run. The operator is the canary.
+5. **The mutation corpus cannot reach a VM-only guard.** `test/mutate` runs on
+   the host, and a record whose named test SKIPS there is refused rather than
+   scored, which is correct. But it means every guard covered only by a session
+   or fault scenario is outside the corpus: "N records all killed" is a claim
+   about the stub tier, not about the suite. Measured: of the tests named by the
+   103 records, none is VM-only. Such guards have to be proven to bite by hand,
+   by running the scenario against the unfixed code once, and saying so.
 
 ## 6. Rules of thumb that earned their place
 
