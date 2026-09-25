@@ -1,0 +1,275 @@
+#!/bin/sh
+# test/vm/crash - CRASH CONSISTENCY: hard-kill the machine mid-crossing.
+#
+# FAULT: power-cut-mid-crossing.
+#
+# THIS IS THE ONE FAULT THAT CANNOT BE A SCENARIO, because the guest is the
+# thing being killed: nothing inside it survives to report. So the driver lives
+# on the host, and the verdict comes from the NEXT boot of the same disk.
+#
+# It is also the one fault a desk cannot test at all. Everything else in the
+# matrix could in principle be done to a real box; cutting power mid-crossing,
+# fifty times, cannot.
+#
+# WHAT IT IS ACTUALLY ASKING. A crossing commits the depth record and then runs
+# the act tier, so there is a window in which the record leads the machine BY
+# DESIGN. Kill the machine there and the questions are:
+#
+#   is the log still a LOG?     a torn record is worse than a lost one, because
+#                               the audit tier parses by line and a torn record
+#                               reads as something it is not
+#   did committed data survive? losing unsynced records is expected; losing
+#                               synced ones means corruption
+#   did the crossing lock leak? it was HELD at the moment of the kill, which is
+#                               the leaked-marker case arriving for real
+#   can the ladder still act?   a recovery that cannot lock has turned a
+#                               transient fault into a permanent one
+#
+# THE KILL IS AIMED, NOT RANDOM. A random kill mostly lands between crossings,
+# proves nothing, and gives no way to tell that it proved nothing. The guest
+# writes a marker to the serial the instant it is inside the act tier with the
+# depth committed, and the host kills on reading it. Same discipline as every
+# other fault cell: assert the precondition, or the result is about a path that
+# was never taken.
+#
+# THE WINDOW IS WIDENED ON PURPOSE. A hook that sleeps, with the per-hook bound
+# raised for that one crossing, turns a millisecond window into seconds. That is
+# the mute-on-lock lesson: the race was real and narrow, eight trials found
+# nothing, and widening it turned an argument into evidence.
+#
+# Prereqs: test/vm/run must have built the preserved image first (this reuses
+# it rather than rebuilding a machine, which is the whole point of the split).
+set -eu
+
+HERE=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
+VM=${VIGILANCE_VM_DIR:-/var/tmp/vigilancevm}
+BUILT=$VM/built.qcow2
+TRIALS=${VIGILANCE_CRASH_TRIALS:-3}
+BOOT1_MAX=${VIGILANCE_CRASH_BOOT1_MAX:-300}
+BOOT2_MAX=${VIGILANCE_CRASH_BOOT2_MAX:-240}
+
+_die() { echo "crash: $*" >&2; exit 1; }
+
+for _c in qemu-system-x86_64 qemu-img xorriso; do
+  command -v "$_c" >/dev/null 2>&1 || _die "$_c not installed"
+done
+[ -w /dev/kvm ] || _die "/dev/kvm not writable"
+[ -f "$BUILT" ] || _die "no preserved image at $BUILT.
+Run test/vm/run once first: this reuses THE MACHINE and supplies only the code
+under test, which is what keeps the snapshot honest."
+
+# THE CODE UNDER TEST IS REPACKED EVERY RUN, never taken from the preserved
+# image. If vigilance's own code were inside that image every commit would
+# invalidate it SILENTLY, which is the staleness class this project keeps paying
+# for (a shadowed binary, a pinned argv, a checkout a commit behind).
+# THE VERDICT SCRIPT IS PARSE-CHECKED TOO. It is copied into the guest and run
+# there by systemd, so a syntax error in it surfaces as "the verdict unit never
+# ran" -- indistinguishable from a machine that failed to boot after the cut,
+# which is the more alarming reading. Same rule as the guest script below, and
+# the same reason: cheapest possible check, before a four-minute round trip.
+dash -n "$HERE/test/vm/crash-verify" \
+  || _die "test/vm/crash-verify does not parse; the verdict would never run"
+
+echo "crash: packing the repo"
+xorriso -as mkisofs -R -J -V VIGILANCE -quiet \
+  -o "$VM/repo.iso" "$HERE" 2>/dev/null || _die "repo.iso failed"
+
+# --- the arming boot's script ------------------------------------------------
+# QUOTED HEREDOC, and the one host value substituted afterwards. Twice a
+# BACKTICK IN A COMMENT inside an unquoted seed heredoc ran on the developer's
+# box and spliced host state into the guest config. Prose lives out here.
+#
+# NO HEREDOC INSIDE runcmd. It is a YAML literal scalar, so every line must
+# stay indented, and a heredoc delimiter cannot be: a `[Unit]` at column 0 would
+# END THE BLOCK and truncate the script. `printf` needs no delimiter. The
+# verdict script is a REPO FILE for the same reason, copied off the ISO rather
+# than quoted through two layers.
+_mkseed() {   # <dir> <iso> <instance-id>
+  rm -rf "$1"; mkdir -p "$1"
+  printf 'instance-id: %s\nlocal-hostname: vigilance-crash\n' "$3" \
+    > "$1/meta-data"
+  cat > "$1/user-data" <<'SEED'
+#cloud-config
+runcmd:
+  - |
+    {
+    # cloud-init's runcmd has NO HOME, so a PATH built from "$HOME/.local/bin"
+    # silently becomes "/.local/bin" and every tool reads as not-installed --
+    # a harness bug that looks exactly like a product failure. Set it once.
+    HOME=/root; export HOME
+    _t=/dev/ttyS0
+    _say() { printf '%s\n' "$*" > "$_t"; }
+    mkdir -p /mnt/repo /root/vigilance
+    mount -o ro /dev/disk/by-label/VIGILANCE /mnt/repo
+    cp -a /mnt/repo/. /root/vigilance/
+    cd /root/vigilance
+    chmod +x bin/* setup.sh test/vm/crash-verify || true
+    sh setup.sh install >/dev/null 2>&1 || _say "CRASH_INSTALL_RC=$?"
+    PATH="$HOME/.local/bin:$PATH"; export PATH
+    V=$(command -v vigilant) || _say "CRASH_NO_VIGILANT"
+    [ -n "${V:-}" ] || exit 1
+    LOG=/root/.local/state/vigilance.log
+    mkdir -p /root/.local/state
+    cp /root/vigilance/test/vm/crash-verify /root/crash-verify
+    chmod +x /root/crash-verify
+    printf '[Unit]\nDescription=vigilance crash verdict\n' \
+      > /etc/systemd/system/crash-verify.service
+    printf 'After=multi-user.target\n[Service]\nType=oneshot\n' \
+      >> /etc/systemd/system/crash-verify.service
+    printf 'ExecStart=/root/crash-verify\nTimeoutStartSec=120\n' \
+      >> /etc/systemd/system/crash-verify.service
+    printf 'Environment=HOME=/root\n' \
+      >> /etc/systemd/system/crash-verify.service
+    printf '[Install]\nWantedBy=multi-user.target\n' \
+      >> /etc/systemd/system/crash-verify.service
+    systemctl enable crash-verify.service >/dev/null 2>&1 || true
+    printf 'boot=%s\n' "$(cat /proc/sys/kernel/random/boot_id)" \
+      > /root/crash-armed
+    _i=0
+    while [ "$_i" -lt 10 ]; do
+      "$V" force lock >/dev/null 2>&1 || true
+      "$V" force open >/dev/null 2>&1 || true
+      _i=$((_i + 1))
+    done
+    sync
+    _b=$(awk 'END {print NR}' "$LOG" 2>/dev/null || echo 0)
+    printf 'base=%s\n' "$_b" >> /root/crash-armed
+    sync
+    _say "CRASH_BASE=$_b"
+    _i=0
+    while [ "$_i" -lt 20 ]; do
+      "$V" force lock >/dev/null 2>&1 || true
+      "$V" force open >/dev/null 2>&1 || true
+      _i=$((_i + 1))
+    done
+    _say "CRASH_WROTE=$(awk 'END {print NR}' "$LOG" 2>/dev/null || echo 0)"
+    mkdir -p /root/.config/vigilance/hooks/lock.d
+    printf '#!/bin/sh\nprintf "CRASH_MIDCROSS\\n" > /dev/ttyS0\nsleep 300\n' \
+      > /root/.config/vigilance/hooks/lock.d/50-hang
+    chmod +x /root/.config/vigilance/hooks/lock.d/50-hang
+    _say "CRASH_ARMED ok"
+    VIGILANCE_HOOK_TIMEOUT=300 "$V" go lock >/dev/null 2>&1 &
+    sleep 300
+    } > /root/log 2>&1
+    cat /root/log > /dev/ttyS0
+    poweroff -f
+SEED
+  xorriso -as mkisofs -R -J -V CIDATA -quiet -o "$2" "$1" 2>/dev/null \
+    || _die "seed.iso failed"
+}
+
+# PARSE THE GUEST SCRIPT BEFORE BOOTING IT. `dash -n` on this file sees the
+# runcmd as a string, so a syntax error in the guest is otherwise invisible
+# until a three-minute boot ends in silence. That has happened twice, both times
+# from a quoting layer eating a character on the way in.
+_parsecheck() {   # <seed-dir>
+  _gs=$VM/crash-guest-script
+  awk '/^  - \|$/ { f = 1; next } f' "$1/user-data" | sed 's/^    //' > "$_gs"
+  [ -s "$_gs" ] || _die "could not extract the guest script"
+  dash -n "$_gs" || _die "the guest runcmd does not parse; see $_gs"
+}
+
+_boot() {   # <overlay> <seed-iso> <console> <marker> <timeout> -> sets _qpid
+  : > "$3"
+  qemu-system-x86_64 -enable-kvm -machine q35 -m 2048 -smp 2 \
+    -drive file="$1",if=virtio \
+    -drive file="$2",if=virtio,media=cdrom \
+    -drive file="$VM/repo.iso",if=virtio,media=cdrom \
+    -netdev user,id=n0 -device virtio-net-pci,netdev=n0 \
+    -display none -serial "file:$3" -monitor none -no-reboot \
+    >/dev/null 2>&1 &
+  _qpid=$!
+  _w=0
+  while [ "$_w" -lt "$5" ]; do
+    if grep -q "$4" "$3" 2>/dev/null; then return 0; fi
+    if ! kill -0 "$_qpid" 2>/dev/null; then return 1; fi
+    sleep 2
+    _w=$((_w + 2))
+  done
+  return 1
+}
+
+_pass=0
+_fail=0
+_trial=0
+while [ "$_trial" -lt "$TRIALS" ]; do
+  _trial=$((_trial + 1))
+  _ov=$VM/crash.qcow2
+  _sd=$VM/crash-seed
+  _c1=$VM/crash-$_trial-boot1.log
+  _c2=$VM/crash-$_trial-boot2.log
+
+  # A FRESH OVERLAY PER TRIAL, because cloud-init runs once per instance-id: a
+  # reused one would skip the arming entirely and the trial would look like a
+  # pass having done nothing.
+  rm -f "$_ov"
+  qemu-img create -q -f qcow2 -F qcow2 -b "$BUILT" "$_ov" 8G \
+    || _die "overlay failed"
+  _mkseed "$_sd" "$VM/crash-seed.iso" vigilance-crash-1
+  _parsecheck "$_sd"
+
+  printf 'crash: trial %s/%s: arming\n' "$_trial" "$TRIALS"
+  if ! _boot "$_ov" "$VM/crash-seed.iso" "$_c1" 'CRASH_MIDCROSS' "$BOOT1_MAX"
+  then
+    kill -9 "$_qpid" 2>/dev/null || true; wait "$_qpid" 2>/dev/null || true
+    echo "crash: trial $_trial: the guest never reached a crossing."
+    echo "       THE FAULT WAS NOT INJECTED, so this is not a passing trial."
+    sed -n 's/^.*\(CRASH_[A-Z_]*=*[^ ]*\).*$/       saw: \1/p' "$_c1" | tail -5
+    echo "       console: $_c1"
+    _fail=$((_fail + 1))
+    continue
+  fi
+
+  # THE CUT. SIGKILL, not a shutdown: the guest must get no chance to flush,
+  # which is the entire experiment. Anything gentler tests a clean stop, and a
+  # clean stop is the path that already works.
+  _wrote=$(sed -n 's/.*CRASH_WROTE=\([0-9]*\).*/\1/p' "$_c1" | tail -1)
+  _base=$(sed -n 's/.*CRASH_BASE=\([0-9]*\).*/\1/p' "$_c1" | tail -1)
+  kill -9 "$_qpid" 2>/dev/null || true
+  wait "$_qpid" 2>/dev/null || true
+  printf 'crash: trial %s: CUT mid-crossing (synced %s, wrote %s)\n' \
+    "$_trial" "${_base:-?}" "${_wrote:-?}"
+
+  # --- the verdict boot, on the SAME disk ------------------------------------
+  if ! _boot "$_ov" "$VM/crash-seed.iso" "$_c2" 'CRASH_EXIT=' "$BOOT2_MAX"
+  then
+    kill -9 "$_qpid" 2>/dev/null || true; wait "$_qpid" 2>/dev/null || true
+    echo "crash: trial $_trial: the machine did not come back, or the verdict"
+    echo "       unit never ran. A box that cannot boot after a power cut is a"
+    echo "       worse finding than any assertion, not a lesser one."
+    echo "       console: $_c2"
+    _fail=$((_fail + 1))
+    continue
+  fi
+  kill "$_qpid" 2>/dev/null || true; wait "$_qpid" 2>/dev/null || true
+
+  grep -a 'CRASH_FAIL\|CRASH_SURVIVED\|CRASH_MALFORMED\|CRASH_DEPTH' "$_c2" \
+    | sed 's/^/       /' || true
+  _surv=$(sed -n 's/.*CRASH_SURVIVED=\([0-9]*\).*/\1/p' "$_c2" | tail -1)
+  # REPORTED, NEVER ASSERTED. `_log` does not fsync, so records still in the
+  # page cache at the cut are legitimately gone -- that is a property worth
+  # MEASURING and stating, not a defect to fail on. Failing on it would demand
+  # an fsync per record on the security path to buy a forensic nicety.
+  if [ -n "${_wrote:-}" ] && [ -n "${_surv:-}" ]; then
+    printf 'crash: trial %s: log durability %s of %s records kept\n' \
+      "$_trial" "$_surv" "$_wrote"
+  fi
+
+  if grep -qa 'CRASH_EXIT=0' "$_c2"; then
+    echo "crash: trial $_trial: PASS"
+    _pass=$((_pass + 1))
+  else
+    echo "crash: trial $_trial: FAIL (console: $_c2)"
+    _fail=$((_fail + 1))
+  fi
+done
+
+# KEEP THE DISK ON REQUEST. A crash artifact cannot be reproduced on demand, so
+# throwing the overlay away by default is right for a loop and wrong the one
+# time the verdict surprises you.
+[ "${1:-}" = --keep ] || rm -f "$VM/crash.qcow2"
+printf '\ncrash: %s passed, %s failed, of %s trials\n' "$_pass" "$_fail" \
+  "$TRIALS"
+[ "$_fail" = 0 ] || exit 1
+[ "$_pass" -gt 0 ] || _die "no trial completed; nothing was proven"
+exit 0

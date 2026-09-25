@@ -1,0 +1,155 @@
+#!/bin/sh
+# test/vm/crash-verify - the verdict, run on the boot AFTER a hard power cut.
+#
+# Installed and enabled by test/vm/crash's first boot, then run by systemd on
+# every subsequent boot of that overlay. It does its work only when the boot it
+# is running in is NOT the one that armed it.
+#
+# WHY A BOOT ID AND NOT A FLAG FILE. `systemctl enable` during boot 1 adds this
+# to a multi-user.target that is already being reached, so systemd may start it
+# in the SAME boot -- and a verdict script that runs in boot 1 would assert
+# against an un-crashed machine and power it off before the crossing ever
+# started. Comparing /proc/sys/kernel/random/boot_id against the value the
+# arming boot recorded is true regardless of when the unit fires.
+#
+# IT WRITES LIVE TO THE SERIAL. The usual pattern here (collect to a file, cat
+# it at the end) cannot be used on either side of a crash test: boot 1 is killed
+# before any end, and boot 2's whole purpose is to report what survived. So
+# markers are distinctive enough to grep out of boot spam.
+set -eu
+
+TTY=/dev/ttyS0
+MARK=/root/crash-armed
+LOG=/root/.local/state/vigilance.log
+# A SYSTEMD UNIT'S PATH DOES NOT INCLUDE ~/.local/bin, and a root `setup.sh
+# install` uses the USER prefix, so the tool is at /root/.local/bin/vigilant.
+# Guessing /usr/local would have read as "not installed" about a correct
+# install, which is the shape that once cost a round trip on a live box.
+HOME=${HOME:-/root}; export HOME
+PATH="$HOME/.local/bin:/usr/local/bin:$PATH"; export PATH
+VIGILANT=$(command -v vigilant 2>/dev/null || echo "$HOME/.local/bin/vigilant")
+
+_say() { printf '%s\n' "$*" > "$TTY" 2>/dev/null || printf '%s\n' "$*"; }
+
+[ -f "$MARK" ] || exit 0
+_armed=$(sed -n 's/^boot=//p' "$MARK")
+_now=$(cat /proc/sys/kernel/random/boot_id 2>/dev/null || echo unknown)
+# THE SAME BOOT IS NOT A VERDICT. Silent exit: this fires on the arming boot by
+# design, and saying anything would put a second CRASH_ line on the serial for
+# the host to mistake for the real one.
+[ "$_armed" != "$_now" ] || exit 0
+
+_base=$(sed -n 's/^base=//p' "$MARK")
+_rc=0
+_fail() { _say "CRASH_FAIL: $*"; _rc=1; }
+
+_say "CRASH_BOOT2 begins (armed in $_armed, now $_now)"
+
+# --- 1. THE LOG IS STILL A LOG ----------------------------------------------
+# The audit tier parses this file BY LINE and is the tier of last resort, and a
+# power cut is exactly when you most want forensics. Three outcomes, and only
+# one of them is a defect:
+#
+#   a timestamped record   survived intact
+#   an all-NUL line        ext4's crash signature, EXPECTED. The file SIZE is
+#                          journaled and survives; the data blocks were never
+#                          written, so the tail reads as zeros. Measured here:
+#                          1232 NUL bytes then a newline.
+#   anything else          a genuinely TORN record, and a defect: a lost record
+#                          is absent; a torn one reads as something it is not
+#
+# THE NUL TAIL IS REPORTED, NOT FAILED, and that is a judgement backed by a
+# measurement rather than a shrug: `vigilant audit` was run against a log
+# containing exactly this artifact and reconciled BOTH events correctly,
+# including the one recorded after it. The line matches no reader's pattern. The
+# only way to prevent it is an fsync per record on the security path, buying a
+# forensic nicety with write amplification on the lock edge.
+if [ -r "$LOG" ]; then
+  set -- $(awk '
+    /^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:/ { ok++; next }
+    length($0) > 0 && $0 !~ /[[:print:]]/ { zero++; next }
+    { bad++; if (badn == 0) badn = NR }
+    END { printf "%d %d %d %d %d\n", NR, ok + 0, zero + 0, bad + 0, badn + 0 }
+    ' "$LOG")
+  _lines=$1; _zero=$3; _bad=$4; _badn=$5
+  _say "CRASH_SURVIVED=$_lines"
+  _say "CRASH_ZEROFILL=$_zero"
+  _say "CRASH_MALFORMED=$_bad"
+
+  if [ "$_bad" != 0 ]; then
+    # THE EVIDENCE TRAVELS WITH THE VERDICT. A crash artifact cannot be
+    # reproduced on demand and this driver deletes the disk on the way out, so
+    # "a line is malformed" with nothing attached is a dead end.
+    _say "CRASH_BADLINE: $(awk -v n="$_badn" \
+      'NR == n {print substr($0, 1, 120); exit}' "$LOG" | cat -v)"
+    _fail "$_bad log line(s) are neither a timestamped record nor a NUL tail.
+A power cut TORE a record: the audit tier reads this file by line, and a torn
+record reads as something it is not"
+  fi
+
+  # COMMITTED RECORDS MUST BE INTACT, per LINE and not merely counted. Boot 1
+  # called sync at a known record count, so every line at or before it was on
+  # the disk. A count comparison alone would pass a file whose early records had
+  # been replaced by a zero-filled hole, which is the failure that would matter
+  # most: it destroys evidence that had already been committed.
+  if [ -n "${_base:-}" ] && [ "$_base" -gt 0 ]; then
+    _lost=$(awk -v b="$_base" \
+      'NR <= b && !/^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:/ \
+       {n++} END {print n + 0}' "$LOG")
+    [ "$_lost" = 0 ] || _fail "$_lost of the first $_base records -- all of
+which were SYNCED before the cut -- are no longer timestamped records. Losing
+unsynced records is expected; corrupting committed ones is not"
+    [ "$_lines" -ge "$_base" ] || _fail "the log holds $_lines records against
+$_base synced before the cut; it was truncated below its committed length"
+  fi
+else
+  _fail "the log is unreadable after the crash: $LOG"
+fi
+
+# --- 2. THE LADDER COMES BACK COHERENT --------------------------------------
+# The depth record lives in the runtime dir, which is a tmpfs, so a reboot
+# clears it and the machine is genuinely `open`. What must not happen is an
+# ERROR, or a rung that is not a rung.
+_st=$("$VIGILANT" status 2>&1) || _fail "status exited non-zero after a crash"
+_d=$(printf '%s\n' "$_st" | awk '/^depth:/ {print $2}')
+_say "CRASH_DEPTH=${_d:-<none>}"
+case "${_d:-}" in
+  open|lock|sleep|suspend) ;;
+  *) _fail "depth after a crash is '${_d:-<empty>}', which is not a rung" ;;
+esac
+
+# --- 3. NO CROSSING LOCK OUTLIVED THE PROCESS THAT HELD IT ------------------
+# The machine was killed with the lock HELD, so this is the leaked-marker case
+# arriving for real rather than as a fixture. A lock that survives disables
+# every future crossing's serialisation, and a marker believed forever would
+# switch off the standing recheck permanently and invisibly.
+#
+# It passes because the runtime dir is a tmpfs, NOT because the stale-break
+# logic ran. That is worth pinning: the crossing lock's crash-safety across a
+# boot comes from WHERE it lives, and the stale-break path is the backstop for a
+# leak WITHIN one boot. If the runtime dir ever moved to a persistent path this
+# assertion is what would notice.
+_locks=$(find /run/user /tmp /var/tmp -name 'crossing.lock' 2>/dev/null || true)
+if [ -n "$_locks" ]; then
+  _fail "a crossing lock survived the power cut: $_locks
+Every later crossing now waits it out, and a believed marker suppresses the
+standing recheck"
+else
+  _say "CRASH_NOLOCK ok (runtime dir is a tmpfs; nothing to break)"
+fi
+
+# --- 4. AND IT CAN STILL CROSS AN EDGE --------------------------------------
+# A recovery that leaves the ladder unable to act has turned a transient fault
+# into a permanent one. No provider is wired here, so this is a claim about the
+# RUNNER and the record, not about a locker.
+if "$VIGILANT" go lock >/dev/null 2>&1; then
+  _after=$("$VIGILANT" status 2>/dev/null | awk '/^depth:/ {print $2}')
+  [ "$_after" = lock ] || _fail "crossed lock after the crash and the record
+says '$_after'; the depth file did not survive being written"
+else
+  _fail "the ladder cannot cross an edge after a power cut"
+fi
+
+_say "CRASH_EXIT=$_rc"
+sync
+poweroff -f

@@ -152,11 +152,17 @@ f a real S3 cycle while an edge is being crossed
 e RECOVER: depth survives and the resume lands coherent
 t depth-survives-suspend
 
+# THE ONLY CELL A DESK COULD NEVER TEST, and the only one that cannot be a
+# scenario: the guest is the thing being killed, so nothing inside it survives
+# to report and the driver runs on the host (a `/` in the test column marks
+# that). The kill is AIMED -- the guest announces the instant it is inside the
+# act tier with the depth committed and the crossing lock held -- because a
+# random kill lands between crossings and gives no way to know it did.
 = power-cut-mid-crossing
-m the depth record
-f hard-kill the machine mid-crossing, then boot it again
-e RECOVER: no dark rung with no way back
-t -
+m the depth record, the crossing lock and the log
+f SIGKILL the machine mid-crossing, lock held, then boot the same disk
+e RECOVER: coherent rung, no leaked lock, committed log records intact
+t vm/crash
 
 = clock-jumped-forward
 m the supervision timer

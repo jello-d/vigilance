@@ -32,6 +32,13 @@ _check() {
   _n=$((_n + 1))
   case "$_t" in
     -) ;;
+    # A NAME WITH A SLASH IS A HOST-SIDE DRIVER, not a scenario file. One fault
+    # -- a power cut -- cannot be a `.t` by construction: the guest is the thing
+    # being killed, so nothing inside it survives to report and the driver has
+    # to live on the host. Demanding a `.t` would force that cell to read `-`
+    # and understate the coverage this file exists to measure.
+    */*) _cov=$((_cov + 1))
+         [ -x "$HERE/test/$_t" ] || _gone="$_gone $_id(->$_t)" ;;
     *) _cov=$((_cov + 1))
        [ -f "$HERE/test/$_t.t" ] || _gone="$_gone $_id(->$_t)" ;;
   esac

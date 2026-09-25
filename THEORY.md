@@ -81,6 +81,8 @@ wishes are visible.
         hermetic.t
     21  a verdict that may be discarded must not notify before it is accepted
         standing-recheck.t section 9
+    22  a power cut cannot leave the ladder unable to act
+        test/vm/crash (host-side: the guest is what gets killed)
 
 ### Invariants with no enforcing check
 
@@ -133,6 +135,19 @@ a screen capture shows what the display emits
 
 `: > file` is a guarded truncate
 : It exits the shell on a redirect error, because `:` is a special builtin.
+
+a log record that was written is a log record that survives
+: FALSE across a power cut. `_log` appends without fsync, so records still in
+  the page cache are gone, and ext4 leaves the tail of the file as a run of NUL
+  bytes: the SIZE is journaled and survives while the data blocks were never
+  written. Measured in `test/vm/crash`: of 150 records written, the 50 that had
+  been synced survived intact and the rest became one 1232-byte NUL line. The
+  artifact is harmless to every shipped reader (`vigilant audit` was run against
+  exactly it and reconciled both events correctly), and the only way to prevent
+  it is an fsync per record on the security path. So it is a stated limit of the
+  forensic tier rather than a defect: the audit tier cannot be trusted about the
+  last few seconds before a crash, which is the window it would most like to
+  describe.
 
 `[ ... ] && return` is safe under `set -e`
 : It kills the shell when the test fails. Has bitten three times.
