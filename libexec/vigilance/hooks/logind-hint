@@ -39,20 +39,54 @@ if ! command -v busctl >/dev/null 2>&1; then
   exit 78
 fi
 
-# WHICH session. XDG_SESSION_ID when the caller has one; otherwise ask logind
-# for this user's graphical session. Type=wayland/x11 plus a real seat is what
-# distinguishes it from an ssh session, of which there can be several (this
-# machine's peer had SIX for one user, two of them agent ssh sessions).
-# Stage 2's session probe replaces this fallback with the single shared
-# implementation; until then it is deliberately explicit about the criteria.
+# WHICH session. THE SEAT IS THE DISCRIMINATOR, and it has to be checked
+# properly in both halves of this, because both were wrong:
+#
+# 1. `loginctl list-sessions --no-legend` PRINTS `-` FOR AN EMPTY SEAT, not an
+#    empty field, so the old `$4 != ""` excluded nothing and the fallback picked
+#    the FIRST row for this user, which is logind's seatless `manager` session.
+#    Measured live on both boxes: it picked session 2, seat `-`, every time.
+# 2. XDG_SESSION_ID WAS TRUSTED BLINDLY, and in a non-interactive ssh it names
+#    the ssh session (measured: Id=2095 Seat= Type=tty Remote=yes). Setting that
+#    session's hint leaves the graphical one stale while reporting success.
+#
+# THE CONSEQUENCE WAS LIVE AND EXACTLY WHAT THIS HOOK EXISTS TO PREVENT. The
+# `lock` edge comes from the compositor, which HAS XDG_SESSION_ID, so the hint
+# was set true on the right session. The `unlock` edge comes from the locker
+# unit's teardown, which does NOT, so it fell back to session 2 and failed:
+#
+#   21:43:12 cross unlock: lock -> open
+#   21:43:12 logind-hint: SetLockedHint false failed for session 2
+#
+# LockedHint therefore went true and was never cleared, and logind read `yes`
+# while the depth record, swaylock and screen-lock.service all said unlocked.
+# The standard interface lying is the whole reason this hook was written.
+#
+# An earlier comment here claimed Type=wayland/x11 was checked too. It was not.
+# The seat is the right discriminator on its own: it is what tells a real
+# session from logind's bookkeeping entries. So the claim is dropped rather
+# than implemented.
+_seated() {   # <session-id> -> 0 if it has a real seat
+  [ -n "${1:-}" ] || return 1
+  _st=$(loginctl show-session "$1" -p Seat --value 2>/dev/null || true)
+  [ -n "${_st:-}" ]
+}
+
 _sid=${XDG_SESSION_ID:-}
+_seated "$_sid" || _sid=
 if [ -z "$_sid" ]; then
   _sid=$(loginctl list-sessions --no-legend 2>/dev/null | awk -v u="$(id -un)" '
-    $3 == u && $4 != "" { print $1; exit }')
+    $3 == u && $4 != "" && $4 != "-" { print $1; exit }')
 fi
 if [ -z "$_sid" ]; then
-  echo "logind-hint: no session to report against" >&2
-  exit 1
+  # 78, NOT 1. A box with no seated session for this user -- a headless server,
+  # an ssh-only context -- has nothing to report against, and that is "I could
+  # not look", not "I tried and failed". Exit 1 here would raise a hook-failed
+  # alert on every unlock on a machine where nothing is wrong, which is the
+  # cry-wolf this suite bans. It became reachable the moment the seat check
+  # above started excluding the manager session it used to settle for.
+  echo "logind-hint: no seated session for $(id -un); nothing to report" >&2
+  exit 78
 fi
 
 # Resolve the object path via GetSession rather than escaping the id by hand:

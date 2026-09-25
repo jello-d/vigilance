@@ -613,3 +613,25 @@ t block
 - [ "$_at" -le "$_now" ] || exit 0
 + true
 
+
+= logind-hint-accepts-a-dash-seat
+f libexec/vigilance/hooks/logind-hint
+t logind-hint
+-     $3 == u && $4 != "" && $4 != "-" { print $1; exit }')
++     $3 == u && $4 != "" { print $1; exit }')
+
+= logind-hint-trusts-an-unseated-session-id
+f libexec/vigilance/hooks/logind-hint
+t logind-hint
+- _seated "$_sid" || _sid=
++ true
+
+# TARGETS THE UNIQUE echo, NOT `exit 78`: that line appears TWICE in this hook
+# with identical indentation (the busctl-missing branch too) and the driver
+# replaces the FIRST match, so a record naming it would mutate the wrong branch,
+# change nothing the test exercises, and report SURVIVED about a covered guard.
+= logind-hint-fails-instead-of-declining
+f libexec/vigilance/hooks/logind-hint
+t logind-hint
+-   echo "logind-hint: no seated session for $(id -un); nothing to report" >&2
++   exit 1
