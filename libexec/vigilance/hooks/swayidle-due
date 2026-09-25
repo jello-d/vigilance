@@ -22,8 +22,37 @@ set -eu
 edge=${1:-${VIGILANCE_EDGE:-}}
 [ -n "$edge" ] || exit 0
 
-# The argv of the running swayidle, which is where its timers actually live.
-_args=$(ps -o args= -C swayidle 2>/dev/null | head -1) || exit 0
+# THE ARGV OF THE RUNNING swayidle, which is where its timers actually live.
+#
+# OVERRIDABLE, and via the SAME knob `report` already uses. This hook read
+# `ps -o args=` while report reads /proc/<pid>/cmdline through
+# VIGILANCE_IDLE_CMDLINE, which was two mechanisms for one fact: the two tiers
+# could disagree about the deadline, and this one could not be tested at all
+# without stubbing `ps`. A hook that consults a host fact whose test cannot pin
+# it is a hook whose test measures the substrate.
+#
+# AND OUR OWN PID WHERE WE KNOW IT. `ps -C swayidle | head -1` takes whichever
+# instance is listed first, so a FOREIGN idle client -- the exact shape a second
+# opinion takes, and something swayidle-mgr's own `stop` already has to reason
+# about -- would have its timeout reported as vigilance's deadline. A wrong
+# deadline feeds the overdue detector directly.
+if [ -n "${VIGILANCE_IDLE_CMDLINE:-}" ]; then
+  [ -r "$VIGILANCE_IDLE_CMDLINE" ] || exit 0
+  _args=$(tr '\0' ' ' < "$VIGILANCE_IDLE_CMDLINE" 2>/dev/null || true)
+else
+  _pidf=${XDG_RUNTIME_DIR:-/tmp}/swayidle-mgr/swayidle.pid
+  _mpid=$(cat "$_pidf" 2>/dev/null || true)
+  case "${_mpid:-}" in ''|*[!0-9]*) _mpid= ;; esac
+  # A PIDFILE OUTLIVES ITS PROCESS and numbers get recycled, so confirm what the
+  # pid actually is before trusting it -- the same check swayidle-mgr makes
+  # before killing it.
+  if [ -n "$_mpid" ] &&
+     [ "$(cat "/proc/$_mpid/comm" 2>/dev/null)" = swayidle ]; then
+    _args=$(tr '\0' ' ' < "/proc/$_mpid/cmdline" 2>/dev/null || true)
+  else
+    _args=$(ps -o args= -C swayidle 2>/dev/null | head -1 || true)
+  fi
+fi
 [ -n "$_args" ] || exit 0          # not running: no opinion, not "overdue"
 
 # `timeout <seconds> <command...>` repeats. Take the timeout whose command
@@ -44,7 +73,30 @@ printf '%s\n' "$_args" | awk -v e="$edge" '
         # "idle": swayidle measures from the last INPUT, not from when the
         # rung was entered. Saying so is what stops the supervision loop
         # calling a busy machine overdue.
-        if (secs ~ /^[0-9]+$/ && index(cmd, e) > 0) { print secs, "idle"; exit }
+        # THE EDGE IS MATCHED AS A WHOLE WORD, not as a substring anywhere in
+        # the command. index(cmd, "lock") also matches "unlock" and "lockdown",
+        # and worse it searches the PATHS: on a box whose home is /home/sleepy
+        # EVERY command contains "sleep", so the sleep deadline would come back
+        # as whichever timeout is listed first. This suite already paid for the
+        # class once and fixed it by anchoring a match. A wrong deadline here
+        # feeds the overdue detector directly.
+        #
+        # NO APOSTROPHES IN HERE. This is a single-quoted awk program, so one
+        # closes it and the rest becomes shell: the first draft of this comment
+        # said "timeout" with a possessive and the backticked word after it RAN.
+        # THE BOUNDARY IS "not adjacent to a letter", not "surrounded by
+        # spaces". My first anchor required a space or end after the edge and
+        # dropped a CORRECT answer: `suspend-if-battery` on this fleet IS the
+        # suspend deadline, and the hyphen failed the test. A path component is
+        # a legitimate place for an edge name to appear; another word is not.
+        #   lock     in "go lock atleast"          space/space   MATCH
+        #   lock     in "event idle-lock"          hyphen/end    MATCH
+        #   suspend  in "bin/suspend-if-battery"   slash/hyphen  MATCH
+        #   sleep    in "/home/sleepy/bin/x"       slash/LETTER  no
+        #   lock     in "go unlock"                LETTER/space  no
+        if (secs ~ /^[0-9]+$/ && cmd ~ ("(^|[^a-zA-Z])" e "([^a-zA-Z]|$)")) {
+          print secs, "idle"; exit
+        }
       }
     }
   }'

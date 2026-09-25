@@ -642,3 +642,15 @@ t runtime-dir
 -     if _st_e=$(_elapsed "$_at"); then _since="${_st_e}s ago"
 +     if true; then _since="$(( $(date +%s) - _at ))s ago"
 
+
+= swayidle-due-matches-an-edge-inside-a-path
+f libexec/vigilance/hooks/swayidle-due
+t swayidle-due
+-         if (secs ~ /^[0-9]+$/ && cmd ~ ("(^|[^a-zA-Z])" e "([^a-zA-Z]|$)")) {
++         if (secs ~ /^[0-9]+$/ && index(cmd, e) > 0) {
+
+= swayidle-due-ignores-the-argv-override
+f libexec/vigilance/hooks/swayidle-due
+t swayidle-due
+- if [ -n "${VIGILANCE_IDLE_CMDLINE:-}" ]; then
++ if false; then

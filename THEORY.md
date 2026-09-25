@@ -76,7 +76,7 @@ wishes are visible.
     18  a test that reaches no verdict is a failure
         test/run
     19  a guard nothing can kill is not a guard
-        test/mutate (101 records), mutants.t
+        test/mutate (103 records), mutants.t
     20  a check must not read the developer's live box
         hermetic.t
     21  a verdict that may be discarded must not notify before it is accepted
