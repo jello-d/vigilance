@@ -1472,7 +1472,15 @@ cmd_plan() {   # [edge]
 
 cmd_status() {
   _at=$(_depth_at)
-  if [ "$_at" -gt 0 ]; then _since="$(( $(date +%s) - _at ))s ago"
+  # NOT `0s ago` AND NOT A NEGATIVE. A record stamped in the future means the
+  # clock moved, and both alternatives lie: a negative announces that the
+  # instrument is broken (status printed "since: -3600s ago", which is the two
+  # commands an operator reads most), and clamping to zero claims the rung was
+  # entered just now. Name the anomaly instead -- this is a diagnostic surface,
+  # so the honest answer is the useful one.
+  if [ "$_at" -gt 0 ]; then
+    if _st_e=$(_elapsed "$_at"); then _since="${_st_e}s ago"
+    else _since="unknown (record is ahead of the clock; skew)"; fi
   else _since="unknown"; fi
   echo "depth: $(_depth)"
   echo "since: $_since"
@@ -1802,7 +1810,11 @@ _rep_state() {
   _rung=$(_depth)
   _have_record=
   if [ "$_at" -gt 0 ]; then
-    _r_info "depth=$_rung ($(( $(date +%s) - _at ))s ago)"
+    if _rd_e=$(_elapsed "$_at"); then
+      _r_info "depth=$_rung (${_rd_e}s ago)"
+    else
+      _r_info "depth=$_rung (record is ahead of the clock; skew)"
+    fi
     _have_record=1
   elif [ -n "$_sess" ]; then
     _r_info "depth=$_rung (no record yet; a fresh session starts here)"

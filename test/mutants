@@ -635,3 +635,10 @@ f libexec/vigilance/hooks/logind-hint
 t logind-hint
 -   echo "logind-hint: no seated session for $(id -un); nothing to report" >&2
 +   exit 1
+
+= status-prints-a-negative-elapsed-time
+f bin/vigilant
+t runtime-dir
+-     if _st_e=$(_elapsed "$_at"); then _since="${_st_e}s ago"
++     if true; then _since="$(( $(date +%s) - _at ))s ago"
+

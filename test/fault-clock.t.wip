@@ -1,0 +1,195 @@
+#!/bin/sh
+# test/fault-clock.t - step a REAL clock backward under a running ladder.
+#
+# FAULT: clock-jumped-backward.
+#
+# WHY THIS EXISTS RATHER THAN MORE STUB CASES. Fixing the backward-clock defect
+# meant auditing twelve elapsed-time computations: I MEASURED three and REASONED
+# about nine. The three are held down in the stub tier, and reasoning is exactly
+# what this project keeps paying for. Stepping a real clock exercises all twelve
+# at once with no judgement of mine in the loop, which is the only way to find a
+# site I misclassified.
+#
+# THE DEFECT IT GUARDS. A wall clock is not monotonic: an NTP step, an RTC left
+# in local time after a dual boot, or a VM restore makes `now - then` NEGATIVE,
+# and a negative satisfies every `-lt <bound>` and `-le <bound>` in the package.
+# Three mechanisms switched themselves off for the length of the skew, silently:
+# phantom-guard blocked every idle lock so the screen never locked,
+# _alert_repeat deduplicated every alert so nobody was told, and
+# _crossing_inflight believed a stale marker so the standing recheck stopped
+# judging.
+#
+# ONLY IN THE THROWAWAY GUEST, and the session tier's VM marker is what enforces
+# that. Setting a machine's clock backward is not something to do to a desk: it
+# confuses every timer on the box, and on a laptop it can outlive the test.
+#
+# IT RESTORES THE CLOCK IN THE TRAP, including on an abort. This scenario shares
+# a boot with every other scenario, so a clock left skewed would confound each
+# of them afterwards, and it would look like their bug rather than this one's.
+# Adding the offset BACK works without knowing how long the test took, because
+# the clock kept running normally while it was skewed.
+set -eu
+. "$(dirname "$0")/lib.sh"
+. "$(dirname "$0")/session.sh"
+session_init fault-clock
+
+OFFSET=${VIGILANCE_CLOCK_OFFSET:-3600}
+CLOCK_STEPPED=0
+_unstep() {
+  [ "$CLOCK_STEPPED" = 1 ] || return 0
+  date -s "@$(( $(date +%s) + OFFSET ))" >/dev/null 2>&1 || true
+  timedatectl set-ntp true >/dev/null 2>&1 || true
+  CLOCK_STEPPED=0
+}
+trap '_unstep; session_done; rm -rf "$T"' EXIT INT TERM HUP
+
+command -v timedatectl >/dev/null 2>&1 \
+  || fail "no timedatectl; this scenario cannot control the clock and would
+assert against an unstepped one, passing for the wrong reason"
+
+mkdir -p "$HOOKS/alert.d" "$HOOKS/lock.block.d"
+printf '#!/bin/sh\nprintf "%%s|%%s\\n" "$1" "$2" >> %s\n' "$T/alerts" \
+  > "$HOOKS/alert.d/10-sink"
+chmod +x "$HOOKS/alert.d/10-sink"
+ln -sf "$PLUGINS/hooks/phantom-guard" "$HOOKS/lock.block.d/10-phantom"
+wire lock ''      swaylock
+wire lock .verify locker-up
+
+# A DETERMINISTIC FINDING, with a STABLE message. The dedup key is the message
+# text, so the suppression case only means anything if the alert raised before
+# step and the one after are THE SAME finding. My first draft stopped the locker
+# to manufacture one, which taught me two things the hard way: stopping
+# screen-lock.service fires its ExecStopPost and CROSSES UNLOCK, so the machine
+# does not stay at `lock` at all, and whatever alert that did raise had an
+# identity I never established.
+mkdir -p "$HOOKS/lock.verify.d"
+{ printf '#!/bin/sh\n'
+  printf 'echo "a fixed finding, so the dedup key never moves" >&2\n'
+  printf 'exit 1\n'
+} > "$HOOKS/lock.verify.d/90-fixed"
+chmod +x "$HOOKS/lock.verify.d/90-fixed"
+
+# --- arm it: real crossings, so every record is stamped by the REAL clock ----
+# THE ANOMALY IS ONLY EVER "A RECORD WRITTEN BEFORE THE STEP, READ AFTER IT".
+# That is obvious in hindsight and my first draft got it wrong: every crossing
+# AFTER the step re-stamps the depth record with the skewed clock, so it is
+# consistent with it again and there is nothing ahead to find. The guest caught
+# the mistake by failing an assertion the product was right about. So each case
+# below runs in the window where a PRE-step record is still being read, and the
+# arming here is what puts records there.
+"$VIGILANT" go lock >>"$T/out" 2>>"$T/stderr" || true
+await 15 locker_up || fail "fixture: no locker came up, so the records this
+scenario is about were never written by a real crossing"
+
+# A DEDUP STAMP, written by a REAL alert at the real clock. Without one there is
+# nothing for a skewed cooldown to suppress and the alert case would pass
+# vacuously: the arming crossings succeed, so they raise nothing themselves.
+systemctl --user stop screen-lock.service >/dev/null 2>&1 || true
+: > "$T/alerts"
+VIGILANCE_ALERT_COOLDOWN=3600 "$VIGILANT" enforce >>"$T/out" 2>&1 || true
+grep -q . "$T/alerts" || fail "fixture: no alert fired before the step, so no
+dedup stamp exists and the suppression case below would prove nothing"
+_armed_alerts=$(grep -c . "$T/alerts" || true)
+
+# ...and leave the machine at `open` with a PRE-STEP stamp, which is the state
+# phantom-guard reads: it only considers blocking at that rung.
+"$VIGILANT" force open >/dev/null 2>&1 || true
+[ "$(depth)" = open ] || fail "fixture: depth is '$(depth)', not open"
+
+_before_bad=$("$VIGILANT" report 2>&1 | grep -c '^\[FAIL\]' || true)
+
+# --- THE STEP ----------------------------------------------------------------
+timedatectl set-ntp false >/dev/null 2>&1 || true
+_t_pre=$(date +%s)
+date -s "@$(( _t_pre - OFFSET ))" >/dev/null 2>&1 \
+  || fail "could not set the clock; the fault cannot be injected here"
+CLOCK_STEPPED=1
+_t_post=$(date +%s)
+# THE PRECONDITION, ASSERTED. A step that silently did not take makes every
+# assertion below pass for the wrong reason, which is the rule every other cell
+# in the matrix follows.
+[ "$_t_post" -lt "$_t_pre" ] || fail "the clock did not move:
+$_t_pre -> $_t_post. NTP may have stepped it straight back, in which case this
+scenario proves nothing and must say so rather than report a pass"
+
+# --- 1. NOTHING ELSE BROKE, which is the point of a real step ---------------
+# FIRST, while the depth record is still the PRE-STEP one: this is the only
+# window in which anything is ahead of the clock.
+# The nine sites I reasoned about rather than measured all run here, at once,
+# under the same skew. A before-and-after comparison rather than an absolute
+# count, because this guest has its own baseline and an absolute assertion would
+# be about the substrate.
+_after_bad=$("$VIGILANT" report 2>&1 | grep -c '^\[FAIL\]' || true)
+[ "$_after_bad" -le "$_before_bad" ] || fail "report gained $(( _after_bad -
+_before_bad )) new FAIL(s) purely from the clock moving backward. A skewed clock
+is not a broken machine, and a report that says otherwise sends its reader after
+a hardware fault that does not exist"
+
+# AND NO COMMAND MAY PRINT A NEGATIVE ELAPSED TIME. `status` said
+# "since: -3600s ago" and report said "depth=lock (-3600s ago)", which is the
+# instrument announcing it is broken in the two commands an operator reads most.
+# Clamping to 0 would have been worse: it claims the rung was entered just now.
+for _cmd in status report; do
+  "$VIGILANT" "$_cmd" > "$T/$_cmd.out" 2>&1 || true
+  if grep -qE '\(-[0-9]+s ago\)|: -[0-9]+s ago' "$T/$_cmd.out"; then
+    fail "'$_cmd' printed a NEGATIVE elapsed time under a skewed clock:
+$(grep -E '\(-[0-9]+s ago\)|: -[0-9]+s ago' "$T/$_cmd.out" | head -2)"
+  fi
+done
+grep -q 'skew' "$T/status.out" || fail "status did not NAME the clock skew. A
+record ahead of the clock is a diagnosis worth stating, and this is a diagnostic
+surface: silence here leaves a reader to wonder why 'since' is unknown"
+
+# --- 2. phantom-guard MUST NOT BLOCK ----------------------------------------
+# The measured defect: `now - entered_at` went negative, satisfied the cooldown,
+# and every idle-sourced lock was refused. THE SCREEN NEVER LOCKS is the
+# outcome, on the one hook whose job is to suppress locks.
+_rc=0
+VIGILANCE_SOURCE=idle "$VIGILANT" go lock >>"$T/out" 2>>"$T/stderr" || _rc=$?
+[ "$_rc" != 3 ] || fail "with the clock stepped back ${OFFSET}s, an idle-sourced
+lock was REFUSED by a block hook. That is the screen never locking for as long
+as the skew lasts, and it is silent: rc=3 reaches a keybind's stderr and
+nowhere else"
+await 15 locker_up || fail "the idle lock was not refused outright but no locker
+came up either; the edge did not take under a skewed clock"
+[ "$(depth)" = lock ] || fail "depth is '$(depth)' after a skewed idle lock"
+
+# --- 3. AN ALERT MUST STILL REACH A SINK ------------------------------------
+# `_alert_repeat` compares `now - stamped` against the cooldown, so a negative
+# made every alert read as a suppressible repeat. The dedup is deliberately ON
+# here: that is the configuration in which the defect bites.
+: > "$T/alerts"
+# THE SAME finding as the arming one, so it hashes to the same dedup key and the
+# cooldown comparison is the thing under test. Its stamp is PRE-STEP, so
+# `now - stamped` is negative.
+[ "$(depth)" = lock ] || fail "fixture: depth is '$(depth)', not lock"
+_erc=0
+VIGILANCE_ALERT_COOLDOWN=3600 "$VIGILANT" enforce >>"$T/out" 2>&1 || _erc=$?
+[ "$_erc" != 0 ] || fail "with the locker stopped at the lock rung, the recheck
+reported success under a skewed clock. Nothing moved underneath it, so there was
+nothing to discard"
+grep -q . "$T/alerts" || fail "a real finding raised NO alert under a skewed
+clock. Every dedup stamp is ahead of the clock, so each alert reads as a repeat
+and the whole notification path goes silent while the log fills"
+
+# --- 4. THE STANDING RECHECK MUST STILL JUDGE -------------------------------
+# Asserted through the alert above: a suppressed recheck raises nothing at all.
+# THE MARKER CASE IS NOT REACHABLE FROM A CLOCK STEP ALONE and is not pretended
+# at here: a crossing marker exists only DURING a crossing, so a future-stamped
+# one needs the step to land inside that window. standing-recheck.t section 9b
+# covers it by planting the marker, which is vigilance's own state rather than a
+# machine fact, and is therefore honest in the stub tier.
+
+# --- 5. AND THE LADDER STILL WORKS AFTER THE CLOCK COMES BACK --------------
+# A transient fault that leaves permanent wreckage is not handled. Records
+# written while skewed are an hour in the future once the clock is restored,
+# which is the same anomaly pointing the other way.
+_unstep
+"$VIGILANT" force open >/dev/null 2>&1 || true
+"$VIGILANT" go lock >>"$T/out" 2>>"$T/stderr" || true
+await 15 locker_up || fail "after the clock was restored, the ladder could not
+lock. The records written during the skew outlived it, turning a transient fault
+into a permanent one"
+[ "$(depth)" = lock ] || fail "depth is '$(depth)' after the clock was restored"
+
+pass

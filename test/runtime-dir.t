@@ -135,4 +135,48 @@ this suite sandboxes state through that variable, so if it stops winning the
 tests silently start reading and writing the developer's own live record" ;;
 esac
 
+# --- 5. A RECORD AHEAD OF THE CLOCK IS NAMED, NOT ARITHMETIC ----------------
+# The depth record carries a wall-clock stamp, and a wall clock is not
+# monotonic: an NTP step, an RTC left in local time after a dual boot, or a VM
+# restore leaves the record AHEAD of `now`. `status` then printed
+#
+#   since: -3600s ago
+#
+# which is the instrument announcing it is broken, in one of the two commands an
+# operator reads most. CLAMPING TO ZERO WOULD BE WORSE: "0s ago" claims the rung
+# was entered just now, and something downstream would believe it.
+#
+# This lives in the STUB tier because the scenario that steps a REAL clock hangs
+# the guest (test/fault-clock.t.wip), and a behaviour change with no assertion
+# anywhere is how a fix silently stops working.
+mkdir -p "$T/future"
+printf 'lock %s\n' "$(( $(date +%s) + 3600 ))" > "$T/future/depth"
+_fut=$(env VIGILANCE_RUN_DIR="$T/future" VIGILANCE_LOG="$T/rt.log" \
+  VIGILANCE_HOOK_ROOT="$T/nohooks" VIGILANCE_MACHINE_HOOKS="$T/nomachine" \
+  "$VIG" status 2>>"$T/stderr")
+case "$_fut" in
+  *"-3600s ago"*|*"-"[0-9]*"s ago"*)
+    printf '%s\n' "$_fut" >&2
+    fail "status printed a NEGATIVE elapsed time for a record ahead of the
+clock. A measurement outside its defined range means the instrument is suspect,
+and this is the command an operator reads first" ;;
+esac
+case "$_fut" in
+  *skew*) ;;
+  *) printf '%s\n' "$_fut" >&2
+     fail "status did not NAME the clock skew. 'unknown' alone leaves a reader
+wondering why, on a diagnostic surface where the reason is the whole value" ;;
+esac
+# ...and an ordinary record still reports a plain elapsed time, or the fix is
+# "never compute one", which passes everything above and retires the field.
+printf 'lock %s\n' "$(( $(date +%s) - 42 ))" > "$T/future/depth"
+_now=$(env VIGILANCE_RUN_DIR="$T/future" VIGILANCE_LOG="$T/rt.log" \
+  VIGILANCE_HOOK_ROOT="$T/nohooks" VIGILANCE_MACHINE_HOOKS="$T/nomachine" \
+  "$VIG" status 2>>"$T/stderr")
+case "$_now" in
+  *"4"[0-9]"s ago"*) ;;
+  *) printf '%s\n' "$_now" >&2
+     fail "a normal record no longer reports an elapsed time" ;;
+esac
+
 pass

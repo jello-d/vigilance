@@ -181,16 +181,41 @@ t -
 # a hardcoded subject cannot see the thing nobody thought to list" lesson,
 # arriving in the list itself.
 #
-# WHY IT STAYS `-` DESPITE BEING FIXED. The three consequences are each held
-# down in the stub tier (block.t, standing-recheck.t 5b and 9b) by planting the
-# record state a backward step produces. But a CLOCK is on this file's own list
-# of things that may never be faked, and the reason bites here: I audited twelve
-# elapsed-time computations and reasoned about nine of them. Stepping a real
-# clock in the guest tests all twelve at once, with no reasoning of mine in the
-# loop, and is the only thing that could show a fourth consequence.
+# WHY THIS STAYS `-` THOUGH THE DEFECT IS FIXED. The three consequences are each
+# held down in the STUB tier (block.t, standing-recheck.t 5b and 9b) by planting
+# the record state a backward step produces. What is missing is the real step: a
+# CLOCK is on this file's own list of things that may never be faked, and the
+# reason bites, because I audited twelve elapsed-time computations and MEASURED
+# three while REASONING about nine. Only a real step exercises all twelve at
+# once with no judgement of mine in the loop.
+#
+# THE SCENARIO IS WRITTEN AND IT HANGS THE GUEST: test/fault-clock.t.wip. It
+# gets as far as the step (systemd-timedated starts, so timedatectl ran) and
+# then produces NO output at all, which for this harness means the guest script
+# never finished -- everything is buffered to a file and catted at the end. The
+# likely cause is that a backward step makes the user manager stall, and
+# `systemctl --user` plus `systemd-run --user` are exactly what the locker and
+# the assertions depend on. Not yet attributable to vigilance.
+#
+# IT LIVES IN THE REPO, NOT /tmp. The lid scenario's WIP was left at
+# /tmp/fault-lid.t.wip and a reboot destroyed it; a `.wip` suffix keeps this out
+# of test/run's `*.t` glob while keeping the work.
+#
+# TWO THINGS IT ALREADY TAUGHT, both from assertions of mine that were wrong
+# where the product was right:
+#   - the anomaly is ONLY "a record written before the step, read after it".
+#     Every crossing after the step re-stamps with the skewed clock, so a case
+#     placed later finds nothing ahead and the skew message correctly absent.
+#   - stopping screen-lock.service fires its ExecStopPost and CROSSES UNLOCK, so
+#     it does not leave the machine at `lock` with no locker.
+#
+# The one case a real step could never cover either: a future-stamped CROSSING
+# MARKER, which exists only DURING a crossing. standing-recheck.t 9b plants it,
+# and planting vigilance's own state is honest in the stub tier where faking a
+# machine is not.
 = clock-jumped-backward
 m every elapsed-time computation: a wall clock is not monotonic
-f step the guest clock back an hour with a record already stamped
+f step the guest clock back an hour with records already stamped
 e DEGRADE: no mechanism disables itself; a future stamp is not a measurement
 t -
 
