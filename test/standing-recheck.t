@@ -120,6 +120,26 @@ done
 [ "$(_alerts)" -ge 3 ] || fail "with the cooldown disabled, repeats were still
 suppressed; an operator debugging a notifier has no way to see every event"
 
+# --- 5b. A DEDUP STAMP FROM THE FUTURE IS NOT A REPEAT ----------------------
+# The cooldown compares `now - stamped`, and a negative satisfies
+# `-lt $ALERT_COOLDOWN`, so a backward clock step made EVERY alert read as a
+# repeat and nobody was told anything for the length of the skew. That is the
+# storm-quieting this function exists to provide, inverted into storm-silencing,
+# and it is the documented failure that once had an enforce timer stopped by
+# hand -- except this version needs no human to switch anything off.
+: > "$T/alerts"
+_verifier 1 "a fault raised while the dedup stamps sit in the future"
+VIGILANCE_ALERT_COOLDOWN=3600 "$VIGILANT" enforce >/dev/null 2>&1 || true
+for _sf in "$VIGILANCE_RUN_DIR/alerts"/*; do
+  [ -f "$_sf" ] || continue
+  printf '%s\n' "$(( $(date +%s) + 3600 ))" > "$_sf"
+done
+: > "$T/alerts"
+VIGILANCE_ALERT_COOLDOWN=3600 "$VIGILANT" enforce >/dev/null 2>&1 || true
+[ "$(_alerts)" != 0 ] || fail "with every dedup stamp an hour AHEAD, the alert
+was suppressed as a repeat. A backward clock step then silences the whole alert
+path, and the log records a suppression that never expires"
+
 # --- 6. a DIFFERENT fault still gets through -------------------------------
 # Dedup keyed too broadly would swallow a new problem because an old one is
 # still open, which is worse than the storm it prevents.
@@ -345,6 +365,18 @@ recheck. A crash mid-crossing would then disable drift detection permanently"
 printf '%s %s\n' "$$" "$(( $(date +%s) - 100000 ))" > "$_mark"
 [ "$(_enforce)" != 0 ] || fail "a marker older than VIGILANCE_CROSSING_MAX
 suppressed the recheck. The pid check alone cannot survive recycling"
+
+# ...AND SO MUST ONE STAMPED IN THE FUTURE, which is the doubt the two checks
+# above do not cover. `_crossing_inflight` states that it fails OPEN on every
+# doubt, and a negative elapsed time satisfied its `-le $CROSSING_MAX` bound, so
+# a backward clock step believed the marker and switched off the only tier that
+# watches a settled machine -- for the length of the skew, and silently. A wall
+# clock is not monotonic: an NTP step, a dual-boot RTC, a VM restore.
+: > "$T/alerts"
+printf '%s %s\n' "$$" "$(( $(date +%s) + 3600 ))" > "$_mark"
+[ "$(_enforce)" != 0 ] || fail "a marker stamped an HOUR AHEAD suppressed the
+recheck. A clock that stepped backward would then disable drift detection
+entirely, reporting green the whole time"
 rm -f "$_mark"
 
 # --- 9c. AND A REAL CROSSING CLEARS ITS OWN MARKER -------------------------

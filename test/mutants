@@ -478,7 +478,7 @@ t standing-recheck
 = stale-marker-disables-the-recheck
 f bin/vigilant
 t standing-recheck
--   [ "$(( $(date +%s) - _ct ))" -le "$CROSSING_MAX" ] || return 1
+-   [ "$_ci_e" -le "$CROSSING_MAX" ] || return 1
 +   true
 
 = idle-ceiling-is-not-applied
@@ -588,3 +588,28 @@ f bin/vigilant
 t standing-recheck
 -     _log "NO-VERDICT: a crossing was in flight; not judging '$(_depth)'"
 +     true
+
+= elapsed-trusts-a-timestamp-from-the-future
+f bin/vigilant
+t standing-recheck
+-   [ "$1" -le "$_el_now" ] || return 1
++   true
+
+= alert-dedup-trusts-a-future-stamp
+f bin/vigilant
+t standing-recheck
+-     if _ar_e=$(_elapsed "$_aw") && [ "$_ar_e" -lt "$ALERT_COOLDOWN" ]; then
++     if [ $(( $(date +%s) - _aw )) -lt "$ALERT_COOLDOWN" ]; then
+
+= inflight-marker-trusts-a-future-stamp
+f bin/vigilant
+t standing-recheck
+-   _ci_e=$(_elapsed "$_ct") || return 1
++   _ci_e=$(( $(date +%s) - _ct ))
+
+= phantom-guard-blocks-on-a-backward-clock
+f libexec/vigilance/hooks/phantom-guard
+t block
+- [ "$_at" -le "$_now" ] || exit 0
++ true
+

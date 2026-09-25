@@ -372,6 +372,32 @@ EOF
 # which is the right default for "is this still true".
 ALERT_COOLDOWN=${VIGILANCE_ALERT_COOLDOWN:-3600}
 
+# _elapsed <epoch>: seconds since <epoch>, non-zero if the clock disagrees.
+#
+# A WALL CLOCK IS NOT MONOTONIC, and every record in this package is stamped
+# with `date +%s` and compared later against `date +%s`. An NTP step, an RTC
+# left in local time after a dual boot, or a VM restore makes `now - then`
+# NEGATIVE -- and a negative satisfies every `-lt <bound>` and `-le <bound>`
+# here, so a bound meant to expire something never does.
+#
+# MEASURED, not feared: with a record stamped an hour ahead, phantom-guard
+# blocked every idle lock (the screen never locks), _alert_repeat suppressed
+# every alert (nobody is told), and _crossing_inflight suppressed the standing
+# recheck. Three safety mechanisms switch themselves off for the duration of the
+# skew, and each one fails silently.
+#
+# SO THE ANOMALY IS DETECTED HERE AND ANSWERED AT THE CALL SITE. There is no
+# single safe clamp: clamping to 0 still satisfies a cooldown, which is exactly
+# the phantom-guard case. What every caller shares is that a record from the
+# future is NOT A MEASUREMENT, so each picks the answer that does not disable
+# itself -- the same fail-open-on-doubt rule those functions already state.
+_elapsed() {   # <epoch> -> prints seconds; non-zero when the clock disagrees
+  case "${1:-}" in ''|*[!0-9]*) return 1 ;; esac
+  _el_now=$(date +%s)
+  [ "$1" -le "$_el_now" ] || return 1
+  printf '%s' "$(( _el_now - $1 ))"
+}
+
 _alert_repeat() {   # kind message -> 0 if this is a suppressible repeat
   if [ "$ALERT_COOLDOWN" = 0 ]; then return 1; fi
   # DURATIONS ARE NORMALISED OUT OF THE KEY, or the dedup is defeated by the
@@ -391,7 +417,12 @@ _alert_repeat() {   # kind message -> 0 if this is a suppressible repeat
   if [ -f "$_af" ]; then
     _aw=$(cat "$_af" 2>/dev/null || echo 0)
     case "$_aw" in ''|*[!0-9]*) _aw=0 ;; esac
-    if [ $(( $(date +%s) - _aw )) -lt "$ALERT_COOLDOWN" ]; then return 0; fi
+    # A STAMP FROM THE FUTURE IS NOT A REPEAT. Suppressing on one would make a
+    # backward clock step silence every alert for the length of the skew, which
+    # is the storm-quieting failure this function exists to prevent, inverted.
+    if _ar_e=$(_elapsed "$_aw") && [ "$_ar_e" -lt "$ALERT_COOLDOWN" ]; then
+      return 0
+    fi
   fi
   printf '%s\n' "$(date +%s)" > "$_af" 2>/dev/null || true
   return 1
@@ -758,7 +789,11 @@ _crossing_inflight() {   # 0 if an edge is genuinely being crossed right now
   # Fail OPEN on every doubt. `kill -0` also fails for a process we do not own,
   # and the answer we want there is "judge the machine", not "stay silent".
   kill -0 "$_cp" 2>/dev/null || return 1
-  [ "$(( $(date +%s) - _ct ))" -le "$CROSSING_MAX" ] || return 1
+  # ...INCLUDING A MARKER STAMPED IN THE FUTURE, which is the one doubt the rule
+  # above did not cover. Believing it suppresses the only tier that watches a
+  # settled machine, for as long as the clock is skewed, and silently.
+  _ci_e=$(_elapsed "$_ct") || return 1
+  [ "$_ci_e" -le "$CROSSING_MAX" ] || return 1
   return 0
 }
 

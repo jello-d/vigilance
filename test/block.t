@@ -70,7 +70,27 @@ for _src in logind suspend manual lid; do
   "$VIGILANT" go open >/dev/null 2>&1
 done
 
+# ...and A DEPTH RECORD FROM THE FUTURE MUST NOT BLOCK ANYTHING.
+#
+# A wall clock is not monotonic. An NTP step, an RTC left in local time after a
+# dual boot, or a VM restore makes `now - entered_at` NEGATIVE -- and a negative
+# satisfies `-lt $COOLDOWN`, so the guard blocked EVERY idle lock for as long as
+# the skew lasted and said so in words that give it away: "idle-lock -3600s
+# after unlock". Measured, not feared, and the screen never locked.
+#
+# This is the one hook whose whole job is to suppress locks, so a wrong answer
+# is a security failure rather than noise. Allowing is what every other unknown
+# in that hook already gets.
+printf '%s %s\n' open "$(( $(date +%s) + 3600 ))" > "$VIGILANCE_RUN_DIR/depth"
+VIGILANCE_SOURCE=idle "$VIGILANT" go lock 2>>"$T/stderr" \
+  || fail "with the depth record stamped an hour AHEAD, an idle lock was
+blocked. A backward clock step then suppresses idle locking entirely: the guard
+that exists to stop a redundant lock stops every lock, and silently"
+expect_depth lock
+"$VIGILANT" go open >/dev/null 2>&1
+
 # ...and an idle lock OUTSIDE the cooldown is legitimate, so it proceeds.
+go open
 VIGILANCE_PHANTOM_COOLDOWN=0 VIGILANCE_SOURCE=idle "$VIGILANT" go lock \
   2>>"$T/stderr" || fail "a legitimate idle lock was blocked"
 expect_depth lock

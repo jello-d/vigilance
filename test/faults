@@ -170,6 +170,30 @@ f set the guest clock forward an hour
 e DEGRADE: no alert storm; the ceiling and the dedup cooldown hold
 t -
 
+# THE DANGEROUS DIRECTION, AND NOBODY HAD DECLARED IT. Only "forward" was on
+# this list, and backward is the one that disables things: every record here is
+# stamped with `date +%s` and compared later against `date +%s`, so a backward
+# step makes `now - then` NEGATIVE, and a negative satisfies every `-lt <bound>`
+# and `-le <bound>` in the package. Three safety mechanisms switched themselves
+# off, measured: phantom-guard blocked every idle lock (THE SCREEN NEVER LOCKS),
+# _alert_repeat deduped every alert (nobody is told), and _crossing_inflight
+# suppressed the standing recheck. All three silently. That is the "a check with
+# a hardcoded subject cannot see the thing nobody thought to list" lesson,
+# arriving in the list itself.
+#
+# WHY IT STAYS `-` DESPITE BEING FIXED. The three consequences are each held
+# down in the stub tier (block.t, standing-recheck.t 5b and 9b) by planting the
+# record state a backward step produces. But a CLOCK is on this file's own list
+# of things that may never be faked, and the reason bites here: I audited twelve
+# elapsed-time computations and reasoned about nine of them. Stepping a real
+# clock in the guest tests all twelve at once, with no reasoning of mine in the
+# loop, and is the only thing that could show a fourth consequence.
+= clock-jumped-backward
+m every elapsed-time computation: a wall clock is not monotonic
+f step the guest clock back an hour with a record already stamped
+e DEGRADE: no mechanism disables itself; a future stamp is not a measurement
+t -
+
 = lock-signal-storm
 m the logind trigger
 f a hundred lock-session signals in a burst

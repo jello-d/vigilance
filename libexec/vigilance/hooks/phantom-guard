@@ -34,7 +34,22 @@ case "${_at:-}" in ''|*[!0-9]*) exit 0 ;; esac
 # stale idle notification can arrive.
 [ "$_rung" = open ] || exit 0
 
-_since=$(( $(date +%s) - _at ))
+# A RECORD FROM THE FUTURE IS NOT A MEASUREMENT, so ALLOW. A wall clock is not
+# monotonic: an NTP step, an RTC left in local time after a dual boot, or a VM
+# restore makes `now - _at` NEGATIVE, and a negative satisfies `-lt $COOLDOWN`.
+# Measured before this guard existed: with the depth record stamped an hour
+# ahead, EVERY idle lock was blocked, and the hook said so in its own words
+# ("idle-lock -3600s after unlock"), which is self-evidently not an elapsed
+# time.
+#
+# So the screen never locked, for as long as the skew lasted, silently. This is
+# the one hook whose whole job is to suppress locks, which makes a wrong answer
+# here a security failure rather than noise. Allowing is the same fail-open
+# answer every other unknown above gets: an unreadable record, a non-numeric
+# stamp, a rung that is not `open`.
+_now=$(date +%s)
+[ "$_at" -le "$_now" ] || exit 0
+_since=$(( _now - _at ))
 if [ "$_since" -lt "$COOLDOWN" ]; then
   echo "idle-lock ${_since}s after unlock (cooldown ${COOLDOWN}s):" \
     "swayidle re-fire"

@@ -76,7 +76,7 @@ wishes are visible.
     18  a test that reaches no verdict is a failure
         test/run
     19  a guard nothing can kill is not a guard
-        test/mutate (93 records), mutants.t
+        test/mutate (97 records), mutants.t
     20  a check must not read the developer's live box
         hermetic.t
     21  a verdict that may be discarded must not notify before it is accepted
@@ -151,6 +151,20 @@ a log record that was written is a log record that survives
 
 `[ ... ] && return` is safe under `set -e`
 : It kills the shell when the test fails. Has bitten three times.
+
+elapsed time is never negative
+: FALSE. A wall clock is not monotonic, and every record here is stamped with
+  `date +%s` and compared later against `date +%s`, so an NTP step, an RTC left
+  in local time after a dual boot, or a VM restore makes `now - then` NEGATIVE.
+  A negative satisfies every `-lt <bound>` and `-le <bound>`, so a bound meant
+  to expire something never does. Measured across the twelve such computations:
+  three switched a safety mechanism OFF for the length of the skew, silently.
+  `phantom-guard` blocked every idle lock, so the screen never locked;
+  `_alert_repeat` deduped every alert, so nobody was told; `_crossing_inflight`
+  believed a stale marker, suppressing the standing recheck. `_elapsed` now
+  detects the anomaly in one place and each caller answers it with whatever does
+  not disable itself, because there is no single safe clamp: clamping to 0 still
+  satisfies a cooldown.
 
 `awk -v x=...` passes a literal
 : It expands backslash escapes. `ENVIRON` does not.
