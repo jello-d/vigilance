@@ -654,3 +654,27 @@ f libexec/vigilance/hooks/swayidle-due
 t swayidle-due
 - if [ -n "${VIGILANCE_IDLE_CMDLINE:-}" ]; then
 + if false; then
+
+= idle-source-output-is-coerced-not-validated
+f bin/vigilant
+t due
+-     case "${_iv:-}" in ''|*[!0-9]*) _iv= ;; esac
++     _iv=$(printf '%s' "$_iv" | tr -dc '0-9')
+
+= idle-source-number-may-overflow-the-shell
+f bin/vigilant
+t due
+-     if [ -n "$_iv" ] && [ "${#_iv}" -gt 10 ]; then _iv=; fi
++     true
+
+= depth-record-rung-is-not-validated
+f bin/vigilant
+t runtime-dir
+-     if _depth_of "${_dv:-}" >/dev/null 2>&1; then
++     if true; then
+
+= a-corrupt-depth-record-is-not-named
+f bin/vigilant
+t runtime-dir
+-   if _dr=$(_depth_recorded) && ! _depth_of "${_dr:-}" >/dev/null 2>&1; then
++   if false; then

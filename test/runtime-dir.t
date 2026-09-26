@@ -179,4 +179,60 @@ case "$_now" in
      fail "a normal record no longer reports an elapsed time" ;;
 esac
 
+# --- 6. A RECORD THAT IS NOT A RUNG IS NOT A RUNG ---------------------------
+# The timestamp beside it was always validated (`*[!0-9]*`); the rung was not,
+# and that asymmetry WAS the bug. Measured before the fix:
+#
+#   depth: banana              rc=0
+#   depth: ../../etc/passwd    rc=0
+#   depth: <empty>             rc=0
+#
+# Corruption reported as a rung, confidently, by the command an operator reads
+# first. It is reachable on disk rather than only in a tmpfs: this very file
+# exists because RUN_DIR falls back under TMPDIR when XDG_RUNTIME_DIR is unset,
+# and the crash work measured ext4 leaving a file readable but empty.
+mkdir -p "$T/corrupt"
+_corrupt() {   # <record contents> <what it is>
+  printf '%s\n' "$1" > "$T/corrupt/depth"
+  _co=$(env VIGILANCE_RUN_DIR="$T/corrupt" VIGILANCE_LOG="$T/rt.log" \
+    VIGILANCE_HOOK_ROOT="$T/nohooks" VIGILANCE_MACHINE_HOOKS="$T/nomachine" \
+    "$VIG" status 2>>"$T/stderr")
+  case "$_co" in
+    *"depth: open"*) ;;
+    *) printf '%s\n' "$_co" >&2
+       fail "a $2 depth record was reported as a rung. Every tier that asks
+whether the machine is where it says it is reads this file" ;;
+  esac
+  case "$_co" in
+    *"not a rung"*) ;;
+    *) printf '%s\n' "$_co" >&2
+       fail "a $2 depth record fell back silently. The fallback is right for the
+hot path, but this surface then reports an ordinary 'open' about a file holding
+garbage, which is the same confident wrongness one layer along" ;;
+  esac
+}
+_corrupt 'banana 1790000000'      'garbage-rung'
+_corrupt '../../etc/passwd 1'     'path-shaped'
+# AN EMPTY RECORD COUNTS, and it is the likeliest of the three: ext4 journals a
+# file's size while never writing its data, so a power cut leaves exactly this.
+# It has no timestamp either, so a check placed in the has-a-timestamp branch
+# would miss it -- which the first version of this did.
+_corrupt ''                       'empty'
+
+# ...and a VALID record is still read, or the fix is "never trust the file",
+# which passes everything above and retires the record entirely.
+printf 'sleep %s\n' "$(date +%s)" > "$T/corrupt/depth"
+_cok=$(env VIGILANCE_RUN_DIR="$T/corrupt" VIGILANCE_LOG="$T/rt.log" \
+  VIGILANCE_HOOK_ROOT="$T/nohooks" VIGILANCE_MACHINE_HOOKS="$T/nomachine" \
+  "$VIG" status 2>>"$T/stderr")
+case "$_cok" in
+  *"depth: sleep"*) ;;
+  *) printf '%s\n' "$_cok" >&2; fail "a valid record stopped being read" ;;
+esac
+case "$_cok" in
+  *"not a rung"*) printf '%s\n' "$_cok" >&2
+     fail "a VALID record was reported as corrupt, which would cry wolf on every
+healthy machine and get the note ignored" ;;
+esac
+
 pass

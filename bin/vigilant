@@ -524,17 +524,48 @@ _rung_at() {   # integer -> rung
 # traversed. Without it a greeter's `go sleep` would traverse open -> lock ->
 # sleep and fire lock.d, whose provider would try to start a lock screen on top
 # of a session that is already one.
+# _depth_recorded: the raw first field of the record, or empty if there is none.
+# Separate from _depth so a diagnostic surface can tell "no record" from "a
+# record that is not a rung" -- two states _depth deliberately collapses.
+_depth_recorded() {
+  [ -r "$DEPTH_FILE" ] || return 1
+  cut -d' ' -f1 < "$DEPTH_FILE" 2>/dev/null || true
+}
+
 _depth() {   # the current rung
   if [ -r "$DEPTH_FILE" ]; then
-    cut -d' ' -f1 < "$DEPTH_FILE"
-  else
-    _init=${VIGILANCE_INITIAL_DEPTH:-open}
-    if _depth_of "$_init" >/dev/null 2>&1; then
-      echo "$_init"
-    else
-      log "ignoring bad VIGILANCE_INITIAL_DEPTH '$_init'; using 'open'"
-      echo open
+    # VALIDATE THE RUNG, as the TIMESTAMP beside it has always been validated.
+    # The asymmetry was the bug: `_depth_at` rejects a non-numeric stamp, while
+    # this returned whatever the first field said. Measured:
+    #
+    #   depth: banana              rc=0
+    #   depth: ../../etc/passwd    rc=0
+    #   depth: <empty>             rc=0
+    #
+    # Corruption reported as a rung, confidently. It is reachable on disk, not
+    # only in a tmpfs: RUN_DIR falls back to a per-uid directory under TMPDIR
+    # when XDG_RUNTIME_DIR is unset (ssh, cron, su), and the crash work measured
+    # ext4 leaving a NUL-filled tail on an unsynced write.
+    #
+    # SILENT HERE, NAMED BY THE DIAGNOSTIC SURFACES. This runs once per hook per
+    # edge and inside command substitutions, so a log line would be both a storm
+    # and unreliable (a flag set in a subshell never reaches the caller, which
+    # this stack has paid for before). `status` and `report` say it instead,
+    # exactly as they do for a clock skew.
+    _dv=$(cut -d' ' -f1 < "$DEPTH_FILE" 2>/dev/null || true)
+    if _depth_of "${_dv:-}" >/dev/null 2>&1; then
+      printf '%s\n' "$_dv"
+      return 0
     fi
+  fi
+  # NO RECORD, or one that is not a rung: both mean the same thing here, which
+  # is that the ladder has nothing of its own to go on.
+  _init=${VIGILANCE_INITIAL_DEPTH:-open}
+  if _depth_of "$_init" >/dev/null 2>&1; then
+    echo "$_init"
+  else
+    log "ignoring bad VIGILANCE_INITIAL_DEPTH '$_init'; using 'open'"
+    echo open
   fi
 }
 
@@ -1484,6 +1515,19 @@ cmd_status() {
   else _since="unknown"; fi
   echo "depth: $(_depth)"
   echo "since: $_since"
+  # AND SAY WHEN THE RECORD ITSELF IS NOT A RUNG. `_depth` falls back silently,
+  # which is right for a hot path but would leave this surface reporting a
+  # perfectly ordinary `open` about a file holding garbage. Before the rung was
+  # validated at all, this printed the garbage instead: "depth: banana", rc=0.
+  # THE FILE EXISTING IS THE CONDITION, not the field being non-empty. An
+  # EMPTY record is corruption too, and it is the shape the crash work actually
+  # measured: ext4 journals a file's size while never writing the data, so a
+  # power cut leaves a readable record with nothing in it.
+  if _dr=$(_depth_recorded) && ! _depth_of "${_dr:-}" >/dev/null 2>&1; then
+    echo "note:  the depth record is not a rung, so the value above is the" \
+      "fallback, not a reading. Found:" \
+      "'$(printf '%s' "${_dr:-}" | cut -c1-24)'"
+  fi
   echo "hooks: $HOOK_ROOT (user)"
   echo "       $MACHINE_HOOK_ROOT (machine)"
   echo "state: $RUN_DIR"
@@ -1809,6 +1853,21 @@ _rep_state() {
   _at=$(_depth_at)
   _rung=$(_depth)
   _have_record=
+  # A RECORD THAT IS NOT A RUNG IS A FINDING, not an aside, and it is checked
+  # OUTSIDE the branches below because an EMPTY record has no timestamp either:
+  # it would take the no-record path and the corruption would go unmentioned.
+  # That is the shape the crash work measured, ext4 journalling a file's size
+  # while never writing its data, so it is the likeliest one to meet.
+  #
+  # Every tier that asks "is the machine where it says it is" reads this file,
+  # so a corrupt one makes the whole apparatus answer about a fallback while
+  # believing it read something. WARN, not FAIL: the hardware is fine, the
+  # record is not, and the next crossing rewrites it.
+  if _rdr=$(_depth_recorded) && ! _depth_of "${_rdr:-}" >/dev/null 2>&1; then
+    _r_warn "the depth record is NOT a rung" \
+      "('$(printf '%s' "${_rdr:-}" | cut -c1-24)');" \
+      "every depth reading here is the fallback"
+  fi
   if [ "$_at" -gt 0 ]; then
     if _rd_e=$(_elapsed "$_at"); then
       _r_info "depth=$_rung (${_rd_e}s ago)"
@@ -2655,8 +2714,32 @@ _idle_secs() {   # -> seconds since last seat input, or empty if unknowable
     mkdir -p "$_isd" 2>/dev/null || true
     VIGILANCE_KIND=idle VIGILANCE_STATE_DIR="$_isd" PATH="$HOOK_PATH" \
       $HOOK_TMO "$_ih" > "$_io" 2>/dev/null || _irc=$?
-    _iv=$(cat "$_io" 2>/dev/null | head -1 | tr -dc '0-9')
+    # VALIDATE, NEVER COERCE. This was `tr -dc '0-9'`, which DELETES every
+    # non-digit rather than rejecting the value, so a source that answered
+    # badly had a number invented for it. Measured, with a hook printing:
+    #
+    #   -99      -> the sign stripped, read as 99      -> a FALSE OVERDUE
+    #   "1 2 3"  -> the fields concatenated, read as 123
+    #   21 digits-> `[: Illegal number:` leaked to the user and the compare died
+    #
+    # An idle.d source is an EXTENSION POINT, so its output is third-party
+    # input; and a fabricated idle time drives the overdue detector, whose
+    # false alerts are the documented reason a live box had its supervision
+    # timer stopped by hand. Seven other places in this file validate with a
+    # case guard: this one site broke the convention.
+    #
+    # A REJECTED VALUE IS "NO ANSWER", not zero, and that is already visible:
+    # when nothing answers, report's `deadlines` section says the deadline
+    # cannot be measured. So this stays silent rather than logging once a
+    # minute. What is NOT visible is one garbage source beside one good one,
+    # since the minimum-wins rule makes the good one authoritative; naming a
+    # source that answers badly belongs in `report` and is not done yet.
+    _iv=$(head -1 "$_io" 2>/dev/null | awk '{print $1}')
     rm -f "$_io"
+    case "${_iv:-}" in ''|*[!0-9]*) _iv= ;; esac
+    # 11+ digits is past any clock and overflows the shell's own arithmetic,
+    # which is what produced the `Illegal number` above.
+    if [ -n "$_iv" ] && [ "${#_iv}" -gt 10 ]; then _iv=; fi
     if [ "$_irc" != 0 ] || [ -z "$_iv" ]; then continue; fi
     # THE MINIMUM, deliberately. Several sources should agree; when they do not,
     # the one reporting the LEAST idle time is the one that saw input most

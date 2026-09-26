@@ -189,7 +189,7 @@ _idle() {   # seconds | "" to remove | "na" to decline
   if [ "$1" = na ]; then
     printf '#!/bin/sh\nexit 78\n' > "$VIGILANCE_HOOK_ROOT/idle.d/10-src"
   else
-    printf '#!/bin/sh\necho %s\n' "$1" > "$VIGILANCE_HOOK_ROOT/idle.d/10-src"
+    printf '#!/bin/sh\necho "%s"\n' "$1" > "$VIGILANCE_HOOK_ROOT/idle.d/10-src"
   fi
   chmod +x "$VIGILANCE_HOOK_ROOT/idle.d/10-src"
 }
@@ -266,6 +266,86 @@ case "$_out" in
   *"900s"*) ;;
   *) printf '%s\n' "$_out" >&2
      fail "a non-numeric due hook changed the deadline" ;;
+esac
+
+# --- AN idle.d SOURCE IS AN EXTENSION POINT, so its output is untrusted ------
+# The aggregator used `tr -dc '0-9'`, which DELETES every non-digit rather than
+# rejecting the value, so a source that answered badly had a number invented for
+# it. Measured before the fix, and each one drives the overdue detector:
+#
+#   -99        the sign stripped, read as 99   -> a FALSE OVERDUE
+#   "1 2 3"    fields concatenated, read as 123
+#   21 digits  `[: Illegal number:` leaked and the comparison died
+#
+# A REJECTED VALUE MUST READ AS "NO ANSWER", never as a number. That is already
+# a first-class outcome here: nothing answering makes report say the deadline
+# cannot be measured, which is honest, where a fabricated number makes it claim
+# a measurement it never took.
+# AN IDLE-ANCHORED DEADLINE FIRST, or `_idle_secs` is never consulted at all and
+# every case below passes without exercising anything. The file's earlier cases
+# leave a RUNG-anchored deadline in place, which is exactly the vacuous shape
+# this suite keeps catching.
+rm -f "$VIGILANCE_HOOK_ROOT"/sleep.due.d/* 2>/dev/null || true
+duehook sleep 10-idle '60 idle'
+go open
+go lock
+# AND THE ASCENT MARK GOES BACK, for the reason _backdate above already states:
+# an ascent CEILINGS idle time, so a fresh one caps every reading at about 1s
+# and each case below would pass on the ceiling rather than on what its source
+# printed. Caught by the valid-number case failing after the others had passed.
+_backdate lock 610
+
+_idle_says_nothing() {   # <what the source prints> <why>
+  _idle "$1"
+  _backdate lock 610
+  _o=$("$VIGILANT" due sleep 2>>"$T/stderr")
+  case "$_o" in
+    *"cannot observe"*) ;;
+    *) printf '%s\n' "$_o" >&2
+       fail "an idle source printing '$1' was READ AS A NUMBER. $2" ;;
+  esac
+}
+
+# A NEGATIVE IS THE DANGEROUS ONE: stripping the sign turns "something is wrong
+# with my clock" into a large positive idle time: an overdue alert about a
+# machine somebody may be sitting at.
+_idle_says_nothing '-99' "The sign was stripped and 99s reported, so a source
+with a broken clock manufactures an OVERDUE against a machine in use, and false
+overdue alerts are the documented reason a live box had its timer stopped by
+hand"
+
+# BEYOND THE SHELL'S ARITHMETIC. This leaked `[: Illegal number:` to the caller
+# and then failed the comparison, so a raw shell error reached the operator.
+_idle_says_nothing '999999999999999999999' "21 digits overflow the shell's own
+arithmetic, which leaked an interpreter error rather than declining"
+
+# NOT A NUMBER AT ALL still declines, which it always did: the guard must not
+# have narrowed to only the cases above.
+_idle_says_nothing 'banana' "a plainly non-numeric answer must still decline"
+
+# ...AND A MULTI-FIELD ANSWER TAKES ITS FIRST FIELD, not its digits joined
+# together. "1 2 3" read as 123 was a fabricated measurement; reading 1 is the
+# same parse the due contract uses for `<secs> <anchor>`, and it errs toward
+# ACTIVE, which is the only safe direction for a clock that gates an alert.
+_idle '1 2 3'
+_backdate lock 610
+_out=$("$VIGILANT" due sleep 2>>"$T/stderr")
+case "$_out" in
+  *"idle 1s"*) ;;
+  *) printf '%s\n' "$_out" >&2
+     fail "a source printing '1 2 3' was not read as its first field. Joining
+the digits gave 123s, a number no source ever reported" ;;
+esac
+
+# AND A PLAIN NUMBER STILL WORKS, or the fix is "reject everything", which
+# passes every case above and switches the clock off.
+_idle 42
+_backdate lock 610
+_out=$("$VIGILANT" due sleep 2>>"$T/stderr")
+case "$_out" in
+  *"idle 42s"*) ;;
+  *) printf '%s\n' "$_out" >&2
+     fail "a valid idle source stopped being read" ;;
 esac
 
 pass
