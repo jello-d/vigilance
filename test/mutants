@@ -678,3 +678,9 @@ f bin/vigilant
 t runtime-dir
 -   if _dr=$(_depth_recorded) && ! _depth_of "${_dr:-}" >/dev/null 2>&1; then
 +   if false; then
+
+= ddc-brightness-descent-is-a-silent-no-op
+f libexec/vigilance/hooks/ddc-monitor
+t ddc-monitor
+-   if [ ! -f "$_bs" ]; then
++   if [ -f "$_bs" ]; then return 0; elif true; then

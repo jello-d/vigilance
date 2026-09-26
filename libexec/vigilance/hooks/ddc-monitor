@@ -159,25 +159,50 @@ _bright_get() {   # bus -> current luminance, or empty
     | sed -n 's/.*current value = *\([0-9]*\).*/\1/p'
 }
 
+# SAVE ONCE, ASSERT EVERY TIME. These are hooklib's rules, re-implemented here
+# because the messages have to name the BUS: this hook drives N monitors and
+# "could not dim" without saying which one is a worse diagnosis than none. That
+# is a deliberate second copy, and THE COPIES DRIFTED, which is the cost:
+#
+#   2026-09-20  hook_dark returned 0 outright when the save file existed,
+#               reading it as "already saved, therefore already dark". A SILENT
+#               NO-OP THAT REPORTED SUCCESS. Fixed in hooklib (f08f3a7).
+#   this        the same bug, still here, because the fix landed in one copy.
+#
+# Reproduced against the stub before fixing: first descent writes lum=0 and
+# saves 75; a second descent with the panel back at 75 wrote NOTHING and
+# returned 0. Worse here than for a keyboard LED, because on a panel with no
+# D6=02 and no sysfs backlight this is the ONLY way the screen goes dark, so it
+# simply stays lit while the edge reports clean.
+#
+# The comment in _bright_lit below used to lean on that short-circuit as a
+# premise. It no longer holds, and the rule there stands on its own reason.
 _bright_dark() {   # bus
   _bs=$(_bright_save "$1")
-  # SAVE ONCE. This runs on `sleep` and again on `resume`; a second save would
-  # record the 0 just set, and restoring THAT leaves the panel black with the
-  # operator convinced the monitor died.
-  if [ -f "$_bs" ]; then return 0; fi
-  _cur=$(_bright_get "$1")
-  case "${_cur:-}" in
-    ''|*[!0-9]*)
-      echo "ddc-monitor: bus $1 would not report brightness; not dimming" >&2
-      return 0 ;;
-  esac
-  mkdir -p "$(dirname "$_bs")" 2>/dev/null || true
-  if ! printf '%s\n' "$_cur" > "$_bs" 2>/dev/null; then
-    echo "ddc-monitor: bus $1 cannot record its brightness; not dimming" >&2
-    return 1
+  _bd_new=0
+  # SAVE ONCE. A second save would record the 0 just set, and restoring THAT
+  # leaves the panel black with the operator convinced the monitor died.
+  if [ ! -f "$_bs" ]; then
+    _bd_new=1
+    _cur=$(_bright_get "$1")
+    case "${_cur:-}" in
+      ''|*[!0-9]*)
+        echo "ddc-monitor: bus $1 would not report brightness; not dimming" >&2
+        return 0 ;;
+    esac
+    mkdir -p "$(dirname "$_bs")" 2>/dev/null || true
+    if ! printf '%s\n' "$_cur" > "$_bs" 2>/dev/null; then
+      echo "ddc-monitor: bus $1 cannot record its brightness; not dimming" >&2
+      return 1
+    fi
   fi
+  # ASSERT EVERY TIME. A save file records that we dimmed, not an observation
+  # that the panel is still dim.
   if ! ddcutil --bus "$1" --noverify setvcp 10 0 >/dev/null 2>&1; then
-    rm -f "$_bs" 2>/dev/null || true
+    # ONLY A SAVE WE JUST MADE IS DROPPED. A pre-existing one is the level the
+    # panel must return to, and discarding it on a failed re-assert would strand
+    # a monitor that is still dark.
+    if [ "$_bd_new" = 1 ]; then rm -f "$_bs" 2>/dev/null || true; fi
     echo "ddc-monitor: bus $1 refused the dim to 0" >&2
     return 1
   fi
@@ -193,10 +218,10 @@ _bright_lit() {   # bus
       echo "ddc-monitor: bus $1 saved brightness '$_want' is not a number" >&2
       return 1 ;;
   esac
-  # An UNREADABLE monitor is n/a, not a failed restore -- the distinction
-  # hook_lit draws. Keeping a save for a panel that is gone fails every ascent
-  # forever, and the descent cannot clear it because _bright_dark
-  # short-circuits on the file existing.
+  # An UNREADABLE monitor is n/a, not a failed restore: the distinction
+  # hook_level_lit draws. Keeping a save for a panel that is GONE would fail
+  # every ascent forever, and nothing else clears it, since a descent only ever
+  # adds to the record.
   if [ -z "$(_bright_get "$1")" ]; then
     rm -f "$_bs" 2>/dev/null || true
     return 0

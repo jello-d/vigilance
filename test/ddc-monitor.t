@@ -389,6 +389,29 @@ _act sleep || fail "a second descent errored"
 '$(cat "$T/state/bright-5" 2>/dev/null)'. Restoring that returns the panel to
 black and looks exactly like a dead monitor"
 
+# --- 12b. ...AND ASSERT EVERY TIME, which was the MISSING half --------------
+# The rule is two halves and this file checked only one. A save file records
+# that we dimmed; it is NOT an observation that the panel is still dim. The
+# descent short-circuited on the file existing, so a panel something else
+# re-brightened stayed lit at every later sleep while the edge reported clean.
+#
+# Reproduced against this stub before the fix: the first descent wrote lum=0 and
+# saved 75, and a second descent with the panel back at 75 wrote NOTHING and
+# returned 0. It is the same bug hook_dark had on 2026-09-20, which was fixed in
+# hooklib while this hand-rolled copy kept it: the cost of two copies, paid.
+#
+# Worse here than for a keyboard LED: on a panel advertising no D6=02, with no
+# sysfs backlight, this is the ONLY darkening mechanism on the box.
+export DDC_BRIGHT_5=75                  # something put the brightness back
+_act sleep || fail "a re-asserting descent errored"
+grep -q "^5 lum=0$" "$DDC_WRITES" || fail "a second descent did not RE-ASSERT
+the dim, so a panel something else re-brightened stays lit at every sleep while
+the hook reports success. Writes seen: '$(tr '\n' ' ' < "$DDC_WRITES")'"
+[ "$(cat "$T/state/bright-5" 2>/dev/null)" = 75 ] \
+  || fail "re-asserting overwrote the saved level with
+'$(cat "$T/state/bright-5" 2>/dev/null)'; save-once and assert-every-time have
+to hold together"
+
 # --- 13. and the ASCENT puts the level back --------------------------------
 _act wake || fail "the ascent errored"
 grep -q "^5 lum=75$" "$DDC_WRITES" || fail "the ascent did not restore the
