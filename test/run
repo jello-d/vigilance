@@ -50,6 +50,17 @@ for _t in "$_dir"/*.t; do
   # failing test already says so in its own words; reporting it as verdictless
   # too buries the message it printed under a second, wronger one.
   _trc=0
+  # A BREADCRUMB, because the capture below is what makes a HANG invisible. A
+  # test's output is held until it finishes, so one that never finishes prints
+  # nothing at all and the runner never says which it was. On a substrate whose
+  # whole log is dumped at the end (the VM) that leaves a hang with literally no
+  # evidence, which has cost two investigations: the lid cell was set aside as
+  # "cause unknown" and the clock cell after it. Written only when a caller asks
+  # for it, so a desk run -- where output streams live and the last `ok` already
+  # says where you are -- is unchanged and two concurrent suites cannot collide.
+  [ -z "${VIGILANCE_RUNNING_FILE:-}" ] \
+    || printf '%s\n' "$(basename "$_t")" > "$VIGILANCE_RUNNING_FILE" \
+    || true
   _out=$(sh "$_t" 2>&1) || _trc=1
   [ "$_trc" -eq 0 ] || _rc=1
   printf '%s\n' "$_out"

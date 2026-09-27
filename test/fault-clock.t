@@ -81,18 +81,41 @@ chmod +x "$HOOKS/lock.verify.d/90-fixed"
 await 15 locker_up || fail "fixture: no locker came up, so the records this
 scenario is about were never written by a real crossing"
 
-# A DEDUP STAMP, written by a REAL alert at the real clock. Without one there is
-# nothing for a skewed cooldown to suppress and the alert case would pass
-# vacuously: the arming crossings succeed, so they raise nothing themselves.
-systemctl --user stop screen-lock.service >/dev/null 2>&1 || true
+# A DEDUP STAMP, written by a REAL alert at the real clock, AT THE RUNG CASE 3
+# WILL USE. Without one there is nothing for a skewed cooldown to suppress and
+# the alert case passes vacuously: the arming crossings succeed, so they raise
+# nothing themselves.
+#
+# THE RUNG IS THE WHOLE POINT, and the first version of this got it wrong in a
+# way that made case 3 prove NOTHING. It armed AFTER stopping the locker, which
+# crosses `unlock`, so the stamp belonged to a drift at 'open' while case 3
+# raises one at 'lock'. The key is a cksum over kind+message, so those are
+# different findings and there was never anything suppressible. MEASURED, which
+# is how it was found -- a mutation removing the guard in `_alert_repeat`
+# SURVIVED, and printing both lines said why:
+#
+#   armed:  drift|... at 'open' ... verify unlock: NOTHING CHECKED ...
+#   case 3: drift|... at 'lock' ... a fixed finding ... verify lock: FAIL
+#
 : > "$T/alerts"
 VIGILANCE_ALERT_COOLDOWN=3600 "$VIGILANT" enforce >>"$T/out" 2>&1 || true
-grep -q . "$T/alerts" || fail "fixture: no alert fired before the step, so no
-dedup stamp exists and the suppression case below would prove nothing"
-_armed_alerts=$(grep -c . "$T/alerts" || true)
+_armed=$(head -1 "$T/alerts" 2>/dev/null || true)
+[ -n "$_armed" ] || fail "fixture: no alert fired before the step, so no dedup
+stamp exists and the suppression case below would prove nothing"
+# AND IT IS THE PLANTED FINDING, not whatever the substrate happened to raise.
+# This guest has no brightnessctl, ddcutil or wlopm, so its verify tiers produce
+# findings of their own -- one of which is exactly what armed the wrong key.
+case "$_armed" in
+  *"a fixed finding"*) ;;
+  *) fail "fixture: the armed alert is not the deterministic finding this
+scenario plants, so its dedup key is not the one case 3 exercises:
+$_armed" ;;
+esac
 
-# ...and leave the machine at `open` with a PRE-STEP stamp, which is the state
-# phantom-guard reads: it only considers blocking at that rung.
+# ...and NOW leave the machine at `open` with a PRE-STEP stamp, which is the
+# state phantom-guard reads: it only considers blocking at that rung. Stopping
+# the locker crosses `unlock`, which is precisely why it cannot come first.
+systemctl --user stop screen-lock.service >/dev/null 2>&1 || true
 "$VIGILANT" force open >/dev/null 2>&1 || true
 [ "$(depth)" = open ] || fail "fixture: depth is '$(depth)', not open"
 
@@ -171,6 +194,16 @@ nothing to discard"
 grep -q . "$T/alerts" || fail "a real finding raised NO alert under a skewed
 clock. Every dedup stamp is ahead of the clock, so each alert reads as a repeat
 and the whole notification path goes silent while the log fills"
+# AND IT IS THE FINDING WHOSE STAMP IS PRE-STEP. Without this the case passes
+# on any alert at all, including one whose key was never stamped and so could
+# not be suppressed by any clock -- which is how it passed with the guard
+# removed. An assertion about suppression has to name what should have been
+# suppressed.
+grep -Fq "$_armed" "$T/alerts" || fail "an alert got through, but NOT the one
+whose dedup stamp predates the step, so the cooldown comparison was never
+exercised and this case would pass whatever the clock did.
+armed: $_armed
+got:   $(head -1 "$T/alerts")"
 
 # --- 4. THE STANDING RECHECK MUST STILL JUDGE -------------------------------
 # Asserted through the alert above: a suppressed recheck raises nothing at all.

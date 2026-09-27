@@ -521,8 +521,26 @@ runcmd:
       echo "=== scenarios (VM substrate) ==="
       SCENARIO_CAPS="@CAPS@ ${SCENARIO_CAPS_EXTRA:-}"; export SCENARIO_CAPS
       SCENARIO_SUSPEND_CMD="rtcwake -m mem -s 5"; export SCENARIO_SUSPEND_CMD
-      sh test/run @FILTER@
-      echo "VIGILANCE_VM_EXIT=$?"
+      # BOUNDED, so a hung scenario still reports what it managed. Everything in
+      # this block goes to a FILE that is dumped to the serial at the very end,
+      # so a suite that never returns never reaches the `cat` and produces NO
+      # output at all -- not a partial log, nothing. Two cells were set aside as
+      # "cause unknown" on exactly that evidence.
+      #
+      # GENEROUS ON PURPOSE, against a MEASURED full run: 302s of guest
+      # uptime end to end, of which the scenarios are about 250. A bound that
+      # fires on a correct machine is the cry-wolf this suite bans, and it must
+      # also stay under the HOST's own VM_TIMEOUT (600s from qemu launch), or
+      # the host gives up first and the log is lost anyway, which is the exact
+      # failure being fixed here.
+      VIGILANCE_RUNNING_FILE=/root/running; export VIGILANCE_RUNNING_FILE
+      _src=0
+      timeout -k 10 "${VIG_SUITE_TIMEOUT:-420}" sh test/run @FILTER@ || _src=$?
+      if [ "$_src" = 124 ]; then
+        echo "SUITE TIMED OUT after ${VIG_SUITE_TIMEOUT:-420}s."
+        echo "HUNG IN: $(cat /root/running 2>/dev/null || echo '<unknown>')"
+      fi
+      echo "VIGILANCE_VM_EXIT=$_src"
     } > /root/log 2>&1
     cat /root/log > /dev/ttyS0
     poweroff -f
