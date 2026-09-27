@@ -83,6 +83,9 @@ wishes are visible.
         standing-recheck.t section 9
     22  a power cut cannot leave the ladder unable to act
         test/vm/crash (host-side: the guest is what gets killed)
+    23  a security request may deepen the machine, never raise it, and a REAL
+        lid switch is the case that proved it matters
+        fault-lid (a uinput SW_LID through logind), atleast.t
 
 ### Invariants with no enforcing check
 

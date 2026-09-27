@@ -132,28 +132,45 @@ f a real `go` crossing an edge while the recheck is inside its verify tier
 e DEGRADE: no verdict and NO notification; the log keeps the record
 t fault-recheck
 
-# THE INJECTOR WORKS AND THE SCENARIO DOES NOT, and the cells stay empty
-# until it does. Verified in the guest: a uinput SW_LID switch is found by
-# udev and logind logs its own "Lid closed." -- the same line the live box
-# emitted. But the scenario built on it HANGS the guest inside cloud-final,
-# and a scenario that hangs the harness is worse than an empty cell: the
-# empty cell is at least visible. Work in progress, not coverage.
+# DRIVEN BY A REAL SWITCH AT LAST. Every earlier test of this path used
+# `loginctl lock-session`, which is the SIGNAL rather than the CAUSE, and the
+# bug
+# was about what a LID does. Three preconditions had to be found first, each of
+# which silently held the whole chain open:
 #
-# State of play when it was set down: case 1 (no raise from `sleep`) passes,
-# but may be VACUOUS -- "still at sleep" is also what a lid nobody noticed
-# looks like, which is why the precondition assertion was being added when
-# the hang appeared. Case 2 (must lock from `open`) FAILED, cause unknown.
+#   a LOCKABLE session   Class=greeter cannot be locked ("Session does not
+#                        support lock screen"), so greetd's default slot is no
+#                        use; `su -l` gives Class=user, and that one locks
+#   a reachable trigger  the unit rendered for root points into /root, which
+#                        the second account cannot read: it sits `activating`
+#   lid policy = lock    the guest defaulted to HandleLidSwitch=suspend, so
+#                        the injected lid SUSPENDED the machine under test.
+#                        Very likely why this hung the guest the first time
+#                        and had to be set aside.
+#
+# AND THE FIRST CLOSE IS NOT ACTED ON by logind (measured: four lid-closed
+# events,
+# two locks), so the scenario primes and ASSERTS that priming worked.
+# Otherwise a
+# missed event reads exactly like a passing lid-close-at-sleep.
 = lid-close-at-sleep
 m logind
 f a real SW_LID close event via uinput, at the sleep rung
-e REFUSE: the machine must NOT be raised
-t -
+e REFUSE: the machine must NOT be raised, and the decline is logged
+t fault-lid
 
+# ASSERTED ON THE EDGE, not the resting depth. Measured: the lid crosses `lock`
+# correctly and the machine is back at `open` two seconds later, because the
+# provider starts a locker, the locker cannot survive a headless guest, and its
+# ExecStopPost unwinds the ladder. That is locker-killed-while-locked working,
+# so
+# demanding a resting depth here would fail this cell over another one's
+# subject.
 = lid-close-at-open
 m logind
 f a real SW_LID close event via uinput, at the open rung
-e ACT: descend to lock; the screen is not left lit
-t -
+e ACT: the lock edge is crossed; the ladder descends rather than rising
+t fault-lid
 
 = suspend-mid-crossing
 m the depth record
