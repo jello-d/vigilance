@@ -684,3 +684,15 @@ f libexec/vigilance/hooks/ddc-monitor
 t ddc-monitor
 -   if [ ! -f "$_bs" ]; then
 +   if [ -f "$_bs" ]; then return 0; elif true; then
+
+= report-never-names-a-dead-idle-timer
+f bin/vigilant
+t report
+-     _r_bad "$IDLE_PROCESS NOT running: nothing will lock on idle"
++     _r_info "$IDLE_PROCESS not running"
+
+= report-downgrades-a-dead-idle-timer
+f bin/vigilant
+t report
+-     _r_bad "$IDLE_PROCESS NOT running: nothing will lock on idle"
++     _r_info "$IDLE_PROCESS NOT running: nothing will lock on idle"

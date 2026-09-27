@@ -115,6 +115,46 @@ dialled to something else. A box running a different timer would be told its
 healthy machine has nothing locking on idle" ;;
 esac
 
+# NAMED BUT NOT RUNNING IS A FAILURE, and it is the other half of the
+# idle-timer-killed cell. The watchdog deliberately DECLINES when the timer is
+# absent -- it is not its finding, and two tiers accusing in different words
+# teaches a reader to discount both -- so if report is silent here as well then
+# nothing on the box reports a dead idle timer at all. That is the founding
+# failure of this package, undetected.
+#
+# A SESSION IS ASSERTED, not assumed. The finding is correctly withheld with no
+# session: report once declared FAIL over a greeter-only box doing exactly the
+# right thing, so the guard is deliberate and this case must not read as a
+# licence to remove it. `_r_session` is overridable for precisely this, so both
+# branches are reachable from a test rather than only the substrate's own.
+_out=$(VIGILANCE_SESSION=7 VIGILANCE_IDLE_PROCESS=nosuchidled \
+       VIGILANCE_IDLE_UNIT=nosuchidled.service "$VIGILANT" report 2>&1 || true)
+case $(_sect "$_out") in
+  *"nosuchidled NOT running"*) ;;
+  *) printf '%s\n' "$_out" >&2
+     fail "a NAMED idle daemon that is not running was not reported. The
+watchdog declines in that case on purpose, so report is the only tier that can
+say it, and a box whose idle timer died would be told nothing at all" ;;
+esac
+# AND AS A FAIL, not an aside. The severity is what report's exit status is made
+# of, and a supervision timer reads the status and nothing else -- the same
+# reason `verify` had to stop returning 0 for "nothing was checked".
+printf '%s\n' "$_out" | grep -q '^ *\[FAIL\].*nosuchidled' \
+  || fail "a dead idle timer was mentioned but not as a FAIL, so report still
+exits 0 and anything reading only the status is told the box is healthy:
+$(printf '%s\n' "$_out" | grep -i nosuchidled | head -2)"
+# ...AND WITHHELD WITH NO SESSION, which is the guard that case exists beside.
+# Without this the fix for the above is "always FAIL", which cries wolf on every
+# greeter-only and headless machine.
+_out=$(VIGILANCE_SESSION= VIGILANCE_IDLE_PROCESS=nosuchidled \
+       VIGILANCE_IDLE_UNIT=nosuchidled.service "$VIGILANT" report 2>&1 || true)
+case $(_sect "$_out") in
+  *"NOT running"*) printf '%s\n' "$_out" >&2
+     fail "with NO session, report still accused a missing idle timer. There
+is nothing to idle in, so the finding is not real, and this exact FAIL once
+landed on a greeter-only box that was behaving correctly" ;;
+esac
+
 # DECLARED ABSENT is not BROKEN. A greeter-only box or a kiosk has no idle
 # timer at all, and red is the wrong answer for a deliberate configuration.
 _out=$(VIGILANCE_IDLE_PROCESS= VIGILANCE_IDLE_UNIT= "$VIGILANT" report 2>&1 \

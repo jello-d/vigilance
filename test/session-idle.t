@@ -95,4 +95,63 @@ else
   NOTCHECKED="$NOTCHECKED idle-ceiling(no-countable-input-device)"
 fi
 
+# --- 4. FAULT idle-timer-killed: DECLINE, do not accuse --------------------
+# The founding failure of this package is a timer that LOOKS fine and silently
+# does nothing, so the watchdog exists to notice silence. But silence has an
+# innocent explanation the watchdog must never dress up as a fault: the subject
+# simply not being there. `report` already says that, and saying the same thing
+# twice in different words teaches a reader to discount both.
+#
+# SIGKILL, not `swayidle-mgr stop`. A polite stop runs the pending resume
+# commands and unwinds the ladder (case 3 is about exactly that); a kill is
+# what a crash or an OOM does, and it leaves the pidfile behind.
+session_idle_start 4 8
+_ipid=$(pgrep -x swayidle 2>/dev/null | head -1)
+[ -n "${_ipid:-}" ] || fail "no swayidle to kill, so this case would assert
+against a machine that already had no idle timer"
+
+# THE PRECONDITION: while it is alive the watchdog must NOT be declining for the
+# not-running reason, or the assertion below passes without the kill doing
+# anything. This is the shape that makes a fault test vacuous.
+_wout=$("$VIGILANT" report 2>&1 | grep -i 'swayidle' | head -3 || true)
+case "$_wout" in
+  *"NOT running"*) fail "report already says swayidle is not running BEFORE the
+kill, so the fault cannot be what changes the verdict" ;;
+esac
+
+kill -9 "$_ipid" 2>/dev/null || true
+SESSION_IDLE_PID=
+_n=0
+while [ "$_n" -lt 40 ]; do
+  if ! pgrep -x swayidle >/dev/null 2>&1; then break; fi
+  sleep 0.25; _n=$((_n + 1))
+done
+pgrep -x swayidle >/dev/null 2>&1 && fail "swayidle survived SIGKILL, so the
+fault was not injected and nothing below is about a dead timer"
+
+# THE WATCHDOG DECLINES. 78, not 1: "I cannot tell" is not "the timer is
+# wedged", and this is the tier whose whole value is that silence means
+# something. Accusing a timer that does not exist is crying wolf on the one
+# check that has to be believed when it finally speaks.
+_wrc=0
+VIGILANCE_KIND=watchdog VIGILANCE_EDGE=sleep \
+  sh "$PLUGINS/hooks/swayidle-watchdog" sleep >"$T/wd.out" 2>&1 || _wrc=$?
+[ "$_wrc" = 78 ] || fail "with swayidle KILLED the watchdog exited $_wrc,
+not 78: $(cat "$T/wd.out")"
+grep -qi 'not running' "$T/wd.out" || fail "the watchdog declined without saying
+why. 'I cannot tell' is only useful with a reason: $(cat "$T/wd.out")"
+
+# AND IT MUST NOT ACCUSE. The negative half, and the one the cell is really
+# about: a dead timer emits nothing, so an accusation phrased as silence is
+# literally true and completely misleading.
+grep -qi 'emitted nothing' "$T/wd.out" && fail "the watchdog accused a KILLED
+timer of emitting nothing. True, useless, and it is report's finding:
+saying it twice in different words teaches a reader to discount both" || :
+
+# REPORT'S HALF OF THIS CELL IS IN report.t, deliberately. Here `_r_session`
+# finds no graphical session -- root has none -- so report correctly answers
+# "n/a (no session to idle in)" rather than FAIL, and that guard exists because
+# it once declared FAIL over a greeter-only box doing exactly the right thing.
+# Demanding a FAIL on this substrate would be a verdict about the VM.
+
 pass "${NOTCHECKED:+not checked:$NOTCHECKED}"

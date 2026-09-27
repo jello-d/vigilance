@@ -96,11 +96,15 @@ f leave a lock file behind naming a dead process
 e ACT: it is broken and the crossing proceeds
 t cross-lock
 
+# COVERED IN TWO PLACES, and only one can be the `t`. session-idle case 4 kills
+# a REAL swayidle and asserts the watchdog declines; report's half of the
+# response needs a graphical session to withhold its finding against, which root
+# in the guest does not have, so it lives in report.t against a pinned probe.
 = idle-timer-killed
 m the idle timer
 f SIGKILL swayidle
 e ALERT: report says it is not running; the watchdog DECLINES, not accuses
-t -
+t session-idle
 
 = idle-timer-restarted-from-sleep
 m the idle timer
@@ -245,11 +249,16 @@ f step the guest clock back an hour with records already stamped
 e DEGRADE: no mechanism disables itself; a future stamp is not a measurement
 t -
 
+# NOT "ONE CROSSING", and the measurement is why. A hundred requests produced 5
+# crossings and 95 that never reached the ladder at all, absorbed at the signal
+# layer before `vigilant` runs. The claim is an ORDER OF MAGNITUDE, plus the
+# thing a low count cannot distinguish on its own: that the listener is still
+# alive when the burst ends.
 = lock-signal-storm
 m the logind trigger
 f a hundred lock-session signals in a burst
-e ACT: one crossing; the dedup holds
-t -
+e ACT: crossings collapse; the dedup holds; the listener still secures after
+t fault-storm
 
 # THE MOST LIKELY OUTSIDE-INTEGRATOR FAILURE, now that the repo is public.
 # Everything about the lock leans on a per-user systemd bus: the provider starts

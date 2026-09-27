@@ -41,45 +41,21 @@ set -eu
 . "$(dirname "$0")/session.sh"
 session_init fault-lid
 
-VUID=$(id -u vig 2>/dev/null || echo)
-VRUN=/run/user/${VUID:-0}
-VLOG=/home/vig/.local/state/vigilance.log
-V=/opt/vigilance/bin/vigilant
-UNIT=/etc/systemd/user/vigilance-logind.service
-AS="sudo -u vig -H env XDG_RUNTIME_DIR=$VRUN HOME=/home/vig"
-AS="$AS DBUS_SESSION_BUS_ADDRESS=unix:path=$VRUN/bus"
-HOLD=
-
-_cleanup() {
-  if [ -n "${HOLD:-}" ]; then kill "$HOLD" 2>/dev/null || true; fi
-  $AS systemctl --user stop vigilance-logind.service >/dev/null 2>&1 || true
-  rm -f "$UNIT" 2>/dev/null || true
-  session_done
-  rm -rf "$T"
-}
+# THE PLUMBING IS SHARED (test/session.sh), because all three preconditions
+# above are easy to get subtly wrong and a wrong one does not fail loudly: the
+# signal simply never arrives, and "the machine did not move" is exactly what a
+# passing lid-close-at-sleep looks like.
+_cleanup() { lockable_stop; session_done; rm -rf "$T"; }
 trap '_cleanup' EXIT INT TERM HUP
 
-# A vig session logind will actually lock, or empty. `if`, never `[ ] &&`: an
-# AND-OR list whose test fails returns non-zero and `set -e` kills the shell.
-_lockable() {
-  loginctl list-sessions --no-legend 2>/dev/null \
-    | while read -r _i _u _nm _r; do
-        if [ "$_nm" = vig ]; then
-          _c=$(loginctl show-session "$_i" -p Class --value 2>/dev/null || true)
-          if [ "${_c:-}" = user ]; then printf '%s' "$_i"; return 0; fi
-        fi
-      done
+_vlog_at()    { wc -l < "$(lockable_log)" 2>/dev/null || echo 0; }
+_vlog_since() {
+  tail -n +$(( ${1:-0} + 1 )) "$(lockable_log)" 2>/dev/null || true
 }
-_depth_vig() { $AS "$V" status 2>/dev/null | awk '/^depth:/ {print $2}'; }
-_vlog_at()   { wc -l < "$VLOG" 2>/dev/null || echo 0; }
-_vlog_since() { tail -n +$(( ${1:-0} + 1 )) "$VLOG" 2>/dev/null || true; }
-# The switch is a STATE, not an edge, so the device must stay alive long enough
-# for logind to read it. uinject holds it and destroys it on exit.
+# The switch is a STATE, not an edge, so the device must stay alive across the
+# measurement. uinject's own header says so and my first version ignored it: it
+# held the lid 4s and asserted at 8s, against a lid already released.
 _close_lid() {
-  # HELD ACROSS THE MEASUREMENT. A switch is a STATE, not an edge, which
-  # uinject's own header says and my first version ignored: it held the lid for
-  # 4s and asserted at 8s, so every assertion ran against a lid that had already
-  # been released and a device that no longer existed.
   python3 "$HERE/test/uinject" lid close 14 >/dev/null 2>&1 &
   _cl=$!
   sleep 8
@@ -87,46 +63,18 @@ _close_lid() {
   wait "$_cl" 2>/dev/null || true
 }
 
-# --- the substrate this needs, each asserted rather than assumed ------------
 command -v python3 >/dev/null 2>&1 \
   || fail "no python3, so uinject cannot synthesise a lid switch and every case
 below would assert against an event that never happened"
 [ -c /dev/uinput ] || modprobe uinput >/dev/null 2>&1 || true
 [ -c /dev/uinput ] || fail "no /dev/uinput; the lid cannot be injected here"
-[ -n "${VUID:-}" ] || fail "no vig user. This runs as a second account because
-root's own session is manager-class and logind refuses to lock one"
-[ -x "$V" ] || fail "no published vigilant at $V. This runs as vig, so it needs
-the SHARED install rather than root's user prefix"
-
-# @PLUGINS@ substituted with the PUBLISHED tree, not root's: the whole reason a
-# shared install exists is that another uid has to run these.
-mkdir -p /etc/systemd/user
-sed "s#@PLUGINS@#/opt/vigilance/libexec/vigilance#g" \
-  "$HERE/systemd/vigilance-logind.service" > "$UNIT" \
-  || fail "could not render the logind listener unit"
-$AS systemctl --user daemon-reload >/dev/null 2>&1 || true
-$AS systemctl --user restart vigilance-logind.service >/dev/null 2>&1 || true
-
-# `su -l`, because pam_systemd registers a Class=user session for it.
-setsid su -l vig -c 'sleep 180' >/dev/null 2>&1 &
-HOLD=$!
-_n=0
-while [ "$_n" -lt 60 ]; do
-  if [ -n "$(_lockable)" ]; then break; fi
-  sleep 0.25; _n=$((_n + 1))
-done
-[ -n "$(_lockable)" ] || fail "no lockable Class=user session for vig appeared.
-logind will not send Session.Lock to a greeter- or manager-class session, so
-without one a lid close has nowhere to land and every case below would pass"
-[ "$($AS systemctl --user is-active vigilance-logind.service 2>&1)" = active ] \
-  || fail "vigilance's logind listener is not active for vig, so nothing is
-waiting for Session.Lock and a silent 'no response' would look like a decline"
+lockable_start
 
 # --- PRIME, and assert the priming worked -----------------------------------
 # The first close after the device first appears produces no lock (measured).
 # Without this the first real case is testing a missed event, and "the machine
 # did not move" is exactly what a passing lid-close-at-sleep looks like.
-$AS "$V" force open >/dev/null 2>&1 || true
+lockable_as "$LOCKABLE_V" force open >/dev/null 2>&1 || true
 _p0=$(_vlog_at)
 _close_lid
 if [ "$(_vlog_at)" = "$_p0" ]; then
@@ -141,8 +89,9 @@ substrate and nothing below would be a test of vigilance"
 # --- 1. FAULT lid-close-at-open: it must DESCEND to lock --------------------
 # The ordinary case, and the one the ladder should handle without drama: a lid
 # close while the machine is awake is a request to secure the session.
-$AS "$V" force open >/dev/null 2>&1 || true
-[ "$(_depth_vig)" = open ] || fail "fixture: depth is '$(_depth_vig)', not open"
+lockable_as "$LOCKABLE_V" force open >/dev/null 2>&1 || true
+[ "$(lockable_depth)" = open ] \
+  || fail "fixture: depth is '$(lockable_depth)', not open"
 _a0=$(_vlog_at)
 _close_lid
 # ASSERTED ON THE EDGE, NOT THE RESTING DEPTH, and the difference is not
@@ -164,14 +113,15 @@ $(_vlog_since "$_a0" | head -5)"
 # DEEPER rung used to travel upward: lid shut, panel lit, thirty minutes, and
 # nothing to bring it down because a lid switch is not seat input to the
 # compositor so swayidle never saw a resume.
-$AS "$V" force sleep >/dev/null 2>&1 || true
-[ "$(_depth_vig)" = sleep ] \
-  || fail "fixture: depth is '$(_depth_vig)', not sleep"
+lockable_as "$LOCKABLE_V" force sleep >/dev/null 2>&1 || true
+[ "$(lockable_depth)" = sleep ] \
+  || fail "fixture: depth is '$(lockable_depth)', not sleep"
 _b0=$(_vlog_at)
 _close_lid
-[ "$(_depth_vig)" = sleep ] || fail "A REAL LID CLOSE RAISED THE MACHINE from
-sleep to '$(_depth_vig)'. That is the 5bea063 bug: the panel lights with the lid
-shut, and a lid switch is not seat input, so nothing brings it back down. Log:
+[ "$(lockable_depth)" = sleep ] || fail "A REAL LID CLOSE RAISED THE MACHINE
+from sleep to '$(lockable_depth)'. That is the 5bea063 bug: the panel lights
+with the lid shut, and a lid switch is not seat input, so nothing brings it
+back down. Log:
 $(_vlog_since "$_b0" | head -4)"
 
 # AND IT SAID SO. A security request that was refused must not vanish: the

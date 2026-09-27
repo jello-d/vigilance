@@ -133,6 +133,100 @@ session_stop_idle() {
   return 0
 }
 
+# --- a SECOND account with a LOCKABLE session -------------------------------
+# logind refuses Session.Lock to a manager- or greeter-class session, answering
+# "Session does not support lock screen", and the session tier's own user has
+# only a manager one. So anything that tests the logind TRIGGER needs a second
+# account holding a Class=user session, plus the trigger reachable from it.
+#
+# Shared rather than copied into each scenario, because the three preconditions
+# below are each easy to get subtly wrong and a wrong one does not fail loudly:
+# it just means the signal never arrives and "the machine did not move" reads as
+# a pass.
+LOCKABLE_USER=${VIGILANCE_TEST_USER:-vig}
+LOCKABLE_UNIT=/etc/systemd/user/vigilance-logind.service
+LOCKABLE_HOLD=
+LOCKABLE_V=/opt/vigilance/bin/vigilant
+
+# Run a command as that account, with the environment a session needs. `-H env`,
+# not a bare `sudo -u`: without -H the CALLER's HOME survives and everything
+# writes into the wrong tree.
+lockable_as() {
+  _lu=$(id -u "$LOCKABLE_USER")
+  sudo -u "$LOCKABLE_USER" -H env "XDG_RUNTIME_DIR=/run/user/$_lu" \
+    "HOME=$(getent passwd "$LOCKABLE_USER" | cut -d: -f6)" \
+    "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$_lu/bus" "$@"
+}
+
+# The id of a session logind will actually lock, or empty. `if`, never
+# `[ ] && ...`: an AND-OR list whose test fails returns non-zero and `set -e`
+# kills the shell.
+lockable_id() {
+  loginctl list-sessions --no-legend 2>/dev/null \
+    | while read -r _li _lx _ln _lr; do
+        if [ "$_ln" = "$LOCKABLE_USER" ]; then
+          _lc=$(loginctl show-session "$_li" -p Class --value \
+                2>/dev/null || true)
+          if [ "${_lc:-}" = user ]; then printf '%s' "$_li"; return 0; fi
+        fi
+      done
+}
+
+# Bring up the trigger and a lockable session, or FAIL saying which piece is
+# missing. Never skips: this runs only where the VM marker already gated it, so
+# an absent piece is a broken guest rather than an unsupported substrate.
+lockable_start() {
+  id -u "$LOCKABLE_USER" >/dev/null 2>&1 \
+    || fail "no '$LOCKABLE_USER' account. The logind trigger cannot be tested as
+the tier's own user: its session is manager-class, which logind
+will not lock"
+  [ -x "$LOCKABLE_V" ] || fail "no published vigilant at $LOCKABLE_V. A second
+account needs the SHARED install, not the tier user's own prefix"
+  # RENDERED AGAINST THE PUBLISHED TREE. The copy rendered for the tier's user
+  # points into its home, which this account cannot read, so starting it there
+  # sits at `activating` for ever -- and a probe of mine "tested" the whole lid
+  # chain with exactly that unit before I noticed.
+  mkdir -p /etc/systemd/user
+  sed "s#@PLUGINS@#/opt/vigilance/libexec/vigilance#g" \
+    "$HERE/systemd/vigilance-logind.service" > "$LOCKABLE_UNIT" \
+    || fail "could not render the logind listener unit"
+  lockable_as systemctl --user daemon-reload >/dev/null 2>&1 || true
+  lockable_as systemctl --user restart vigilance-logind.service \
+    >/dev/null 2>&1 || true
+  # `su -l`, because pam_systemd registers a Class=user session for it.
+  setsid su -l "$LOCKABLE_USER" -c 'sleep 240' >/dev/null 2>&1 &
+  LOCKABLE_HOLD=$!
+  _ls=0
+  while [ "$_ls" -lt 60 ]; do
+    if [ -n "$(lockable_id)" ]; then break; fi
+    sleep 0.25; _ls=$((_ls + 1))
+  done
+  [ -n "$(lockable_id)" ] || fail "no lockable Class=user session appeared for
+$LOCKABLE_USER, so a lock signal has nowhere to land and every assertion after
+this would pass without the mechanism running"
+  [ "$(lockable_as systemctl --user is-active vigilance-logind.service 2>&1)" \
+    = active ] || fail "vigilance's logind listener is not active for
+$LOCKABLE_USER, so nothing is waiting for Session.Lock"
+}
+
+lockable_stop() {
+  if [ -n "${LOCKABLE_HOLD:-}" ]; then
+    kill "$LOCKABLE_HOLD" 2>/dev/null || true
+  fi
+  LOCKABLE_HOLD=
+  lockable_as systemctl --user stop vigilance-logind.service >/dev/null 2>&1 \
+    || true
+  rm -f "$LOCKABLE_UNIT" 2>/dev/null || true
+}
+
+lockable_depth() {
+  lockable_as "$LOCKABLE_V" status 2>/dev/null | awk '/^depth:/ {print $2}'
+}
+lockable_log() {
+  _lh=$(getent passwd "$LOCKABLE_USER" | cut -d: -f6)
+  printf '%s' "$_lh/.local/state/vigilance.log"
+}
+
 # --- reading the evidence ---------------------------------------------------
 
 logsince() { tail -n +$(( LOG_FROM + 1 )) "$LOG" 2>/dev/null || true; }
