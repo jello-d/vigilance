@@ -92,8 +92,32 @@ esac
 SWAY_UNREACHABLE=; export SWAY_UNREACHABLE
 
 # --- 4. no swaymsg at all is the same answer --------------------------------
+# A MINIMAL PATH, because MOVING THE STUB ASIDE DOES NOT REMOVE THE REAL BINARY
+# two entries later. This case passed in the VM for an unrelated reason: the
+# guest HAS /usr/bin/swaymsg, and the hook was declining because sway was
+# unreachable there rather than because swaymsg was absent. Exporting SWAYSOCK
+# in the guest made sway reachable and the case failed at once, which is the
+# whole value of it failing.
+#
+# Third instance of this exact shape in the suite (the absent-swayidle case, the
+# brightnessctl stub, now this). `sh` is kept on the PATH deliberately: omitting
+# it once made rc=127 wear the costume of a declined hook.
 mv "$T/bin/swaymsg" "$T/bin/swaymsg.off"
-[ "$(_run sleep)" = 78 ] || fail "with swaymsg absent the hook did not decline"
+_minpath=$T/minbin
+mkdir -p "$_minpath"
+for _need in sh dash readlink dirname basename cat awk tr grep sed cut \
+             mkdir rm ls date id env; do
+  _w=$(command -v "$_need" 2>/dev/null) || continue
+  ln -sf "$_w" "$_minpath/$_need" 2>/dev/null || true
+done
+_rc4=$(PATH="$_minpath" _run sleep)
+[ "$_rc4" = 78 ] || fail "with swaymsg genuinely absent the hook returned $_rc4,
+not 78. It must decline, not claim a blank it could not perform"
+command -v swaymsg >/dev/null 2>&1 \
+  && [ -z "$(PATH=$_minpath command -v swaymsg 2>/dev/null)" ] \
+  || [ ! -x /usr/bin/swaymsg ] \
+  || fail "the minimal PATH still reaches a real swaymsg, so this case is about
+the stub being renamed rather than the tool being gone"
 mv "$T/bin/swaymsg.off" "$T/bin/swaymsg"
 
 # --- 5. VERIFY reads the state back, both directions ------------------------

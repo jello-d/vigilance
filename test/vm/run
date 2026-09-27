@@ -155,6 +155,36 @@ runcmd:
       sh setup.sh service || echo "SETUP_SERVICE_RC=$?"
       sh setup.sh check || echo "SETUP_CHECK_DRIFT=$?"
 
+      echo "=== logind lid policy: LOCK, never suspend ==="
+      # THE HARNESS WAS TELLING THE GUEST TO SUSPEND ITSELF. The uinput probe
+      # below closes a real SW_LID switch, and Ubuntu defaults to
+      # HandleLidSwitch=suspend -- so logind suspended the machine that was
+      # running cloud-final, which presents as "guest never reported" with no
+      # output at all, because the guest script buffers to a file and cats it at
+      # the end. Seen three times, always intermittent, because whether logind
+      # acts depends on which inhibitors happen to be held at that moment.
+      #
+      # It is very likely the same unexplained hang the fault-lid scenario hit,
+      # which was set aside as "cause unknown and NOT attributable to
+      # vigilance". It was attributable -- to the harness.
+      #
+      # `lock` RATHER THAN `ignore`, because Session.Lock on lid close is the
+      # exact behaviour under test: it is what manifold does
+      # (HandleLidSwitchExternalPower=lock) and what produced the bug where
+      # answering it from the sleep rung LIT the panel. Ignoring the lid would
+      # remove the event along with the hazard.
+      mkdir -p /etc/systemd/logind.conf.d
+      printf '[Login]\n' > /etc/systemd/logind.conf.d/90-vigilance-test.conf
+      for _k in HandleLidSwitch HandleLidSwitchExternalPower \
+                HandleLidSwitchDocked; do
+        printf '%s=lock\n' "$_k" \
+          >> /etc/systemd/logind.conf.d/90-vigilance-test.conf
+      done
+      systemctl reload systemd-logind >/dev/null 2>&1 \
+        || systemctl restart systemd-logind >/dev/null 2>&1 || true
+      echo "  lid -> lock: $(loginctl show-seat seat0 2>/dev/null \
+        | grep -c . || echo 0) seat props readable"
+
       echo "=== user systemd instance (so --user units are REAL here) ==="
       # The guest is root, and root gets no user manager by default because
       # nothing logs it in. Lingering starts one anyway, which is exactly the
@@ -202,6 +232,25 @@ runcmd:
       if [ -n "$(_sock)" ]; then
         export WAYLAND_DISPLAY=$(basename "$(_sock)")
         echo "  sway up, WAYLAND_DISPLAY=$WAYLAND_DISPLAY"
+        # SWAYSOCK TOO, which sway sets for its own children and nothing here
+        # did. `swaymsg` needs it: the socket was sitting in the runtime dir the
+        # whole time and swaymsg errored without being told where, so sway-dpms
+        # declined 78 in a guest with a perfectly reachable sway. That is the
+        # greeter's ONLY darkening mechanism, so the one hook the greeter path
+        # depends on was untestable here for want of an environment variable.
+        #
+        # A real greeter inherits it, because greetd's session starts sway and
+        # its swayidle is sway's child. Worth knowing that the hook DEPENDS on
+        # that inheritance: driven from anywhere without it, sway-dpms declines
+        # even when sway is running and answering.
+        _ss=$(ls "${XDG_RUNTIME_DIR:-/run/user/0}"/sway-ipc.*.sock 2>/dev/null \
+              | head -1)
+        if [ -n "${_ss:-}" ]; then
+          export SWAYSOCK=$_ss
+          echo "  SWAYSOCK=$SWAYSOCK"
+        else
+          echo "  no sway-ipc socket found; sway-dpms will decline"
+        fi
         # WHAT A REAL SESSION DOES, and the session tier cannot work without
         # it: the lock provider starts swaylock as a --user unit, and a unit
         # inherits the MANAGER's environment, not its caller's. On a desktop
@@ -209,7 +258,7 @@ runcmd:
         # provider's first real run in this VM failed with "could not start
         # screen-lock.service" and no clue why.
         systemctl --user import-environment WAYLAND_DISPLAY XDG_RUNTIME_DIR \
-          >/dev/null 2>&1 || true
+          SWAYSOCK >/dev/null 2>&1 || true
         _compositor=compositor
       else
         echo "  sway did NOT come up headless; compositor scenarios will SKIP"

@@ -98,7 +98,13 @@ Stated plainly rather than implied:
   found by going looking.
 - **`enforce` has never acted in production.** The forcing half is retired and
   the detection half has produced exactly one true positive so far.
-- **The greeter's sleep path has never been observed** on real hardware.
+- **The greeter's sleep path is observed only in the guest.** session-greeter.t
+  drives the real machine hook set at the `lock` rung against a real sway and
+  reads output dpms back with swaymsg independently of the hook, so the edge is
+  known to darken the screen and to be verified rather than merely acted on. It
+  has still never run on real hardware, and it says nothing about the greeter's
+  UID: a machine-scope hook target must be root-visible or _greetd cannot even
+  see it, which is a separate finding with no check of its own.
 
 ## 3. What is assumed about the world
 
