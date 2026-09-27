@@ -316,7 +316,24 @@ runcmd:
       # indented and needs no delimiter at all.
       _gc=/etc/greetd/config.toml
       printf '[terminal]\nvt = 1\n\n' > "$_gc"
-      printf '[default_session]\ncommand = "sleep infinity"\n' >> "$_gc"
+      # BOTH SLOTS RUN THE SESSION, because this guest wants AUTOLOGIN and has
+      # no use for a greeter at all. Three things were wrong here at once:
+      #
+      #   `sleep infinity` is not a valid greetd greeter. greetd requires one to
+      #   speak its IPC and create a session, so greetd logged "greeter exited
+      #   without creating a session" and restart-looped. `agreety` is no better
+      #   on a serial-only guest: there is nothing to interact with, so it exits
+      #   too.
+      #
+      #   `initial_session` NEVER FIRED. greetd is enabled by its package and so
+      #   is already running from the preserved image by the time cloud-final
+      #   writes this config; the image's boot consumed the initial-session
+      #   opportunity, and a later restart is not "initial" any more.
+      #
+      # So default_session gets the SAME command. Whichever slot greetd chooses,
+      # it launches the real session, which is what autologin means here.
+      printf '[default_session]\n' >> "$_gc"
+      printf 'command = "/usr/local/bin/vig-session"\n' >> "$_gc"
       # THE GREETER USER MUST EXIST or greetd refuses to start at all:
       # "configured default session user 'greeter' not found", then a restart
       # loop into start-limit-hit. The package does not create one, and this
@@ -333,8 +350,28 @@ runcmd:
         >> "$_vs"
       printf 'exec wayfire -c /home/vig/.config/wayfire.ini\n' >> "$_vs"
       chmod +x /usr/local/bin/vig-session
+      # RESTART, NOT `enable --now`. greetd is installed from the package list
+      # and therefore ENABLED IN THE PRESERVED IMAGE, so it is already running
+      # by the time cloud-final writes this config -- and `--now` does nothing
+      # to a unit that is already active. The freshly written config.toml was
+      # never read on any boot after the image was built, so greetd kept serving
+      # the GREETER from whatever the image left behind and initial_session
+      # NEVER RAN.
+      #
+      # Everything downstream failed quietly from that: no Class=user session,
+      # so "wayfire did NOT come up" (it was never launched, and the poll below
+      # waited on a socket nothing was going to create), so the wayfire
+      # scenarios skipped, and so a real lid close had no lockable session to
+      # reach. Measured: launched by hand as vig, wayfire comes up in UNDER A
+      # SECOND with only benign Xwayland noise.
+      #
+      # THE PRESERVED IMAGE'S OWN STATE IS THE TRAP, which is the staleness this
+      # split is supposed to prevent for vigilance's code and did not for a
+      # package's unit. Anything the per-run phase configures must be RESTARTED,
+      # not merely enabled.
       systemctl reset-failed greetd >/dev/null 2>&1 || true
-      systemctl enable --now greetd >/dev/null 2>&1 || true
+      systemctl enable greetd >/dev/null 2>&1 || true
+      systemctl restart greetd >/dev/null 2>&1 || true
       _n=0
       while [ "$_n" -lt 24 ]; do
         if ls "$_vrun"/wayland-* 2>/dev/null | grep -qv '\.lock$'
