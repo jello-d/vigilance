@@ -97,11 +97,22 @@ actuator and only the observation phase could run"
 CTL_STATE=$D/state
 mkdir -p "$CTL_STATE"
 COUNTERS=$HERE/../../libexec/vigilance/hooks/input-counters
+# FIELD ONE, as every consumer of an idle source takes it. The answer line now
+# carries what the clock has DEMONSTRATED after the number ("0 ceiling=93
+# age=93"), so echoing the whole thing printed "idle 0 ceiling=93 age=93s" in
+# the summary -- readable, but it is the same conflation that killed a test, and
+# a probe whose own output is malformed is a probe whose numbers get doubted.
 _counter_idle() {
   if [ -x "$COUNTERS" ]; then
-    VIGILANCE_STATE_DIR=$CTL_STATE "$COUNTERS" 2>/dev/null || echo '?'
+    VIGILANCE_STATE_DIR=$CTL_STATE "$COUNTERS" 2>/dev/null \
+      | head -1 | awk '{print $1}' || echo '?'
   else
     echo '?'
+  fi
+}
+_counter_demo() {   # what it has demonstrated, for the contrast in the summary
+  if [ -x "$COUNTERS" ]; then
+    VIGILANCE_STATE_DIR=$CTL_STATE "$COUNTERS" 2>/dev/null | head -1
   fi
 }
 _counter_idle >/dev/null 2>&1 || true   # prime: a first sample has no interval
@@ -114,7 +125,8 @@ sudo "$SAMPLER" --windows "$QUIET_WINDOWS" --seconds "$QUIET_SECS" \
   > "$D/phase1.out" 2>&1 || handoff_fail "the quiet sample failed; see the log"
 _c1=$(_counter_idle)
 cat "$D/phase1.out" >>"$HANDOFF_LOG"
-say "[done] phase 1. Counter clock read idle ${_c0}s, then ${_c1}s."
+say "[done] phase 1. Counter clock: idle ${_c0}s, then ${_c1}s."
+say "  (it has $(_counter_demo))"
 
 # --- PHASE 2 and 3: one synthetic device across both ------------------------
 # ONE device for both phases, on purpose: phase 3's claim is about the SAME

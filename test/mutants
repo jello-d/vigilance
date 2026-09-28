@@ -732,3 +732,9 @@ f bin/vigilant
 t coverage
 -       elif [ "$_dca" -lt "$_ds" ]; then
 +       elif false; then
+
+= supervision-pass-does-not-sample-the-clock
+f bin/vigilant
+t due
+-   _idle_secs >/dev/null 2>&1 || true
++   true

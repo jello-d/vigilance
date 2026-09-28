@@ -3163,6 +3163,25 @@ cmd_enforce() {
   # deadline exists is a different question from whether the machinery that
   # would meet it is alive, and every early return below would skip it.
   _run_watchdogs || _erc=1
+  # AND THE CLOCK IS SAMPLED UNCONDITIONALLY TOO, which is the third thing on
+  # this list and the one that was missing. An idle.d source is a SAMPLER: the
+  # only unprivileged way to read idle time is to watch a monotonic counter and
+  # remember what it said last time, so this supervision pass IS its sampling
+  # loop -- that is stated in _idle_secs as the reason no daemon is needed.
+  #
+  # IT WAS ONLY REACHED FROM THE idle-ANCHORED BRANCH BELOW, past two early
+  # returns. So at any rung with nothing beneath it to enforce -- `sleep` on a
+  # box whose console stays dark, which is most of the time on a server -- the
+  # clock was never sampled at all, while the timer dutifully fired every
+  # minute. MEASURED on manifestor: the service ran at 17:03:20 and 17:04:30 and
+  # the source's last sample stayed frozen at 16:53.
+  #
+  # A COUNTER CLOCK THAT IS NOT SAMPLED IS NOT A CLOCK. Its next reading is wall
+  # time since whoever last ran `report`, not idle time, so it credited a 690s
+  # "quiet" stretch to a keyboard that was in fact ticking every 60 seconds --
+  # and report called two deadlines measurable on the strength of it. The value
+  # is discarded here; the POINT is the sample.
+  _idle_secs >/dev/null 2>&1 || true
   _e=$(_next_down "$_from")
   if [ -z "$_e" ]; then
     echo "enforce: nothing below '$_from' is an enforcement target"

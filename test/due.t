@@ -348,4 +348,42 @@ case "$_out" in
      fail "a valid idle source stopped being read" ;;
 esac
 
+# --- THE SUPERVISION PASS MUST SAMPLE THE CLOCK, whatever the rung ----------
+# AN idle.d SOURCE IS A SAMPLER. The only unprivileged way to read idle time is
+# to watch a monotonic counter and remember what it said last time, which is why
+# _idle_secs says this pass IS the sampling loop and no daemon is needed.
+#
+# IT WAS ONLY CALLED FROM THE idle-ANCHORED BRANCH, past two early returns, so
+# at a rung with nothing beneath it to enforce the clock was never sampled.
+# MEASURED on a live box sitting at `sleep`: the timer fired every minute for
+# hours and the source's last sample stayed frozen. Its next reading was then
+# wall time since somebody last ran `report`, so it credited a 690s quiet
+# stretch to a keyboard that was ticking every 60 seconds, and report called two
+# deadlines measurable.
+_src=$VIGILANCE_HOOK_ROOT/idle.d/90-counts
+mkdir -p "$VIGILANCE_HOOK_ROOT/idle.d"
+printf '#!/bin/sh\necho ran >> %s\necho 7\n' "$T/sampled" > "$_src"
+chmod +x "$_src"
+
+# A rung with NOTHING below it to enforce: the early-return path.
+: > "$T/sampled"
+force sleep
+"$VIGILANT" enforce >"$T/eout" 2>&1 || true
+grep -q "nothing below" "$T/eout" || fail "fixture: this case needs a rung with
+no enforcement target, which is the path that skipped the sample. enforce said:
+$(cat "$T/eout")"
+[ -s "$T/sampled" ] || fail "THE CLOCK WAS NOT SAMPLED at a rung with nothing to
+enforce. The supervision pass is the sampling loop for every idle.d source, so
+skipping it here leaves the clock unsampled for as long as the machine sits at a
+dark rung -- and its next reading is wall time since somebody ran report, not
+idle time. The recheck and watchdogs are unconditional for this same reason."
+
+# AND STILL SAMPLED where there IS a target, or "call it once somewhere" passes.
+: > "$T/sampled"
+force open
+"$VIGILANT" enforce >/dev/null 2>&1 || true
+[ -s "$T/sampled" ] || fail "the clock was not sampled at a rung that DOES have
+an enforcement target"
+rm -f "$_src"
+
 pass
