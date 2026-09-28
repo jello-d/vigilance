@@ -188,6 +188,60 @@ case $(_section "$_out" deadlines) in
      fail "an idle source that DECLINED (78) was treated as a working clock" ;;
 esac
 
+# --- 8c. A NUMBER IS NOT A CAPABILITY --------------------------------------
+# THE FALSE GREEN THIS CLOSES WAS LIVE ON A REAL BOX. Its keyboard reports to
+# itself every 25s, so the idle clock reset before it could ever reach 60s --
+# against deadlines of 480s and 600s. It still returned a NUMBER, and report
+# stopped at "a clock answered" and called both measurable. The idle source had
+# been recording the longest quiet stretch it ever saw for exactly this reason,
+# and NOTHING READ IT: the tell existed only in that hook's comments.
+_duehook lock 10-idle "480 idle"
+_idlesrc "42 ceiling=30 age=9999"
+_out=$(_report)
+case $(_section "$_out" deadlines) in
+  *"NEVER seen over 30s quiet"*) ;;
+  *) printf '%s\n' "$_out" >&2
+     fail "a clock that has watched for 9999s and never observed more than 30s
+of quiet was still reported able to measure a 480s deadline. That is this
+project's signature false green: a green light meaning nobody can check" ;;
+esac
+# ...AND AS A WARN, because the severity is what a consumer reads. An [OK] line
+# with a caveat in its text is read as an OK.
+printf '%s\n' "$_out" | grep -qE '^ *\[WARN\].*NEVER seen' \
+  || fail "the finding was reported below WARN, so report still exits 0 and
+anything reading the status is told the deadline is covered:
+$(printf '%s\n' "$_out" | grep -i 'never seen' | head -2)"
+
+# --- 8d. BUT A YOUNG CLOCK IS NOT A BROKEN ONE -----------------------------
+# The guard that keeps 8c from crying wolf on every freshly booted machine: a
+# ceiling below the deadline means nothing until the clock has been watching
+# long enough to have seen such a stretch. Without this the fix for 8c is "warn
+# whenever the ceiling is short", which is red on every reboot -- and a warning
+# that is always on is how a report stops being read.
+_idlesrc "42 ceiling=30 age=100"
+_out=$(_report)
+case $(_section "$_out" deadlines) in
+  *"NOT YET KNOWN"*) ;;
+  *) printf '%s\n' "$_out" >&2
+     fail "a clock watching for only 100s was judged against a 480s deadline it
+has not had the chance to observe" ;;
+esac
+case $(_section "$_out" deadlines) in
+  *"NEVER seen"*) fail "a young clock was accused of being unable to measure" ;;
+esac
+
+# --- 8e. AND A CLOCK THAT HAS DEMONSTRATED IT IS BELIEVED -------------------
+# The other direction, or "always warn" passes 8c while lying about every
+# correctly-working box.
+_idlesrc "42 ceiling=600 age=9999"
+_out=$(_report)
+case $(_section "$_out" deadlines) in
+  *"480s idle-anchored, measurable"*) ;;
+  *) printf '%s\n' "$_out" >&2
+     fail "a clock that HAS observed 600s of quiet was not credited with being
+able to measure a 480s deadline" ;;
+esac
+
 # --- 9. a RUNG-anchored deadline never needed a clock -----------------------
 _idlesrc ""
 _duehook lock 10-idle "100 rung"

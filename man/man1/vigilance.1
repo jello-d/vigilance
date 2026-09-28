@@ -553,6 +553,15 @@ committed before the act tier and the record is ahead of the machine on
 purpose. This caps how long a marker left behind by a killed vigilant can
 suppress that check; the writer being alive is the primary test.
 .TP
+.B VIGILANCE_IDLE_MAXGAP
+how long a gap between idle samples may be before the clock stops trusting it,
+seconds (default 300). An idle counter measures the interval since it last
+changed, so a stretch when nothing SAMPLED looks identical to a quiet seat. A
+gap over this bound re\-anchors the clock, reports activity (the safe direction
+for a clock that gates an alert) and drops the ceiling it cannot vouch for.
+Measured on a live box before this existed: a ceiling of 67 hours on a clock
+whose counter was in fact moving every 25 seconds.
+.TP
 .B VIGILANCE_SLEEP_BUDGET
 the suspend unit's TimeoutStartSec, for report
 .TP

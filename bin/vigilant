@@ -202,6 +202,9 @@ else
 fi
 DEPTH_FILE=$RUN_DIR/depth
 STATE_ROOT=$RUN_DIR/state
+# WHERE _idle_secs LEAVES WHAT ITS SOURCES HAVE DEMONSTRATED. It runs inside a
+# command substitution, so a variable cannot carry this out; a file can.
+IDLE_DEMO=$RUN_DIR/idle-demonstrated
 
 # --- THE LADDER, DECLARED ONCE ---------------------------------------------
 #
@@ -2067,7 +2070,34 @@ _rep_deadlines() {
       continue
     fi
     if [ -n "$_dclock" ]; then
-      _r_ok "from '$_dr': '$_de' ${_ds}s idle-anchored, measurable"
+      # A NUMBER IS NOT A CAPABILITY. This used to stop here and report
+      # "measurable", which is precisely the false green the idle source's own
+      # ceiling was invented to expose -- and nothing read that ceiling, so the
+      # tell existed only as a comment. MEASURED on a live box: the clock reset
+      # every 25s, never reached 60, and both a 480s and a 600s deadline were
+      # reported measurable.
+      #
+      # THE AGE IS WHAT KEEPS THIS FROM CRYING WOLF. A ceiling below the
+      # deadline means nothing until the clock has been watching long enough to
+      # have observed such a stretch; on a freshly booted box it is small
+      # because nothing has happened yet. Same exclusion the idle watchdog draws
+      # before calling silence a finding.
+      _dcm=$(awk '{print $1}' "$IDLE_DEMO" 2>/dev/null)
+      _dca=$(awk '{print $2}' "$IDLE_DEMO" 2>/dev/null)
+      case "${_dcm:-}${_dca:-}" in ''|*[!0-9]*) _dcm= ;; esac
+      if [ -z "$_dcm" ]; then
+        _r_ok "from '$_dr': '$_de' ${_ds}s idle-anchored, measurable"
+      elif [ "$_dcm" -ge "$_ds" ]; then
+        _r_ok "from '$_dr': '$_de' ${_ds}s idle-anchored, measurable"\
+" (clock has observed ${_dcm}s quiet)"
+      elif [ "$_dca" -lt "$_ds" ]; then
+        _r_info "from '$_dr': '$_de' ${_ds}s idle-anchored; the clock has only"\
+" been watching ${_dca}s, so whether it can measure this is NOT YET KNOWN"
+      else
+        _r_warn "from '$_dr': '$_de' is ${_ds}s idle-anchored and the clock"\
+" has NEVER seen over ${_dcm}s quiet in ${_dca}s of watching, so it cannot"\
+" witness this deadline: something talks to an input device on its own"
+      fi
       continue
     fi
     # THE SLIVER NOTHING ELSE COVERS, said plainly. A wedged idle timer is
@@ -2696,6 +2726,9 @@ _idle_secs() {   # -> seconds since last seat input, or empty if unknowable
   _il=$(_hooks_for idle)
   if [ -z "$_il" ]; then return 0; fi
   _imin=
+  _cmax=
+  _camax=
+  true > "$IDLE_DEMO" 2>/dev/null || true
   _iifs=$IFS; IFS='
 '
   for _ih in $_il; do
@@ -2735,7 +2768,7 @@ _idle_secs() {   # -> seconds since last seat input, or empty if unknowable
     # since the minimum-wins rule makes the good one authoritative; naming a
     # source that answers badly belongs in `report` and is not done yet.
     _iv=$(head -1 "$_io" 2>/dev/null | awk '{print $1}')
-    rm -f "$_io"
+    _iof=$_io
     case "${_iv:-}" in ''|*[!0-9]*) _iv= ;; esac
     # 11+ digits is past any clock and overflows the shell's own arithmetic,
     # which is what produced the `Illegal number` above.
@@ -2746,10 +2779,38 @@ _idle_secs() {   # -> seconds since last seat input, or empty if unknowable
     # recently, and believing it is what prevents a stale source manufacturing
     # a false "overdue" against a machine somebody is sitting at.
     if [ -z "$_imin" ] || [ "$_iv" -lt "$_imin" ]; then _imin=$_iv; fi
+    # WHAT THE SOURCE HAS DEMONSTRATED, carried alongside the answer. A source
+    # may report a perfectly good number while being structurally incapable of
+    # ever observing the deadline it is being asked about -- measured on a box
+    # whose keyboard reports to itself every 25s, where the clock resets before
+    # it can reach 60s against deadlines of 480s and 600s. It still returns a
+    # number, so `report` called both deadlines measurable.
+    #
+    # THE MAXIMUM, where the idle answer takes the minimum, and the asymmetry is
+    # deliberate: a deadline is measurable if ANY source could witness it, while
+    # the idle time itself must believe whichever source saw input most
+    # recently.
+    #
+    # THROUGH A FILE, because this function is called inside a command
+    # substitution and a variable set in a subshell never reaches the caller --
+    # the trap that once defeated a timeout bound in this same file.
+    _ic=$(head -1 "$_iof" 2>/dev/null \
+          | sed -n 's/.*ceiling=\([0-9][0-9]*\).*/\1/p')
+    _ia=$(head -1 "$_iof" 2>/dev/null \
+          | sed -n 's/.*age=\([0-9][0-9]*\).*/\1/p')
+    if [ -n "$_ic" ] && [ -n "$_ia" ]; then
+      if [ -z "$_cmax" ] || [ "$_ic" -gt "$_cmax" ]; then
+        _cmax=$_ic; _camax=$_ia
+      fi
+    fi
     IFS='
 '
   done
   IFS=$_iifs
+  rm -f "$RUN_DIR/idle.$$" 2>/dev/null || true
+  if [ -n "$_cmax" ]; then
+    printf '%s %s\n' "$_cmax" "$_camax" > "$IDLE_DEMO" 2>/dev/null || true
+  fi
   # THE LADDER'S OWN RECORD IS A CEILING ON IDLE TIME, and a ceiling is NOT a
   # source: it bounds an answer, it cannot supply one. So it is applied after
   # the minimum and only when something actually answered -- a box with no idle

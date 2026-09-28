@@ -119,9 +119,20 @@ say "[done] phase 1. Counter clock read idle ${_c0}s, then ${_c1}s."
 # --- PHASE 2 and 3: one synthetic device across both ------------------------
 # ONE device for both phases, on purpose: phase 3's claim is about the SAME
 # device going silent, and a second device created fresh for it would be a
-# different thing that had never emitted at all.
-_hold=$(( SETTLE + (QUIET_SECS * 2) + 20 ))
-sudo python3 "$UINJECT" key 40 "$_hold" >"$D/uinject.out" 2>&1 &
+# different thing that had never emitted at all. THE STIMULUS MUST LAND INSIDE
+# THE MEASUREMENT WINDOW, and the first version of this got it backwards. The
+# sampler asks "did anything arrive since I OPENED this device", so taps that
+# happen before the open are invisible by design: the run tapped at 14:25:26,
+# opened at 14:25:27, and duly reported that evdev cannot see input at all. An
+# instrument bug wearing the costume of a finding, in the phase whose entire job
+# is to prove the instrument works.
+#
+# So uinject waits TAP_DELAY before its first tap, and the sampler opens the
+# device in between. The margins are deliberately large -- an earlier probe in
+# this series had a one-second margin and could support any conclusion.
+TAP_DELAY=${TAP_DELAY:-8}
+_hold=$(( SETTLE + (QUIET_SECS * 2) + TAP_DELAY + 20 ))
+sudo python3 "$UINJECT" key 40 "$_hold" "$TAP_DELAY" >"$D/uinject.out" 2>&1 &
 _uipid=$!
 # CLEANED UP ON EVERY EXIT PATH, Ctrl-C and a closed terminal included: a
 # synthetic input device outliving the experiment would feed the real idle clock
@@ -132,6 +143,7 @@ sleep 2
 
 say ""
 say "PHASE 2/3: synthetic input, the positive control (${QUIET_SECS}s)."
+# The window opens now; the taps land TAP_DELAY into it.
 sudo "$SAMPLER" --windows 1 --seconds "$QUIET_SECS" \
   > "$D/phase2.out" 2>&1 || handoff_fail "the active sample failed; see the log"
 cat "$D/phase2.out" >>"$HANDOFF_LOG"

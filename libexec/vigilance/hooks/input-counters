@@ -107,9 +107,32 @@ _prev=$(cat "$STATE" 2>/dev/null || true)
 _psig=$(printf '%s' "$_prev" | awk '{print $1}')
 _pat=$(printf '%s' "$_prev" | awk '{print $2}')
 _pmax=$(printf '%s' "$_prev" | awk '{print $3}')
+_plast=$(printf '%s' "$_prev" | awk '{print $4}')
+_pfirst=$(printf '%s' "$_prev" | awk '{print $5}')
 case "${_psig:-}" in ''|*[!0-9]*) _psig= ;; esac
 case "${_pat:-}"  in ''|*[!0-9]*) _pat= ;; esac
 case "${_pmax:-}" in ''|*[!0-9]*) _pmax=0 ;; esac
+case "${_plast:-}"  in ''|*[!0-9]*) _plast= ;; esac
+case "${_pfirst:-}" in ''|*[!0-9]*) _pfirst= ;; esac
+
+# A GAP IN SAMPLING IS NOT A QUIET SEAT, and conflating them wrecked the one
+# signal that makes this clock honest. MEASURED on a live box: the ceiling read
+# 241310s (67 HOURS) while the counter was in fact moving every 25s, because
+# the interval is wall time between SAMPLES and the sampler had not run for
+# most of that. It is a high-water mark, so one gap raises it for ever.
+#
+# The clock is only entitled to claim a quiet stretch it actually WATCHED, so a
+# gap longer than MAXGAP re-anchors it and credits nothing. Re-anchoring reports
+# activity, which is the safe direction for a clock gating an alert: it
+# suppresses a finding rather than inventing one.
+MAXGAP=${VIGILANCE_IDLE_MAXGAP:-300}
+_gapped=0
+if [ -n "$_plast" ]; then
+  _gap=$((_now - _plast))
+  if [ "$_gap" -lt 0 ] || [ "$_gap" -gt "$MAXGAP" ]; then _gapped=1; fi
+else
+  _gapped=1          # a state file from before this field existed
+fi
 
 # THE CEILING, and it is not a statistic for its own sake. A counter can be
 # CHATTERED by a device that reports on its own -- measured on a QMK keyboard
@@ -121,16 +144,64 @@ case "${_pmax:-}" in ''|*[!0-9]*) _pmax=0 ;; esac
 # Recording the longest quiet interval ever seen makes that visible. A ceiling
 # far below the deadlines on the box is the tell that some device is talking to
 # itself, and it names the limitation instead of hiding it in a small number.
-_save() {   # sig now max
-  printf '%s %s %s\n' "$1" "$2" "$3" > "$STATE" 2>/dev/null || true
+_save() {   # sig last-change max [first-sample]
+  printf '%s %s %s %s %s\n' "$1" "$2" "$3" "$_now" "${4:-$_now}" \
+    > "$STATE" 2>/dev/null || true
+}
+
+# WHAT THE CLOCK HAS DEMONSTRATED, printed so something can READ it. The ceiling
+# used to be recorded and consumed by NOTHING: `report` decided a deadline was
+# measurable on "a number came back", which is the exact false green the ceiling
+# was invented to prevent, and this hook's own comment claimed it "makes that
+# visible". Visible in a file nobody opens.
+#
+# FIELD 1 IS STILL THE IDLE SECONDS, so every existing consumer is unaffected:
+# the runner takes the first field of the first line.
+_answer() {   # idle
+  printf '%s ceiling=%s age=%s\n' "$1" "$_pmax" "$_age"
 }
 
 # FIRST RUN: a counter alone says nothing. Idle time is the interval since it
 # last CHANGED, so with no previous sample there is no interval and no answer.
 if [ -z "$_psig" ] || [ -z "$_pat" ]; then
-  _save "$_sig" "$_now" 0
+  _save "$_sig" "$_now" 0 "$_now"
   echo "input-counters: first sample; no interval to measure yet" >&2
   exit 78
+fi
+
+# AGE IS HOW LONG THIS CLOCK HAS BEEN WATCHING WITHOUT A BREAK, and it is what
+# keeps the ceiling from crying wolf. A ceiling below the deadline only means
+# something once the clock has had the CHANCE to observe a stretch that long:
+# on a freshly booted box it is small because nothing has happened yet, not
+# because a device is chattering. Same exclusion the idle-timer watchdog draws
+# before treating silence as a finding.
+_age=$((_now - ${_pfirst:-$_now}))
+if [ "$_age" -lt 0 ]; then _age=0; fi
+
+# A GAP RE-ANCHORS EVERYTHING, age included: "watching since" is false across a
+# stretch when nothing sampled, and an age that survived the gap would license
+# the very ceiling comparison the gap invalidates.
+if [ "$_gapped" = 1 ]; then
+  # THE CEILING GOES WITH IT, which is what makes this self-healing. A value
+  # accumulated by continuous sampling is legitimate; one that spans a gap is an
+  # artifact, and a high-water mark never comes down on its own. Dropping it
+  # keeps the pair coherent -- ceiling and age then both describe the CURRENT
+  # unbroken watching period -- and it discards the poisoned 67-hour reading on
+  # an existing box exactly once, because a state file written before these
+  # fields existed reads as a gap by construction.
+  _pmax=0
+  _age=0
+  # $_pmax, NOT A LITERAL 0. The two said the same thing in two places, and the
+  # mutation corpus found the gap that opens: with the assignment above
+  # defeated, the SAVED ceiling was still 0 while the ANSWER reported the stale
+  # one, so report would be handed a 67-hour ceiling for a pass. One value
+  # drives both.
+  _save "$_sig" "$_now" "$_pmax" "$_now"
+  echo "input-counters: ${_gap:-?}s since the last sample is over the"\
+" ${MAXGAP}s bound, so the clock was not watching; re-anchoring and"\
+" dropping the ceiling it cannot vouch for" >&2
+  _answer 0
+  exit 0
 fi
 
 # A LOWER COUNTER MEANS IT RESET, not that time ran backwards: a USB device was
@@ -143,8 +214,8 @@ if [ "$_sig" != "$_psig" ]; then
   _ended=$((_now - _pat))
   if [ "$_ended" -lt 0 ]; then _ended=0; fi
   if [ "$_ended" -gt "$_pmax" ]; then _pmax=$_ended; fi
-  _save "$_sig" "$_now" "$_pmax"
-  echo 0
+  _save "$_sig" "$_now" "$_pmax" "$_pfirst"
+  _answer 0
   exit 0
 fi
 
@@ -154,6 +225,6 @@ fi
 _idle=$((_now - _pat))
 if [ "$_idle" -lt 0 ]; then _idle=0; fi
 if [ "$_idle" -gt "$_pmax" ]; then _pmax=$_idle; fi
-_save "$_psig" "$_pat" "$_pmax"
-echo "$_idle"
+_save "$_psig" "$_pat" "$_pmax" "$_pfirst"
+_answer "$_idle"
 exit 0

@@ -311,7 +311,7 @@ t input-counters
 = idle-clock-resets-on-a-quiet-pass
 f libexec/vigilance/hooks/input-counters
 t input-counters
-- _save "$_psig" "$_pat" "$_pmax"
+- _save "$_psig" "$_pat" "$_pmax" "$_pfirst"
 + _save "$_psig" "$_now" "$_pmax"
 
 = idle-clock-answers-on-first-sample
@@ -708,3 +708,27 @@ f libexec/vigilance/hooklib.sh
 t level-rules
 -     if ! _hld_lvl=$(level_get 2>/dev/null); then
 + if ! _hld_lvl=$(level_get) || ! printf '%s' "$_hld_lvl" >"$_sf"; then
+
+= idle-clock-credits-a-gap-it-did-not-watch
+f libexec/vigilance/hooks/input-counters
+t input-counters
+-   if [ "$_gap" -lt 0 ] || [ "$_gap" -gt "$MAXGAP" ]; then _gapped=1; fi
++   if [ "$_gap" -lt 0 ]; then _gapped=1; fi
+
+= idle-clock-keeps-a-ceiling-it-cannot-vouch-for
+f libexec/vigilance/hooks/input-counters
+t input-counters
+-   _pmax=0
++   _pmax=$_pmax
+
+= report-calls-a-short-ceiling-measurable
+f bin/vigilant
+t coverage
+-       elif [ "$_dcm" -ge "$_ds" ]; then
++       elif true; then
+
+= report-warns-about-a-young-clock
+f bin/vigilant
+t coverage
+-       elif [ "$_dca" -lt "$_ds" ]; then
++       elif false; then

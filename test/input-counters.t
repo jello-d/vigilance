@@ -40,7 +40,13 @@ _run() {
   VIGILANCE_STATE_DIR="$T/state" VIGILANCE_PROC_INTERRUPTS="$T/interrupts" \
     VIGILANCE_SYS_INPUT="$T/sys/input" sh "$HOOK" >"$T/out" 2>>"$T/stderr" \
     || RC=$?
-  IDLE=$(cat "$T/out" 2>/dev/null)
+  # FIELD ONE, exactly as the runner takes it. The hook appends what it has
+  # DEMONSTRATED (ceiling, age) after the answer, so a consumer reading the
+  # whole line gets "0 ceiling=0 age=0" and dies on `[: Illegal number`. Taking
+  # field 1 here is not a workaround: it asserts the contract every other
+  # consumer uses.
+  IDLE=$(head -1 "$T/out" 2>/dev/null | awk '{print $1}')
+  DEMO=$(head -1 "$T/out" 2>/dev/null)
 }
 # TOLERANT BY ONE SECOND, because _age and the hook each call `date`
 # separately and a second can tick between them. An exact match made this file
@@ -51,10 +57,16 @@ _about() {   # expected actual what
   fail "$3 (expected about $1s, got $2s)"
 }
 _age() {   # seconds -> backdate the stored "last changed" timestamp
+  # FIVE FIELDS, and the last two matter: the clock now refuses to credit a
+  # stretch it did not WATCH, so a fixture that leaves the sample time unset
+  # reads as a sampling gap and the hook correctly re-anchors instead of
+  # reporting the interval. The fixture has to describe a clock that was
+  # sampling all along, which is what the case means.
   _s=$(awk '{print $1}' "$T/state/input-counters")
   _m=$(awk '{print $3}' "$T/state/input-counters")
-  printf '%s %s %s\n' "$_s" "$(( $(date +%s) - $1 ))" "${_m:-0}" \
-    > "$T/state/input-counters"
+  _n=$(date +%s)
+  printf '%s %s %s %s %s\n' "$_s" "$(( _n - $1 ))" "${_m:-0}" "$_n" \
+    "$(( _n - $1 ))" > "$T/state/input-counters"
 }
 
 # --- 1. THE FIRST SAMPLE CANNOT KNOW ----------------------------------------
@@ -182,5 +194,70 @@ _agg=$(VIGILANCE_HOOK_ROOT="$_H" VIGILANCE_MACHINE_HOOKS="$T/none" \
 runner used '$_agg'. The MINIMUM must win: the source that saw input most
 recently is the one that keeps a stale reading from declaring a machine
 somebody is sitting at overdue for a lock"
+
+# --- A GAP IN SAMPLING IS NOT A QUIET SEAT ---------------------------------
+# THE DEFECT THIS CATCHES WAS FOUND ON A LIVE BOX, and it disarmed the one
+# signal that makes this clock honest. The ceiling read 241310s -- 67 HOURS --
+# while the counter was in fact moving every 25 seconds, because the interval is
+# wall time between SAMPLES and the sampler had not run for most of it. A
+# high-water mark never comes down, so one gap certifies the clock for ever.
+#
+# Consequence, measured: `report` called a 480s and a 600s deadline "measurable"
+# on a box whose clock could not witness 60s.
+rm -f "$T/state/input-counters"; _irq 500
+_run; _run                                  # establish a watching clock
+_n=$(date +%s)
+_s=$(awk '{print $1}' "$T/state/input-counters")
+# A clock that last SAMPLED an hour ago, counter unchanged since.
+printf '%s %s %s %s %s\n' "$_s" "$(( _n - 3600 ))" 0 "$(( _n - 3600 ))" \
+  "$(( _n - 7200 ))" > "$T/state/input-counters"
+_run
+[ "$IDLE" = 0 ] || fail "after an hour with NOTHING SAMPLING, the clock reported
+${IDLE}s of idle. It cannot vouch for a stretch it did not watch, and reporting
+that interval is what inflated a live ceiling to 67 hours. Activity is the safe
+direction: it suppresses a finding rather than inventing one."
+grep -q 'not watching' "$T/stderr" || fail "the clock re-anchored without saying
+why. A number that quietly changed meaning is worse than a loud one."
+_c=$(awk '{print $3}' "$T/state/input-counters")
+[ "$_c" = 0 ] || fail "the ceiling survived a gap it cannot vouch for (got $_c).
+A high-water mark never falls on its own, so an artifact would certify the clock
+for ever; dropping it is what makes this self-healing on an existing box."
+# AND THE REPORTED ONE, not only the stored one. The corpus caught this: the
+# stored ceiling was a literal 0 while the ANSWER printed the variable, so a
+# mutation defeating the reset left the state correct and handed report the
+# stale 67-hour value for a pass. Report reads the ANSWER, so that is what has
+# to be asserted -- the state file is not the consumer.
+case "$DEMO" in
+  *"ceiling=0 "*|*"ceiling=0") ;;
+  *) fail "after a gap the clock still REPORTED a ceiling it cannot vouch for,
+whatever it stored: '$DEMO'. report reads this line, so a stale ceiling here
+certifies a deadline as measurable for a pass." ;;
+esac
+
+# --- AND A PRE-UPGRADE STATE FILE IS A GAP BY CONSTRUCTION -----------------
+# Three fields is what every box wrote before this, so a poisoned ceiling is
+# discarded exactly once, on the first run after deploy, with no migration step.
+rm -f "$T/state/input-counters"; _irq 500
+_run; _run
+printf '%s %s %s\n' "$(awk '{print $1}' "$T/state/input-counters")" \
+  "$(( $(date +%s) - 3600 ))" 241310 > "$T/state/input-counters"
+_run
+[ "$IDLE" = 0 ] || fail "a three-field state file was read as a watching clock"
+[ "$(awk '{print $3}' "$T/state/input-counters")" = 0 ] \
+  || fail "the 67-hour ceiling from a pre-upgrade state file was kept"
+
+# --- WHAT IT DEMONSTRATED IS REPORTED, not merely recorded -----------------
+# The ceiling was written and read by NOTHING: report decided "measurable" on
+# "a number came back", so the tell existed only in this hook's comments. It is
+# on the answer line now, after field 1 so no consumer changes.
+rm -f "$T/state/input-counters"; _irq 500
+_run; _age 40; _run
+case "$DEMO" in
+  *ceiling=*age=*) ;;
+  *) fail "the answer does not carry what the clock has demonstrated, so report
+cannot tell a clock that could witness a deadline from one that never has:
+'$DEMO'" ;;
+esac
+[ "$IDLE" -ge 40 ] || fail "field 1 stopped being the idle seconds: '$DEMO'"
 
 pass
