@@ -10,6 +10,18 @@ lid scenario went that way once, and its replacement had to be written from
 scratch. A probe that took two hours of somebody's cooperation to run is worth
 versioning, and the reasoning in its header is worth more than the script.
 
+## Run it from the checkout you just pulled
+
+A probe lives in `test/`, and an integrator installs `bin/` and `libexec/` --
+not this. So on a provisioned box the package clone tracks head automatically
+and **the copy a human runs from is the one that goes stale.** That cost a live
+run: the dev checkout was one commit behind, the fix was sitting in the clone
+nobody runs from, and the probe failed identically to the run it was meant to
+fix.
+
+    git -C ~/src/<repo> pull          # before running, every time
+    ~/.cache/tackup/pkgs/<repo>/...   # or the clone's copy: it tracks head
+
 ## What is here
 
 - **`evdev-idle-proof`** asks whether evdev can tell "input happened" from
