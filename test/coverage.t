@@ -194,16 +194,29 @@ esac
 # against deadlines of 480s and 600s. It still returned a NUMBER, and report
 # stopped at "a clock answered" and called both measurable. The idle source had
 # been recording the longest quiet stretch it ever saw for exactly this reason,
-# and NOTHING READ IT: the tell existed only in that hook's comments.
+# and NOTHING READ IT: the tell existed only in that hook's comments. EVIDENCE
+# OF A QUIET SEAT IS REQUIRED, and getting that wrong is a defect this check
+# shipped with for an hour. A short ceiling on a machine somebody is USING is a
+# person, not a fault, and the first version said "something talks to an input
+# device on its own" about a laptop being typed on. The ladder supplies the
+# missing evidence: reaching a DARK rung means the idle timer fired, so the seat
+# WAS quiet for that long, and if the clock still never saw it the clock is
+# blind.
+_backdate() {   # rung seconds-ago
+  printf '%s %s\n' "$1" "$(( $(date +%s) - $2 ))" > "$VIGILANCE_RUN_DIR/depth"
+}
 _duehook lock 10-idle "480 idle"
 _idlesrc "42 ceiling=30 age=9999"
+_backdate sleep 9999
 _out=$(_report)
 case $(_section "$_out" deadlines) in
   *"NEVER seen over 30s quiet"*) ;;
   *) printf '%s\n' "$_out" >&2
-     fail "a clock that has watched for 9999s and never observed more than 30s
-of quiet was still reported able to measure a 480s deadline. That is this
-project's signature false green: a green light meaning nobody can check" ;;
+     fail "a clock that watched 9999s and never observed more than 30s of quiet,
+on a machine that has been at a DARK rung for 9999s, was still reported able to
+measure a 480s deadline. The seat demonstrably WAS quiet and it was missed.
+That is this project's signature false green: a green light meaning nobody can
+check" ;;
 esac
 # ...AND AS A WARN, because the severity is what a consumer reads. An [OK] line
 # with a caveat in its text is read as an OK.
@@ -212,6 +225,30 @@ printf '%s\n' "$_out" | grep -qE '^ *\[WARN\].*NEVER seen' \
 anything reading the status is told the deadline is covered:
 $(printf '%s\n' "$_out" | grep -i 'never seen' | head -2)"
 
+# --- 8c-bis. A MACHINE IN USE IS NOT A BROKEN CLOCK ------------------------
+# THE DEFECT 8c's FIRST VERSION SHIPPED. With the same short ceiling and the
+# same long watch, but the machine at a LIT rung -- somebody is using it --
+# there is no evidence the seat was ever quiet, so there is nothing to have
+# missed. Observed live: [WARN] "the clock has NEVER seen over 518s quiet in
+# 819s of watching: something talks to an input device on its own", about a
+# laptop being typed on. A wrong cause is worse than no cause, and a warning
+# that is always on is how a report stops being read.
+_backdate open 9999
+_out=$(_report)
+case $(_section "$_out" deadlines) in
+  *"NEVER seen"*) printf '%s\n' "$_out" >&2
+     fail "a short ceiling on a machine at a LIT rung was reported as a broken
+clock. Nobody has shown the seat was quiet, so the resets are most likely a
+person; blaming a self-reporting device is a diagnosis the evidence does not
+support" ;;
+esac
+case $(_section "$_out" deadlines) in
+  *"NOT YET SHOWN"*) ;;
+  *) printf '%s\n' "$_out" >&2
+     fail "with no evidence either way the deadline was not reported as
+undemonstrated" ;;
+esac
+
 # --- 8d. BUT A YOUNG CLOCK IS NOT A BROKEN ONE -----------------------------
 # The guard that keeps 8c from crying wolf on every freshly booted machine: a
 # ceiling below the deadline means nothing until the clock has been watching
@@ -219,12 +256,14 @@ $(printf '%s\n' "$_out" | grep -i 'never seen' | head -2)"
 # whenever the ceiling is short", which is red on every reboot -- and a warning
 # that is always on is how a report stops being read.
 _idlesrc "42 ceiling=30 age=100"
+# the ladder evidence IS present; it is the CLOCK that is young
+_backdate sleep 9999
 _out=$(_report)
 case $(_section "$_out" deadlines) in
-  *"NOT YET KNOWN"*) ;;
+  *"NOT YET SHOWN"*) ;;
   *) printf '%s\n' "$_out" >&2
-     fail "a clock watching for only 100s was judged against a 480s deadline it
-has not had the chance to observe" ;;
+     fail "a clock watching for only 100s was judged against a 480s deadline
+it has not had the chance to observe" ;;
 esac
 case $(_section "$_out" deadlines) in
   *"NEVER seen"*) fail "a young clock was accused of being unable to measure" ;;

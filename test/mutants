@@ -730,11 +730,17 @@ t coverage
 = report-warns-about-a-young-clock
 f bin/vigilant
 t coverage
--       elif [ "$_dca" -lt "$_ds" ]; then
-+       elif false; then
+-       elif [ "$_dca" -ge "$_ds" ] && [ "$_dqs" -ge "$_ds" ]; then
++       elif [ "$_dqs" -ge "$_ds" ]; then
 
 = supervision-pass-does-not-sample-the-clock
 f bin/vigilant
 t due
 -   _idle_secs >/dev/null 2>&1 || true
 +   true
+
+= report-blames-a-device-for-a-person
+f bin/vigilant
+t coverage
+-       elif [ "$_dca" -ge "$_ds" ] && [ "$_dqs" -ge "$_ds" ]; then
++       elif [ "$_dca" -ge "$_ds" ]; then

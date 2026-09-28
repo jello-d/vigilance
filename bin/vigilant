@@ -2085,18 +2085,41 @@ _rep_deadlines() {
       _dcm=$(awk '{print $1}' "$IDLE_DEMO" 2>/dev/null)
       _dca=$(awk '{print $2}' "$IDLE_DEMO" 2>/dev/null)
       case "${_dcm:-}${_dca:-}" in ''|*[!0-9]*) _dcm= ;; esac
+      # A SHORT CEILING ON A MACHINE IN USE IS A PERSON, NOT A FAULT, and the
+      # first version of this check could not tell the two apart. It went WARN
+      # on a laptop somebody was typing on -- "the clock has never seen over
+      # 518s quiet in 819s of watching: something talks to an input device on
+      # its own" -- where the something was the user. A wrong cause is worse
+      # than no cause, and a warning that is always on is how a report stops
+      # being read.
+      #
+      # THE LADDER IS THE MISSING EVIDENCE. Reaching a DARK rung means the idle
+      # timer fired, so the seat was genuinely quiet for that deadline, and
+      # sitting there means it stayed quiet. If the machine has been dark longer
+      # than the deadline and the clock STILL never saw a stretch that long,
+      # the clock is demonstrably blind and the cause really is a device talking
+      # to itself. Without that evidence the honest answer is "not shown".
+      _dqs=0
+      _dqr=$(_depth)
+      if [ "$(_intent_of "$(_verify_edge_for "$_dqr")")" = dark ]; then
+        _dqe=$(_elapsed "$(_depth_at)" 2>/dev/null) || _dqe=0
+        case "${_dqe:-}" in ''|*[!0-9]*) _dqe=0 ;; esac
+        _dqs=$_dqe
+      fi
       if [ -z "$_dcm" ]; then
         _r_ok "from '$_dr': '$_de' ${_ds}s idle-anchored, measurable"
       elif [ "$_dcm" -ge "$_ds" ]; then
         _r_ok "from '$_dr': '$_de' ${_ds}s idle-anchored, measurable"\
 " (clock has observed ${_dcm}s quiet)"
-      elif [ "$_dca" -lt "$_ds" ]; then
-        _r_info "from '$_dr': '$_de' ${_ds}s idle-anchored; the clock has only"\
-" been watching ${_dca}s, so whether it can measure this is NOT YET KNOWN"
-      else
+      elif [ "$_dca" -ge "$_ds" ] && [ "$_dqs" -ge "$_ds" ]; then
         _r_warn "from '$_dr': '$_de' is ${_ds}s idle-anchored and the clock"\
-" has NEVER seen over ${_dcm}s quiet in ${_dca}s of watching, so it cannot"\
-" witness this deadline: something talks to an input device on its own"
+" has NEVER seen over ${_dcm}s quiet, though the machine has been at"\
+" '$_dqr' for ${_dqs}s: the seat WAS quiet and the clock missed it, so"\
+" something talks to an input device on its own"
+      else
+        _r_info "from '$_dr': '$_de' ${_ds}s idle-anchored; longest quiet"\
+" seen is ${_dcm}s and the seat has not been quiet for ${_ds}s while the"\
+" clock watched, so whether it can measure this is NOT YET SHOWN"
       fi
       continue
     fi
