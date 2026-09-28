@@ -26,7 +26,7 @@ refuses.
 Usage:
   uinject lid close [hold]   create a lid switch, report CLOSED, hold it
   uinject lid open  [hold]   ... report OPEN, hold it
-  uinject key       [n]      create a keyboard and tap a key n times
+  uinject key [n] [hold]     create a keyboard, tap a key n times, hold it
 
 `hold` matters for the lid: a switch is a STATE, not an edge, so the device has
 to stay alive for logind to keep seeing it shut. The process sleeps for `hold`
@@ -83,7 +83,7 @@ def lid(state, hold):
         os.close(fd)
 
 
-def key(taps):
+def key(taps, hold):
     fd = _open()
     fcntl.ioctl(fd, UI_SET_EVBIT, EV_KEY)
     fcntl.ioctl(fd, UI_SET_KEYBIT, KEY_A)
@@ -95,10 +95,17 @@ def key(taps):
             _emit(fd, EV_SYN, SYN_REPORT, 0)
         time.sleep(0.02)
     print("uinject: %d key taps" % taps, flush=True)
-    # HELD BRIEFLY AFTER THE TAPS. The device vanishing in the same instant can
-    # race whatever is counting, and a counter that missed the event reads
-    # exactly like a counter that does not work.
-    time.sleep(1.0)
+    # HELD AFTER THE TAPS, and the default is only the short hold that stops the
+    # device vanishing in the same instant: that races whatever is counting, and
+    # a counter that missed the event reads exactly like one that does not work.
+    #
+    # A LONG hold exists for a sharper reason. test/probe/evdev-idle-proof has
+    # to ask whether a quiet seat comes back NOT readable, and if the device
+    # were destroyed first then "not readable" would be true because there was
+    # nothing to read: a vacuous pass on the one phase that decides the
+    # experiment. So the device stays alive and goes SILENT, which is the state
+    # under test.
+    time.sleep(hold)
     fcntl.ioctl(fd, UI_DEV_DESTROY)
     os.close(fd)
 
@@ -108,6 +115,6 @@ if __name__ == "__main__":
     if len(a) >= 2 and a[0] == "lid" and a[1] in ("close", "open"):
         lid(a[1], int(a[2]) if len(a) > 2 else 30)
     elif a and a[0] == "key":
-        key(int(a[1]) if len(a) > 1 else 5)
+        key(int(a[1]) if len(a) > 1 else 5, float(a[2]) if len(a) > 2 else 1.0)
     else:
         sys.exit(__doc__.split("Usage:")[1])

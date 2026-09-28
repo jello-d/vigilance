@@ -1,0 +1,205 @@
+#!/bin/sh
+# evdev-idle-proof - can evdev answer "was the seat idle" without reading input?
+#
+# RUN THIS YOURSELF. It needs root (evdev is root:input 0660 and the input group
+# is deliberately empty on this fleet), so it is a handoff: an agent shell has
+# no TTY and a sudo prompt there HANGS.
+#
+# IT NEEDS NO HANDS, only your absence. Every phase actuates itself with uinput,
+# so you can start it over ssh and stay off the machine's keyboard, trackpad and
+# lid until it finishes. That is the whole reason it is built this way: the box
+# this matters for is the one whose keyboard is the suspect.
+#
+# WHY IT EXISTS. vigilance's idle clock counts i8042 IRQs and USB urbnum, which
+# carry no scancode, button or coordinate: the mechanism is INCAPABLE of
+# observing content rather than merely unwilling, which is why it is the
+# default. But ANYTHING that talks to an input device increments those counters,
+# and one box here has a QMK keyboard that emits a burst every 40-60s with
+# nobody present, so its clock can never witness the 480s the deadlines need.
+# evdev is the only other answer, and only in a form that cannot see content:
+#
+#     open -> wait -> poll(timeout=0) -> close
+#
+# Every open() gets a FRESH PER-CLIENT BUFFER, so that sequence reports events
+# arriving during the wait while reading none of them.
+#
+# THREE PHASES, AND PHASE 3 IS THE ONE THAT DECIDES.
+#
+#   1  REAL QUIET, the question this box is actually being asked: with nobody
+#      near it, does any REAL device report input? A device that chatters here
+#      contaminates an evdev clock exactly as it does the counter one.
+#   2  SYNTHETIC INPUT, the positive control: can the mechanism see events at
+#      all. Easy half.
+#   3  SYNTHETIC SILENCE, the negative control: the same device, still alive,
+#      no longer emitting. If a fresh open comes back readable anyway, the clock
+#      answers "input just now" for ever -- which looks exactly like a working
+#      clock, and is the signature false green this package exists to prevent.
+#
+# PHASE 3 HAS A PRECONDITION IT ASSERTS. The synthetic device must still EXIST
+# while it is silent. If it were destroyed first, "not readable" would be true
+# because there was nothing to read, and the one phase that decides the
+# experiment would pass vacuously. That is why uinject grew a hold.
+#
+# WHAT IT BOUNDS RATHER THAN CLAIMS: phases 2 and 3 prove the evdev CORE
+# behaviour on a synthetic device. The per-client buffer is a property of that
+# core, not of any one driver, so this is a fair control -- but it is not a
+# statement about a specific physical keyboard, and phase 1 is what speaks to
+# those.
+#
+# It reads only. It writes no vigilance state, changes no config, installs
+# nothing, and the synthetic device is destroyed on the way out.
+set -eu
+
+. "$HOME/lib/handoff.sh"
+handoff_init evdev-idle-proof
+
+HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+SAMPLER=$HERE/evdev-sample
+UINJECT=$HERE/../uinject
+D=$(dirname "$HANDOFF_LOG")
+
+# GENEROUS ON PURPOSE. An earlier probe in this series used a 5s threshold with
+# a 4s wait, so the margin was ONE SECOND and "it did not fire" was consistent
+# with any conclusion at all. A quiet window short enough to be accidentally
+# busy proves nothing in either direction.
+QUIET_WINDOWS=${QUIET_WINDOWS:-6}
+QUIET_SECS=${QUIET_SECS:-15}
+SETTLE=${SETTLE:-8}
+
+say "evdev idle-clock proof on $(hostname). Log: $HANDOFF_LOG"
+say ""
+say "STAY OFF THIS MACHINE until it says RESULT: no keys, no trackpad, no lid."
+say "It actuates itself, so nothing here needs your hands."
+say ""
+
+# --- preflight, before spending anybody's time ------------------------------
+[ -x "$SAMPLER" ] || handoff_fail "no sampler at $SAMPLER"
+[ -f "$UINJECT" ] || handoff_fail "no uinject at $UINJECT"
+command -v python3 >/dev/null 2>&1 || handoff_fail "no python3"
+# THE INSTRUMENT'S OWN MECHANICS FIRST, so a broken sampler is found before the
+# experiment rather than blamed on the hardware. It covers poll() only; a pipe
+# cannot model a per-client buffer, and a stub pretending to would be a lying
+# stub. Phase 3 is what covers that property, on the real thing.
+"$SAMPLER" --self-test >>"$HANDOFF_LOG" 2>&1 \
+  || handoff_fail "the sampler's own poll mechanics failed; see the log"
+say "[ok] sampler self-test passed (poll mechanics; the log says what it omits)"
+
+sudo_once
+sudo modprobe uinput >/dev/null 2>&1 || true
+[ -c /dev/uinput ] || handoff_fail "no /dev/uinput, so phases 2 and 3 have no
+actuator and only the observation phase could run"
+
+# A SECOND OPINION FROM THE SHIPPED CLOCK, sandboxed. The counter source is the
+# mechanism being worked around, so it cannot certify that you were away -- but
+# its reading beside phase 1's is the entire comparison this experiment is for.
+# Pointed at a scratch state dir: a probe that writes production state is only
+# partly a sandbox, which has bitten this project before.
+CTL_STATE=$D/state
+mkdir -p "$CTL_STATE"
+COUNTERS=$HERE/../../libexec/vigilance/hooks/input-counters
+_counter_idle() {
+  if [ -x "$COUNTERS" ]; then
+    VIGILANCE_STATE_DIR=$CTL_STATE "$COUNTERS" 2>/dev/null || echo '?'
+  else
+    echo '?'
+  fi
+}
+_counter_idle >/dev/null 2>&1 || true   # prime: a first sample has no interval
+
+# --- PHASE 1: real devices, nobody present ----------------------------------
+say ""
+say "PHASE 1/3: watching REAL devices for $(( QUIET_WINDOWS * QUIET_SECS ))s."
+_c0=$(_counter_idle)
+sudo "$SAMPLER" --windows "$QUIET_WINDOWS" --seconds "$QUIET_SECS" \
+  > "$D/phase1.out" 2>&1 || handoff_fail "the quiet sample failed; see the log"
+_c1=$(_counter_idle)
+cat "$D/phase1.out" >>"$HANDOFF_LOG"
+say "[done] phase 1. Counter clock read idle ${_c0}s, then ${_c1}s."
+
+# --- PHASE 2 and 3: one synthetic device across both ------------------------
+# ONE device for both phases, on purpose: phase 3's claim is about the SAME
+# device going silent, and a second device created fresh for it would be a
+# different thing that had never emitted at all.
+_hold=$(( SETTLE + (QUIET_SECS * 2) + 20 ))
+sudo python3 "$UINJECT" key 40 "$_hold" >"$D/uinject.out" 2>&1 &
+_uipid=$!
+# CLEANED UP ON EVERY EXIT PATH, Ctrl-C and a closed terminal included: a
+# synthetic input device outliving the experiment would feed the real idle clock
+# on a live box.
+trap 'kill "$_uipid" 2>/dev/null || true; handoff_done' EXIT
+trap 'kill "$_uipid" 2>/dev/null || true; exit 130' INT TERM HUP
+sleep 2
+
+say ""
+say "PHASE 2/3: synthetic input, the positive control (${QUIET_SECS}s)."
+sudo "$SAMPLER" --windows 1 --seconds "$QUIET_SECS" \
+  > "$D/phase2.out" 2>&1 || handoff_fail "the active sample failed; see the log"
+cat "$D/phase2.out" >>"$HANDOFF_LOG"
+say "[done] phase 2."
+
+say ""
+say "PHASE 3/3: the same device, now SILENT ($(( SETTLE + QUIET_SECS * 2 ))s)."
+say "  This is the phase that decides the answer."
+sleep "$SETTLE"
+sudo "$SAMPLER" --windows 2 --seconds "$QUIET_SECS" \
+  > "$D/phase3.out" 2>&1 || handoff_fail "the settle sample failed; see the log"
+cat "$D/phase3.out" >>"$HANDOFF_LOG"
+say "[done] phase 3."
+
+# --- the verdict, on the SCREEN as well as in the log ----------------------
+# A handoff whose result lives only in a file is one that gets run once and
+# never read. The agent reads the log directly either way.
+_hits() {   # file -> number of devices that reported at least one window
+  awk '/^  \/dev\/input\// { split($2, a, "/"); if (a[1] + 0 > 0) n++ }
+       END { print n + 0 }' "$1"
+}
+_uidev() {  # file -> was the synthetic device present at all, and did it report
+  awk -v want="$1" '/uinject-kbd/ { split($2, a, "/")
+    print (want == "hits") ? (a[1] + 0) : 1; found = 1; exit }
+    END { if (!found) print 0 }' "$2"
+}
+_p1=$(_hits "$D/phase1.out")
+_p2=$(_uidev hits "$D/phase2.out")
+_present3=$(_uidev present "$D/phase3.out")
+_p3=$(_uidev hits "$D/phase3.out")
+
+say ""
+say "================ RESULT ================"
+say "  phase 1  real devices, nobody present : $_p1 reported"
+say "  phase 2  synthetic device, emitting    : $_p2 window(s) readable"
+say "  phase 3  synthetic device, silent      : $_p3 window(s) readable"
+say ""
+if [ "$_present3" = 0 ]; then
+  say "NO VERDICT: the synthetic device was GONE by phase 3, so its silence"
+  say "means nothing -- there was nothing left to read. The hold is too short"
+  say "for these phase lengths; raise it and re-run. Refusing to call this a"
+  say "pass is the point: it is the one phase the experiment turns on."
+elif [ "$_p2" = 0 ]; then
+  say "VERDICT: evdev CANNOT see input this way here. The positive control saw"
+  say "nothing while a device was actively emitting, so the mechanism does not"
+  say "work at all and phase 3 is moot."
+elif [ "$_p3" != 0 ]; then
+  say "VERDICT: evdev CANNOT answer 'idle' here. The device stayed readable"
+  say "while silent, so a clock built on this would report 'input just now'"
+  say "for ever: working to look at, measuring nothing. The per-client-buffer"
+  say "premise does not hold on this kernel."
+else
+  say "VERDICT: the mechanism WORKS here. It saw input while a device emitted,"
+  say "and went quiet when the same device fell silent, reading no events."
+  if [ "$_p1" != 0 ]; then
+    say ""
+    say "AND PHASE 1 IS THE ANSWER YOU WANTED: $_p1 real device(s) reported"
+    say "input with nobody present. They are SELF-REPORTING, and they would"
+    say "contaminate an evdev clock exactly as they do the counter one, so"
+    say "evdev is no improvement on this box. Named in $D/phase1.out."
+  else
+    say ""
+    say "AND PHASE 1 WAS SILENT: no real device reported with nobody present."
+    say "Read that against the counter clock above. If its idle time RESET"
+    say "during phase 1 while evdev stayed silent, evdev is the cleaner source"
+    say "on this box, which is the whole reason for asking."
+  fi
+fi
+say "========================================"
+say ""
+say "Nothing was changed. The agent reads $HANDOFF_LOG directly."

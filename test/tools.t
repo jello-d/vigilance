@@ -9,11 +9,26 @@ harness_init tools
 # anything in bin/, and a hook with a syntax error fails at an edge crossing,
 # which is the worst possible moment to find out.
 _bad=0
+# test/probe/ IS IN THE LIST, and for a reason already paid for once: the VM
+# guest script was shipped code with no syntax check at all, and two
+# three-minute boots ended in "guest never reported" over a quoting slip that
+# `dash -n` finds in 0.05s. A probe is worse placed to absorb that, because the
+# cost of a broken one is somebody's cooperation rather than a rerun.
 for _f in "$HERE"/bin/* "$HERE"/setup.sh \
           "$HERE"/libexec/vigilance/hooklib.sh \
-          "$HERE"/libexec/vigilance/hooks/*; do
+          "$HERE"/libexec/vigilance/hooks/* "$HERE"/test/probe/*; do
   [ -f "$_f" ] || continue
+  # DOCUMENTATION IS NOT A SCRIPT. Skipped by extension rather than by dropping
+  # non-executable files, because "skip what is not executable" would silently
+  # stop checking a hook that lost its mode bit in a copy.
+  case "$_f" in *.md) continue ;; esac
   case "$(head -1 "$_f")" in
+    *python*)
+      # THE FALLBACK BELOW IS `dash -n`, which on a python file reports a syntax
+      # error about perfectly good code. Caught the moment test/probe joined the
+      # list, by this check failing on its own new subject.
+      python3 -c 'import ast,sys; ast.parse(open(sys.argv[1]).read())' "$_f" \
+        2>/dev/null || { echo "  syntax: $_f" >&2; _bad=1; } ;;
     *bash)
       if command -v bash >/dev/null 2>&1; then
         bash -n "$_f" 2>/dev/null || { echo "  syntax: $_f" >&2; _bad=1; }
