@@ -185,35 +185,67 @@ hook_luma_is_dark() {   # <luma>
 # reason both exist: a device that is GONE should drop its stale save, and one
 # that is present and refusing should keep it. Collapsing them is what left a
 # save file failing every ascent for four days.
+#
+# HOOK_LEVEL_TAG NAMES THE DEVICE, and it is what makes one implementation
+# usable by a hook that drives SEVERAL. ddc-monitor loops over monitors, and its
+# own notes are emphatic that "could not dim" without saying which bus is a
+# worse diagnosis than none -- that requirement is exactly why it kept a
+# hand-written copy of these rules, and why the copy then missed a fix the
+# original got. So the caller supplies the label and the rules stay in one
+# place.
 hook_level_dark() {   # <save-file>
   _sf=$1
+  _hl_t=${HOOK_LEVEL_TAG:-hooklib}
   _hld_new=0
   if [ ! -f "$_sf" ]; then
     _hld_new=1
-    if ! level_get > "$_sf" 2>/dev/null; then
-      rm -f "$_sf"
+    # THE DEVICE READ AND THE SAVE WRITE ARE SEPARATE FAILURES, and collapsing
+    # them was a silent no-op that reported success. `level_get > "$_sf"` is one
+    # compound: it is also false when the REDIRECT cannot be opened, and that
+    # branch returned 0 saying "no such device here; fine" about a device that
+    # was present and readable. MEASURED, with a readable device and an
+    # unwritable save path: rc=0, level_set never called, the only trace a shell
+    # redirect error on a stderr that goes nowhere under a keybind.
+    #
+    # REACHABLE BY A FAULT THIS SUITE ALREADY DECLARES: the save lives under
+    # STATE_ROOT=$RUN_DIR/state, which is what runtime-dir-read-only mounts a
+    # read-only tmpfs over, and a filesystem remounted read-only is how it
+    # happens to a real box. ddc-monitor's hand-written copy of these rules got
+    # this right, which is the argument for one implementation and a table over
+    # both.
+    if ! _hld_lvl=$(level_get 2>/dev/null); then
       return 0                                 # no such device here; fine
     fi
-    _hld_lvl=$(cat "$_sf" 2>/dev/null || true)
     case "${_hld_lvl:-}" in
       ''|*[!0-9]*)
-        rm -f "$_sf"
-        echo "hooklib: saved level '$_hld_lvl' is not a number; not dimming" >&2
+        echo "$_hl_t: saved level '$_hld_lvl' is not a number; not dimming" >&2
         return 1 ;;
     esac
+    mkdir -p "$(dirname "$_sf")" 2>/dev/null || true
+    # NOT DIMMING IS THE RIGHT ANSWER when the level cannot be recorded, not a
+    # consolation: the ladder's own invariant is that nothing enters a dark
+    # state unless its way back is armed, and an unrecorded level is no way
+    # back. So this refuses the descent and SAYS SO, where before it performed
+    # neither the save nor the dim and called that success.
+    if ! printf '%s\n' "$_hld_lvl" > "$_sf" 2>/dev/null; then
+      echo "$_hl_t: cannot record the current level; not dimming, because a"\
+" level we cannot restore is a panel with no way back" >&2
+      return 1
+    fi
   fi
   # ASSERT EVERY TIME. A save file is a record that we dimmed, not an
   # observation that it is still dim; trusting it made the descent a silent
   # no-op that reported success.
   if ! level_set 0; then
     if [ "$_hld_new" = 1 ]; then rm -f "$_sf"; fi
-    echo "hooklib: could not dim (device refused the write)" >&2
+    echo "$_hl_t: could not dim (device refused the write)" >&2
     return 1
   fi
 }
 
 hook_level_lit() {   # <save-file>
   _sf=$1
+  _hl_t=${HOOK_LEVEL_TAG:-hooklib}
   # A LIT EDGE RE-OPENS THE QUESTION. Whatever was driving the device may have
   # stopped -- the mute LED goes out when audio is unmuted -- so the next dark
   # edge should test it again rather than inherit a verdict from yesterday.
@@ -222,7 +254,7 @@ hook_level_lit() {   # <save-file>
   _hll_lvl=$(cat "$_sf" 2>/dev/null || true)
   case "${_hll_lvl:-}" in
     ''|*[!0-9]*)
-      echo "hooklib: saved level '$_hll_lvl' is not a number; not restoring" >&2
+      echo "$_hl_t: saved level '$_hll_lvl' is not a number; not restoring" >&2
       return 1 ;;
   esac
   # UNREADABLE IS n/a AND DROPS THE SAVE; REFUSED IS A FAILURE AND KEEPS IT.
@@ -231,7 +263,7 @@ hook_level_lit() {   # <save-file>
     return 0
   fi
   if ! level_set "$_hll_lvl"; then
-    echo "hooklib: could not restore to $_hll_lvl; keeping $_sf so the level"\
+    echo "$_hl_t: could not restore to $_hll_lvl; keeping $_sf so the level"\
 " is not lost and report can see it" >&2
     return 1
   fi

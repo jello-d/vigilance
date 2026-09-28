@@ -149,9 +149,12 @@ _no_dark_reason() {   # bus
   esac
 }
 
-# --- the brightness fallback, with hooklib's save/restore discipline --------
-# Not hooklib itself: those helpers are brightnessctl-specific. The RULES are
-# reproduced deliberately, because each of them was paid for once already.
+# --- the brightness fallback, on hooklib's save/restore discipline ----------
+# It IS hooklib now. This comment used to say the opposite ("not hooklib itself:
+# those helpers are brightnessctl-specific"), which stopped being true when the
+# rules were split from the brightnessctl adapter and was then left standing: a
+# comment asserting a constraint that no longer existed, which is part of what
+# kept the second copy alive long enough to drift.
 _bright_save() { printf '%s/bright-%s' "${VIGILANCE_STATE_DIR:-/tmp}" "$1"; }
 
 _bright_get() {   # bus -> current luminance, or empty
@@ -159,80 +162,57 @@ _bright_get() {   # bus -> current luminance, or empty
     | sed -n 's/.*current value = *\([0-9]*\).*/\1/p'
 }
 
-# SAVE ONCE, ASSERT EVERY TIME. These are hooklib's rules, re-implemented here
-# because the messages have to name the BUS: this hook drives N monitors and
-# "could not dim" without saying which one is a worse diagnosis than none. That
-# is a deliberate second copy, and THE COPIES DRIFTED, which is the cost:
+# --- the save/restore rules come from hooklib, once ------------------------
+# THESE WERE HAND-WRITTEN HERE and that cost a live defect twice. The rules
+# (save once, assert every time, keep the save on a refused restore, drop it
+# when the device cannot be read) were learned for a sysfs backlight,
+# re-implemented here for a VCP write because hooklib only spoke brightnessctl,
+# and then a fix landed in ONE copy: _bright_dark short-circuited on the save
+# file existing, so every descent after the first was a silent no-op that
+# reported success. That is verbatim the defect root-caused for a keyboard LED
+# three weeks earlier, and on a monitor advertising no D6=02 with no sysfs
+# backlight this write is the ONLY way the screen goes dark.
 #
-#   2026-09-20  hook_dark returned 0 outright when the save file existed,
-#               reading it as "already saved, therefore already dark". A SILENT
-#               NO-OP THAT REPORTED SUCCESS. Fixed in hooklib (f08f3a7).
-#   this        the same bug, still here, because the fix landed in one copy.
+# So the rules live in hooklib and this file supplies only the ACTUATOR. The
+# copy going away is the point: a ratchet keeping two copies in step is a second
+# thing to maintain, and one implementation cannot drift from itself.
 #
-# Reproduced against the stub before fixing: first descent writes lum=0 and
-# saves 75; a second descent with the panel back at 75 wrote NOTHING and
-# returned 0. Worse here than for a keyboard LED, because on a panel with no
-# D6=02 and no sysfs backlight this is the ONLY way the screen goes dark, so it
-# simply stays lit while the edge reports clean.
-#
-# The comment in _bright_lit below used to lean on that short-circuit as a
-# premise. It no longer holds, and the rule there stands on its own reason.
-_bright_dark() {   # bus
-  _bs=$(_bright_save "$1")
-  _bd_new=0
-  # SAVE ONCE. A second save would record the 0 just set, and restoring THAT
-  # leaves the panel black with the operator convinced the monitor died.
-  if [ ! -f "$_bs" ]; then
-    _bd_new=1
-    _cur=$(_bright_get "$1")
-    case "${_cur:-}" in
-      ''|*[!0-9]*)
-        echo "ddc-monitor: bus $1 would not report brightness; not dimming" >&2
-        return 0 ;;
-    esac
-    mkdir -p "$(dirname "$_bs")" 2>/dev/null || true
-    if ! printf '%s\n' "$_cur" > "$_bs" 2>/dev/null; then
-      echo "ddc-monitor: bus $1 cannot record its brightness; not dimming" >&2
+# THE ADAPTER CARRIES THE BUS in a variable rather than an argument, because
+# level_get and level_set take none by contract -- the same shape hooklib's own
+# brightnessctl adapters use for their selector.
+_bright_adapt() {   # bus
+  _bl_bus=$1
+  HOOK_LEVEL_TAG="ddc-monitor: bus $1"
+  # EMPTY IS "CANNOT READ" HERE, and the conversion belongs in the adapter: this
+  # tool reports an unreadable monitor by printing nothing and still exiting 0,
+  # while hooklib's contract is a NON-ZERO level_get. Getting that mapping wrong
+  # would turn an absent monitor into a hard failure on every edge.
+  #
+  # It says so on the way past, which the generic rules cannot: a bus that
+  # ANSWERED detect and then will not report brightness is worth a line, where a
+  # device that is simply absent is the quiet n/a case hooklib is right to keep
+  # silent.
+  level_get() {
+    _bl_v=$(_bright_get "$_bl_bus")
+    if [ -z "$_bl_v" ]; then
+      echo "ddc-monitor: bus $_bl_bus would not report brightness" >&2
       return 1
     fi
-  fi
-  # ASSERT EVERY TIME. A save file records that we dimmed, not an observation
-  # that the panel is still dim.
-  if ! ddcutil --bus "$1" --noverify setvcp 10 0 >/dev/null 2>&1; then
-    # ONLY A SAVE WE JUST MADE IS DROPPED. A pre-existing one is the level the
-    # panel must return to, and discarding it on a failed re-assert would strand
-    # a monitor that is still dark.
-    if [ "$_bd_new" = 1 ]; then rm -f "$_bs" 2>/dev/null || true; fi
-    echo "ddc-monitor: bus $1 refused the dim to 0" >&2
-    return 1
-  fi
-  return 0
+    printf '%s\n' "$_bl_v"
+  }
+  level_set() {
+    ddcutil --bus "$_bl_bus" --noverify setvcp 10 "$1" >/dev/null 2>&1
+  }
+}
+
+_bright_dark() {   # bus
+  _bright_adapt "$1"
+  hook_level_dark "$(_bright_save "$1")"
 }
 
 _bright_lit() {   # bus
-  _bs=$(_bright_save "$1")
-  if [ ! -f "$_bs" ]; then return 0; fi          # nobody dimmed it
-  _want=$(cat "$_bs" 2>/dev/null || true)
-  case "${_want:-}" in
-    ''|*[!0-9]*)
-      echo "ddc-monitor: bus $1 saved brightness '$_want' is not a number" >&2
-      return 1 ;;
-  esac
-  # An UNREADABLE monitor is n/a, not a failed restore: the distinction
-  # hook_level_lit draws. Keeping a save for a panel that is GONE would fail
-  # every ascent forever, and nothing else clears it, since a descent only ever
-  # adds to the record.
-  if [ -z "$(_bright_get "$1")" ]; then
-    rm -f "$_bs" 2>/dev/null || true
-    return 0
-  fi
-  if ! ddcutil --bus "$1" --noverify setvcp 10 "$_want" >/dev/null 2>&1; then
-    echo "ddc-monitor: bus $1 would not return to brightness $_want; keeping"\
-" the record so the level is not lost" >&2
-    return 1
-  fi
-  rm -f "$_bs" 2>/dev/null || true
-  return 0
+  _bright_adapt "$1"
+  hook_level_lit "$(_bright_save "$1")"
 }
 
 # VERIFY reads VCP D6 back instead of writing it. This is precisely the check

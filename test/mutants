@@ -679,11 +679,11 @@ t runtime-dir
 -   if _dr=$(_depth_recorded) && ! _depth_of "${_dr:-}" >/dev/null 2>&1; then
 +   if false; then
 
-= ddc-brightness-descent-is-a-silent-no-op
-f libexec/vigilance/hooks/ddc-monitor
-t ddc-monitor
--   if [ ! -f "$_bs" ]; then
-+   if [ -f "$_bs" ]; then return 0; elif true; then
+= level-dark-short-circuits-on-the-save-file
+f libexec/vigilance/hooklib.sh
+t level-rules
+-   if [ ! -f "$_sf" ]; then
++ if [ -f "$_sf" ]; then return 0; elif true; then
 
 = report-never-names-a-dead-idle-timer
 f bin/vigilant
@@ -696,3 +696,15 @@ f bin/vigilant
 t report
 -     _r_bad "$IDLE_PROCESS NOT running: nothing will lock on idle"
 +     _r_info "$IDLE_PROCESS NOT running: nothing will lock on idle"
+
+= level-dark-calls-an-unwritable-save-a-missing-device
+f libexec/vigilance/hooklib.sh
+t level-rules
+-     if ! printf '%s\n' "$_hld_lvl" > "$_sf" 2>/dev/null; then
++ if false; then
+
+= level-dark-conflates-the-device-read-with-the-save-write
+f libexec/vigilance/hooklib.sh
+t level-rules
+-     if ! _hld_lvl=$(level_get 2>/dev/null); then
++ if ! _hld_lvl=$(level_get) || ! printf '%s' "$_hld_lvl" >"$_sf"; then

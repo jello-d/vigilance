@@ -56,7 +56,7 @@ wishes are visible.
      8  one crossing at a time
         cross-lock.t, including section 6: nothing may bypass the lock
      9  save once, assert every time
-        hooklib.t, hooks.t, panel-backlight.t
+        level-rules.t (the table, x3 adapters), hooklib.t, hooks.t
     10  a verdict is about a rung, and a rung can move while you measure it
         standing-recheck.t sections 9 and 9b
     11  the record may lead the machine only during a crossing
@@ -93,9 +93,14 @@ Stated plainly rather than implied:
 
 - **A hook must survive being run twice in sequence.** The crossing lock
   serialises concurrent requests; it does nothing about a second press five
-  seconds later. This is discipline only. A generic ratchet was considered and
-  rejected: in a sandbox most hooks correctly decline (78), so the check would
-  pass vacuously and read as coverage it does not have.
+  seconds later. A generic ratchet over every hook is still rejected for the
+  same reason: in a sandbox most hooks correctly decline (78), so it would pass
+  vacuously and read as coverage it does not have. **Narrowed, not closed:**
+  every actuator that keeps a LEVEL is now covered, because that is where
+  repeat-safety actually failed -- twice, as the identical silent no-op. See
+  `test/level-rules.t`, whose `second-descent-re-asserts` case runs against the
+  generic rules and each shipped adapter. A hook with no level to restore is
+  still discipline only.
 - **No performance guard exists.** A refactor once added an `awk` per hook per
   edge on the security path, about 7%, and nothing would have caught it. It was
   found by going looking.
