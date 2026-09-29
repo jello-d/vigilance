@@ -76,7 +76,7 @@ wishes are visible.
     18  a test that reaches no verdict is a failure
         test/run
     19  a guard nothing can kill is not a guard
-        test/mutate (108 records), mutants.t
+        test/mutate (139 records), mutants.t
     20  a check must not read the developer's live box
         hermetic.t
     21  a verdict that may be discarded must not notify before it is accepted
@@ -92,6 +92,8 @@ wishes are visible.
         cadence.t, including that the ages are read before report's own verify
     26  every exit value the runner names is in the man page AND the README
         claims.t, with the list derived from the constants
+    27  the runner's own cost per hook does not grow
+        perf.t, which counts forks rather than milliseconds
 
 ### Invariants with no enforcing check
 
@@ -134,9 +136,6 @@ Stated plainly rather than implied:
   than waved at: falsely reaching a 480s deadline needs EIGHT consecutive
   keystrokes each landing in that 5% window, about 4e-11. The alternative,
   counting our own traffic, was not a small risk but a certainty.
-- **No performance guard exists.** A refactor once added an `awk` per hook per
-  edge on the security path, about 7%, and nothing would have caught it. It was
-  found by going looking.
 - **`enforce` has never acted in production.** The forcing half is retired and
   the detection half has produced exactly one true positive so far.
 - **The greeter's sleep path is observed only in the guest.** session-greeter.t

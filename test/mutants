@@ -863,3 +863,12 @@ f bin/vigilant
 t claims
 - HOOK_SKIP=75
 + HOOK_SKIP=76
+
+# THE HISTORICAL REGRESSION, in its exact shape: a helper called once per HOOK
+# per EDGE that runs a program where the shell would do. Behaviour-preserving on
+# purpose -- no other test can tell, which is what makes perf.t the only guard.
+= intent-lookup-spawns-a-process-per-call
+f bin/vigilant
+t perf
+-   if [ -z "${1:-}" ]; then printf 'none\n'; return 0; fi
++   if [ -z "$(echo "${1:-}" | tr -d q)" ]; then printf 'none\n'; return 0; fi
