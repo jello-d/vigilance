@@ -90,6 +90,18 @@ for _t in "$_dir"/*.t; do
         printf '%s: NO VERDICT -- exited 0 without reaching pass or skip\n' \
           "$(basename "$_t")"
         printf '  A truncated or silently-aborted test is not a passing one.\n'
+      elif [ -z "$_out" ]; then
+        # A FAILING TEST THAT PRINTED NOTHING MUST STILL BE NAMED. `fail` writes
+        # a message, so this is the OTHER silent abort: a bare `set -e` exit,
+        # classically an unguarded `_x=$(vigilant report)` on a substrate where
+        # report legitimately exits non-zero for an unrelated section. The run
+        # then said "vigilance tests FAILED" with no test named and no output at
+        # all -- one blank line in a 68-line log -- and finding which file it
+        # was cost an investigation. The runner knows the name; it just never
+        # said it.
+        printf '%s: FAILED with NO OUTPUT (rc=%s)\n' "$(basename "$_t")" "$_trc"
+        printf '  A `set -e` abort before anything printed. The usual\n'
+        printf '  cause is an unguarded capture of a command that fails here.\n'
       fi ;;
   esac
 done

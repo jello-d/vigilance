@@ -22,7 +22,14 @@ set -eu
 scenario_init cadence
 
 SR=$VIGILANCE_RUN_DIR/state
-_cad() { _section "$("$VIGILANT" report 2>>"$T/stderr")" cadence; }
+# REPORT'S STATUS IS ABOUT NINE SECTIONS, so every capture of it here is
+# guarded. On a substrate where `machinery` legitimately FAILs -- a VM whose
+# units are not enabled -- an unguarded `_out=$(vigilant report)` under `set -e`
+# aborts the whole file SILENTLY, with no output for the runner to name. This
+# file did exactly that on its first VM run, which is the fifth time this suite
+# has paid for one exit code covering nine questions.
+_report() { "$VIGILANT" report 2>>"$T/stderr" || true; }
+_cad() { _section "$(_report)" cadence; }
 _backdate() {   # <rung> <seconds ago>
   printf '%s %s\n' "$1" "$(( $(date +%s) - $2 ))" \
     > "$VIGILANCE_RUN_DIR/depth"
@@ -73,7 +80,7 @@ case "$_out" in
 say so. The stamp is the only evidence that the transition trigger -- the
 primary mechanism behind a slow peripheral cadence -- ever fires" ;;
 esac
-_no_fail_in "$("$VIGILANT" report 2>>"$T/stderr")" cadence "the cadence
+_no_fail_in "$(_report)" cadence "the cadence
 section raised a FAIL. Nothing here is a machine fault: the deferring
 verifiers still run on their own interval, so the worst case is checked less
 often rather than not at all"
@@ -120,7 +127,10 @@ reads 'checked just now' and the section can never show a tier that stopped"; }
 # forces a full check ever fired.
 rm -f "$SR/recheck-verified"
 _backdate lock 9999
-_out=$(VIGILANCE_RECHECK_GRACE=300 "$VIGILANT" report 2>>"$T/stderr")
+# Guarded INSIDE the substitution rather than through `_report`, because an
+# env-var prefix on a shell FUNCTION leaks the assignment into the rest of the
+# file, and the next case needs a different grace.
+_out=$(VIGILANCE_RECHECK_GRACE=300 "$VIGILANT" report 2>>"$T/stderr" || true)
 _sec=$(_section "$_out" cadence)
 printf '%s\n' "$_sec" | grep -q '^ *\[WARN\].*no supervision pass' \
   || { printf '%s\n' "$_sec" >&2
@@ -134,7 +144,7 @@ there is -- and nothing said so"; }
 # minute without verifying. Pinning the default here would keep warning on a
 # correctly slow box.
 _sec=$(_section "$(VIGILANCE_RECHECK_GRACE=20000 "$VIGILANT" report \
-  2>>"$T/stderr")" cadence)
+  2>>"$T/stderr" || true)" cadence)
 case "$_sec" in
   *"[WARN]"*)
      printf '%s\n' "$_sec" >&2
