@@ -649,6 +649,13 @@ _set_depth() {   # rung
 CROSSING_MARK=$RUN_DIR/crossing.lock
 CROSSING_MAX=${VIGILANCE_CROSSING_MAX:-120}
 
+# How long after entering a rung the transition-triggered verify is still
+# merely PENDING rather than missing. The supervision timer owns the real
+# period, and it belongs to the integrator, so this cannot be derived: a box
+# with a 15-minute timer is not faulty for not having verified in the first
+# minute. Generous against the shipped timer (60s, 15s accuracy).
+RECHECK_GRACE=${VIGILANCE_RECHECK_GRACE:-300}
+
 # --- ONE CROSSING AT A TIME -------------------------------------------------
 # THE ROOT RACE, of which every concurrency defect here so far has been a
 # symptom. `cmd_go` is a read-modify-write over shared state:
@@ -2246,6 +2253,88 @@ _rep_verify() {
 
 }
 
+# WHEN DID THE DEFERRING TIER LAST ACTUALLY LOOK, and has the transition fired?
+#
+# A throttled verifier reports `not due` and nothing else, so `ok (2 checked, 3
+# not due)` reads identically on a box whose hourly pass ran twenty minutes ago
+# and on one where it has not run since Tuesday. The cadence was shipped with
+# no way to observe it, which for this package is the half that matters: a
+# silent skip is how a cadence quietly becomes never.
+#
+# THE SNAPSHOT IS TAKEN BEFORE ANY SECTION RUNS, and that is load-bearing
+# rather than tidy. `_rep_verify` does NOT throttle -- an explicit verify never
+# does -- so it stamps every deferring hook on its way past, and stamps read
+# afterwards would answer "checked just now" on every box, healthy or dead.
+# That is the observer effect in the tier whose job is to observe, which this
+# same command has already paid for once: running `report` to watch a fix land
+# was resetting the idle clock being measured.
+_rep_cadence_snap() {
+  CAD_SNAP=
+  for _cs_d in "$STATE_ROOT"/*; do
+    [ -d "$_cs_d" ] || continue
+    # A LEADING DOT, the convention `_rep_state`'s glob enforces: this is
+    # bookkeeping rather than a level to restore.
+    _cs_at=$(cat "$_cs_d/.last-checked" 2>/dev/null || true)
+    if _cs_e=$(_elapsed "${_cs_at:-}"); then
+      CAD_SNAP="$CAD_SNAP $(basename "$_cs_d")=${_cs_e}s"
+    elif [ -n "${_cs_at:-}" ]; then
+      # A stamp that cannot be subtracted is a skew, not an age. Named rather
+      # than dropped, exactly as `status` refuses to print a negative age.
+      CAD_SNAP="$CAD_SNAP $(basename "$_cs_d")=skew"
+    fi
+  done
+}
+
+_rep_cadence() {
+  echo "-- cadence --"
+  # THE AGES ARE EVIDENCE AND NOT A VERDICT, deliberately. Each hook chooses
+  # its own window (it passes one to `hook_throttle`), so a number report
+  # guessed at here would be one no hook uses; and the two things that could
+  # make a stamp stale -- the supervision timer not running, the hook no longer
+  # wired -- are already `machinery`'s finding and `wiring`'s. Two sections
+  # accusing in different words teaches a reader to discount both.
+  if [ -z "${CAD_SNAP:-}" ]; then
+    _r_info "no verifier defers: every supervision pass checks everything"
+  else
+    _r_info "last full check:$CAD_SNAP ago"
+  fi
+  if [ -z "$_have_record" ]; then
+    _r_info "no record of ours, so no transition to have verified"
+    return 0
+  fi
+  _cd_rung=$(_depth)
+  _cd_at=$(_depth_at)
+  if [ "$_cd_at" -le 0 ]; then
+    _r_info "no rung entry recorded yet, so no transition to have verified"
+    return 0
+  fi
+  # THE STAMP IS WRITTEN ONLY ON A VERDICT THE RECHECK KEPT, so this is a
+  # statement about a verify that really happened and was really believed --
+  # not about one that ran and was then discarded for racing a crossing.
+  _cd_seen=$(cat "$STATE_ROOT/recheck-verified" 2>/dev/null || true)
+  case "${_cd_seen:-}" in ''|*[!0-9]*) _cd_seen=0 ;; esac
+  if ! _cd_age=$(_elapsed "$_cd_at"); then
+    _r_warn "the depth record is ahead of the clock, so whether this rung has"\
+" been verified since it was entered cannot be said"
+    return 0
+  fi
+  if [ "$_cd_seen" -ge "$_cd_at" ]; then
+    _r_ok "rung '$_cd_rung' had a full verify $((_cd_seen - _cd_at))s after it"\
+" was entered"
+  elif [ "$_cd_age" -le "$RECHECK_GRACE" ]; then
+    _r_info "rung '$_cd_rung' was entered ${_cd_age}s ago; the next"\
+" supervision pass is the one that verifies it in full"
+  else
+    # WARN, not FAIL: the deferring verifiers still run on their own interval,
+    # so the machine is checked less often rather than not at all. The pointer
+    # is a pointer and not a second accusation.
+    _r_warn "rung '$_cd_rung' was entered ${_cd_age}s ago and no supervision"\
+" pass has recorded a full verify of it. A transition is what forces one, so"\
+" nothing has re-checked on the event that introduces drift; 'machinery' says"\
+" whether the supervision timer is running"
+  fi
+}
+
 # ENABLED IS NOT WORKING, and conflating the two is the most expensive mistake
 # this project has made. lock-on-sleep.service sat `enabled` and `canonical` for
 # an entire refactor while its ExecStart named a path that did not exist: `%h`
@@ -2693,11 +2782,15 @@ _rep_wiring() {
 cmd_report() {
   RRC=0
   echo "== vigilance: $(hostname -s 2>/dev/null) $(date '+%Y-%m-%d %H:%M:%S')"
+  # BEFORE ANY SECTION, because _rep_verify stamps what this reads. See the
+  # function's own header: a snapshot taken after it measures this report.
+  _rep_cadence_snap
   _rep_session
   _rep_state
   _rep_hardware
   _rep_coherence
   _rep_verify
+  _rep_cadence
   _rep_coverage
   _rep_deadlines
   _rep_machinery

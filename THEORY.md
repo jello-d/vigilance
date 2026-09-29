@@ -88,6 +88,8 @@ wishes are visible.
         fault-lid (a uinput SW_LID through logind), atleast.t
     24  the machinery is watched whether or not the machine has state to judge
         watchdog.t cases 4 and 4b (no target, and no record at all)
+    25  a mechanism that defers can be seen still looking
+        cadence.t, including that the ages are read before report's own verify
 
 ### Invariants with no enforcing check
 
@@ -115,7 +117,12 @@ Stated plainly rather than implied:
   history the peripheral verifiers had reported drift exactly NEVER. Crossings
   still do not verify in line, deliberately: a read-back fires before a device
   can settle (the mute LED returns two seconds later) and it would add a verify
-  pass to the lock path.
+  pass to the lock path. **The cadence is now observable**, which it was not
+  when it shipped: report's `cadence` section names when each deferring tier
+  last genuinely looked and whether the transition has fired for the rung the
+  machine is on (invariant 25). What remains discipline is the hourly interval
+  itself -- nothing asserts that a tier deferring for an hour is checked within
+  the hour, because only the wall clock could say so.
 - **A counter clock is blind during vigilance's own supervision pass.** The
   pass reads the clock before any hook runs and tells its sources to
   re-baseline afterwards, so traffic our own hooks generate on an input device

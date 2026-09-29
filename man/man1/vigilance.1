@@ -578,6 +578,18 @@ set by the runner, never by hand: present only while the standing recheck is
 verifying, which is the one context in which a hook may skip as not due (exit
 75).
 .TP
+.B VIGILANCE_RECHECK_GRACE
+how long after entering a rung the transition\-triggered full verify is still
+merely PENDING rather than missing, seconds (default 300). Read by
+.B report
+alone, for its
+.B cadence
+section: the supervision timer owns the real period and the integrator owns the
+timer, so a box wired with a 15\-minute pass is not faulty for having gone a
+minute without verifying. Raise it to match a slower timer. The section states
+the fact either way; this only decides whether it is reported as pending or as
+a warning.
+.TP
 .B VIGILANCE_IDLE_PHASE
 set by the runner, never by hand: `settle` tells an
 .B idle.d

@@ -827,3 +827,33 @@ t watchdog
 f bin/vigilant
 t watchdog
 -   if [ "$_rq_t" -le 0 ]; then return 0; fi
+
+= cadence-ages-measure-reports-own-verify
+f bin/vigilant
+t cadence
+-   if [ -z "${CAD_SNAP:-}" ]; then
++   _rep_cadence_snap; if [ -z "${CAD_SNAP:-}" ]; then
+
+= cadence-never-warns-on-a-stale-transition
+f bin/vigilant
+t cadence
+-   elif [ "$_cd_age" -le "$RECHECK_GRACE" ]; then
++   elif true; then
+
+= cadence-warns-on-a-fresh-rung
+f bin/vigilant
+t cadence
+-   elif [ "$_cd_age" -le "$RECHECK_GRACE" ]; then
++   elif false; then
+
+= cadence-does-not-record-a-kept-verdict
+f bin/vigilant
+t cadence
+-   if [ "$_cd_seen" -ge "$_cd_at" ]; then
++   if false; then
+
+= cadence-says-nothing-when-no-tier-defers
+f bin/vigilant
+t cadence
+-     _r_info "no verifier defers: every supervision pass checks everything"
++     :
