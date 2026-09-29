@@ -872,3 +872,20 @@ f bin/vigilant
 t perf
 -   if [ -z "${1:-}" ]; then printf 'none\n'; return 0; fi
 +   if [ -z "$(echo "${1:-}" | tr -d q)" ]; then printf 'none\n'; return 0; fi
+
+# A FILE KEPT PER CROSSING. Nothing else in the suite counts what the runtime
+# dir holds, and a leak there is invisible for weeks at ~28 crossings a day.
+= runtime-state-accumulates-per-crossing
+f bin/vigilant
+t soak
+-       _crossing_held=1
++       _crossing_held=1; touch "$RUN_DIR/leak.$$" 2>/dev/null || true
+
+# DEDUP OFF ENTIRELY, which is the storm that got a live box's supervision timer
+# stopped BY HAND. Distinct from the cooldown-comparison record above: that one
+# is about a clock, this one is about the tier existing at all.
+= alert-dedup-never-suppresses
+f bin/vigilant
+t soak
+-   if [ "$ALERT_COOLDOWN" = 0 ]; then return 1; fi
++   return 1

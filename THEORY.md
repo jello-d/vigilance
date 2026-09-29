@@ -94,6 +94,8 @@ wishes are visible.
         claims.t, with the list derived from the constants
     27  the runner's own cost per hook does not grow
         perf.t, which counts forks rather than milliseconds
+    28  nothing accumulates per crossing, and one fault is one alert
+        soak.t, asserted as a slope so forty cycles can see a leak
 
 ### Invariants with no enforcing check
 

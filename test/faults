@@ -279,8 +279,12 @@ f remove the sysfs backlight between a descent and its ascent
 e DEGRADE: the hook goes n/a and drops its stale save
 t hooks
 
+# A SLOPE, NOT AN ENDURANCE RUN. "A thousand cycles and see" needs both the
+# thousand and a failure big enough to notice; counting the state after N and
+# again after M catches a leak of ONE FILE PER CROSSING in forty, in seconds.
+# SOAK_CYCLES=1000 still does the long version for an operator.
 = soak-a-thousand-cycles
 m the ladder
-f a thousand lock/unlock cycles back to back
-e ACT: no leaked lock, no saved state at a lit rung, no alert storm
-t -
+f N lock/unlock cycles, and the SLOPE between two counts (default 40)
+e ACT: state flat, no leaked lock, one dedup key, the log still complete
+t soak
