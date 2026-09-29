@@ -37,6 +37,17 @@ edge=${1:-${VIGILANCE_EDGE:-}}
 _intent=$(hook_intent "$edge")
 if [ "$_intent" = none ]; then exit 0; fi
 
+# NOT DUE? Checked once per hook rather than once per LED, because the throttle
+# stamp is per hook: doing it inside the loop below would have the first device
+# stamp the file and every later one read itself as already checked. A
+# peripheral check earns an hour, not a minute -- the recheck forces a FULL
+# verify on the first pass after the rung changes, which is when drift is
+# introduced, so this cadence is a backstop. Only the standing recheck offers
+# the skip.
+if [ "${VIGILANCE_KIND:-act}" = verify ]; then
+  hook_throttle "${VIGILANCE_PERIPHERAL_EVERY:-3600}" && exit 75
+fi
+
 _rc=0 _na=0 _checked=0
 for _l in $LEDS; do
   [ -e "/sys/class/leds/$_l/brightness" ] || continue

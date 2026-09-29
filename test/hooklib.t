@@ -377,4 +377,54 @@ hook_verify_level "$SF" dark -d x 2>>"$T/stderr" || _vr=$?
 rc=$_vr. Only a return to the EXACT saved level means something else drives it;
 anything else is a device that simply did not go dark"
 
+# --- hook_throttle: a cadence, and every way it must NOT misfire -------------
+# WHY IT EXISTS: the standing recheck ran the whole verify tier every minute, at
+# 2.0s a pass on a live box, while the peripheral verifiers had reported drift
+# exactly never in the whole log history. Cadence follows consequence now, and
+# the first pass after a rung CHANGES still checks everything.
+_thr_dir=$T/throttle
+mkdir -p "$_thr_dir"
+_thr() {   # <recheck> <seconds> -> 0 if it says SKIP
+  VIGILANCE_RECHECK=$1 VIGILANCE_STATE_DIR=$_thr_dir \
+    sh -c '. "'"$HERE/libexec/vigilance/hooklib.sh"'"
+           hook_throttle "'"$2"'"'
+}
+
+# NEVER CHECKED: it must run, and must leave a stamp so the next pass can skip.
+rm -f "$_thr_dir/.last-checked"
+_thr 1 3600 && fail "a check that has NEVER run was skipped as not due. A hook
+with no stamp has no recent verdict to lean on"
+[ -f "$_thr_dir/.last-checked" ] || fail "no stamp was left, so the cadence can
+never take effect and the throttle is decorative"
+
+# WITHIN THE WINDOW: skip.
+_thr 1 3600 || fail "a check made moments ago was run again inside a 3600s
+cadence; nothing would be saved"
+
+# OUTSIDE THE WINDOW: run.
+printf '%s\n' "$(( $(date +%s) - 4000 ))" > "$_thr_dir/.last-checked"
+_thr 1 3600 && fail "a check last made 4000s ago was skipped under a 3600s
+cadence, so the backstop never fires"
+
+# NO VIGILANCE_RECHECK: always real. This is the load-bearing case -- the verify
+# that lock-on-sleep runs before a suspend goes through here, and "I looked an
+# hour ago" is not an answer to "is the session secured right now".
+printf '%s\n' "$(date +%s)" > "$_thr_dir/.last-checked"
+_thr "" 3600 && fail "an EXPLICIT check was throttled. Only the standing recheck
+may skip"
+
+# A STAMP FROM THE FUTURE IS NOT A RECENT CHECK. A wall clock is not monotonic,
+# and a skew reading "checked 4000s from now" would silence the verifier for as
+# long as the skew lasted: the same family as every elapsed-time guard here.
+printf '%s\n' "$(( $(date +%s) + 4000 ))" > "$_thr_dir/.last-checked"
+_thr 1 3600 && fail "a stamp from the FUTURE was accepted as a recent check,
+so a clock skew silences this verifier for the length of the skew"
+
+# A ZERO OR NONSENSE INTERVAL MEANS NO THROTTLING, not an accidental forever.
+printf '%s\n' "$(date +%s)" > "$_thr_dir/.last-checked"
+_thr 1 0 && fail "an interval of 0 threw the check away rather than disabling
+the throttle"
+_thr 1 banana && fail "a non-numeric interval was honoured; a knob set wrong
+must not silence a verifier"
+
 pass

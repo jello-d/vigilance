@@ -786,3 +786,33 @@ f bin/vigilant
 t coverage
 -   _idle_phase=settle   # report ran hooks too
 +   _idle_phase=
+
+= recheck-never-forces-a-verify-after-a-transition
+f bin/vigilant
+t standing-recheck
+-   if [ "$_rq_t" -gt "$_rq_last" ]; then
++   if false; then
+
+= throttle-applies-to-an-explicit-verify
+f libexec/vigilance/hooklib.sh
+t standing-recheck
+-   if [ -z "${VIGILANCE_RECHECK:-}" ]; then
++   if false; then
+
+= throttle-trusts-a-stamp-from-the-future
+f libexec/vigilance/hooklib.sh
+t hooklib
+-   if [ -n "$_ht_at" ] && [ "$_ht_at" -le "$_ht_now" ] \
++   if [ -n "$_ht_at" ] \
+
+= deferred-tier-reads-as-nothing-checked
+f bin/vigilant
+t standing-recheck
+-         if [ "$_vck" -eq 0 ] && [ "$_vsk" -gt 0 ]; then
++         if false; then
+
+= report-reads-bookkeeping-as-an-unrestored-level
+f bin/vigilant
+t actuators
+-   for _f in "$STATE_ROOT"/*/*; do
++   for _f in "$STATE_ROOT"/*/* "$STATE_ROOT"/*/.[!.]*; do

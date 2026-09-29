@@ -975,6 +975,23 @@ HOOK_PATH=${VIGILANCE_HOOK_PATH:-${XDG_BIN_HOME:-$HOME/.local/bin}:$HOME/bin:\
 # information; it never turns a working integration into a failing one.
 HOOK_NA=78
 
+# HOOK_SKIP: "I checked recently; not due". sysexits' EX_TEMPFAIL, which is
+# exactly the meaning -- a temporary condition, try again later.
+#
+# WHY IT CANNOT BE 78. "Everything declined" is a FAILURE: it means the rung was
+# verified by nothing, which is the conflation exit 78 exists to break.
+# "Everything was checked recently" is the opposite -- the machine IS covered,
+# just not by this pass -- so collapsing them would make a fully-throttled tier
+# read as a verify that nothing performed, and the coverage accounting would lie
+# in the safe-looking direction.
+#
+# ONLY THE STANDING RECHECK OFFERS THIS. A hook may throttle only when the
+# runner says VIGILANCE_RECHECK=1; an explicit `vigilant verify`, and the one
+# lock-on-sleep runs as ExecStartPost before a suspend, are always real. "I
+# looked at this an hour ago" is not an answer to "is the session secured right
+# now".
+HOOK_SKIP=75
+
 HOOK_TIMEOUT=${VIGILANCE_HOOK_TIMEOUT:-10}
 HOOK_TMO=
 if [ "$HOOK_TIMEOUT" != 0 ] && command -v timeout >/dev/null 2>&1; then
@@ -1002,6 +1019,8 @@ _run_hooks() {   # edge from [suffix]
   HOOKS_CHECKED=0
   HOOKS_NA=0
   HOOKS_NA_NAMES=
+  HOOKS_SKIP=0
+  HOOKS_SKIP_NAMES=
   if [ -z "$_list" ]; then return 0; fi
   _fails=0
   while IFS= read -r _h; do
@@ -1026,6 +1045,13 @@ _run_hooks() {   # edge from [suffix]
       # difference is what `verify` reports.
       HOOKS_NA=$((HOOKS_NA + 1))
       HOOKS_NA_NAMES="$HOOKS_NA_NAMES $(basename "$_h")"
+      continue
+    fi
+    if [ "$_hrc" = "$HOOK_SKIP" ]; then
+      # NOT DUE. Counted apart from both, because "checked an hour ago" is
+      # neither a fresh verdict nor an absent one.
+      HOOKS_SKIP=$((HOOKS_SKIP + 1))
+      HOOKS_SKIP_NAMES="$HOOKS_SKIP_NAMES $(basename "$_h")"
       continue
     fi
     if [ "$_hrc" -eq 0 ]; then
@@ -1704,10 +1730,27 @@ cmd_verify() {   # [edge]
       _ran=1
       if _run_hooks "$_e" "$_from" .verify; then
         # SAY WHAT WAS ACTUALLY CHECKED. "ok" alone answers a question nobody
-        # asked: a tier where every hook DECLINED reads identically to one
-        # where every hook CONFIRMED. Naming the n/a hooks is what makes
-        # "nothing looked at the screen" visible at a glance.
-        if [ "${HOOKS_CHECKED:-0}" -eq 0 ]; then
+        # asked: a tier where every hook DECLINED reads identically to one where
+        # every hook CONFIRMED. Naming the n/a hooks is what makes "nothing
+        # looked at the screen" visible at a glance. ALL DEFERRED IS NOT
+        # "NOTHING CHECKED". Every hook having said "I looked at this recently"
+        # means the machine IS covered, just not by this pass, so it must not
+        # take the branch below that calls an absent verdict a failure.
+        # Reported, because a silent skip is how a cadence quietly becomes
+        # "never".
+        # A DEFERRAL ANYWHERE MEANS THE TIER IS COVERED, so this must not also
+        # demand that nothing declined. Measured: four hooks deferred and one
+        # declined, and the branch below reported "NOTHING CHECKED ... its state
+        # is unknown rather than good" about a tier whose checks had all run
+        # within the hour. A false failure, and it would have alerted.
+        _vck=${HOOKS_CHECKED:-0}; _vsk=${HOOKS_SKIP:-0}; _vna=${HOOKS_NA:-0}
+        if [ "$_vck" -eq 0 ] && [ "$_vsk" -gt 0 ]; then
+          _vmsg="$HOOKS_SKIP checked recently:$HOOKS_SKIP_NAMES"
+          if [ "${HOOKS_NA:-0}" -gt 0 ]; then
+            _vmsg="$_vmsg, $HOOKS_NA n/a:$HOOKS_NA_NAMES"
+          fi
+          echo "verify $_e: not due ($_vmsg)"
+        elif [ "$_vck" -eq 0 ]; then
           # NOTHING COULD BE CHECKED, so this is not a verdict about the
           # machine at all -- it is the absence of one, and it must not read as
           # success. Exactly the state a desktop with no DPMS standby and no
@@ -1717,11 +1760,18 @@ cmd_verify() {   # [edge]
 " declined (${HOOKS_NA_NAMES# }). This edge has no working verifier, so its"\
 " state is unknown rather than good"
           _vrc=1
-        elif [ "${HOOKS_NA:-0}" -gt 0 ]; then
-          echo "verify $_e: ok ($HOOKS_CHECKED checked, $HOOKS_NA n/a:"\
-" ${HOOKS_NA_NAMES# })"
         else
-          echo "verify $_e: ok ($HOOKS_CHECKED checked)"
+          # BUILT NUMERICALLY, not with ${x:+...}: these counters hold the
+          # STRING "0" when there is nothing to report, which is non-empty, so
+          # the suffix would have printed on every clean pass.
+          _vmsg="$HOOKS_CHECKED checked"
+          if [ "${HOOKS_NA:-0}" -gt 0 ]; then
+            _vmsg="$_vmsg, $HOOKS_NA n/a:$HOOKS_NA_NAMES"
+          fi
+          if [ "${HOOKS_SKIP:-0}" -gt 0 ]; then
+            _vmsg="$_vmsg, $HOOKS_SKIP not due:$HOOKS_SKIP_NAMES"
+          fi
+          echo "verify $_e: ok ($_vmsg)"
         fi
       else
         echo "verify $_e: FAIL"
@@ -1890,6 +1940,18 @@ _rep_state() {
   # present at a LIT rung means a descent dimmed something the ascent never put
   # back: "the screen is dark and nothing will bring it back", on disk.
   _saves=
+  # A DOTFILE IS BOOKKEEPING, NOT A LEVEL, and this glob is what enforces that:
+  # a POSIX pattern does not match a leading dot, so state that is not a
+  # restorable level simply names itself with one and is invisible here.
+  # Load-bearing, not incidental -- adding a `.[!.]*` pass to "be thorough"
+  # would reinstate a bug this has now had twice. "The content is a number" was
+  # the rule, and an idle counter snapshot broke it once (a permanent FAIL at
+  # every lit rung on two live boxes) and a verify throttle's epoch stamp broke
+  # it again.
+  #
+  # An explicit `case ... .*) continue` was written here first and was DEAD
+  # CODE: the mutation removing it changed nothing, which is how the glob's role
+  # came to light. test/actuators.t guards the convention itself.
   for _f in "$STATE_ROOT"/*/*; do
     [ -f "$_f" ] || continue
     # A SAVED LEVEL IS A FILE CONTAINING A LEVEL. This scanned every file any
@@ -1901,6 +1963,7 @@ _rep_state() {
     # Reading the content rather than the name because there is no naming
     # convention to lean on: the savers use `level`, and mute-leds uses the LED
     # name. What they share is the CONTENT, which is the level to restore to.
+    #
     case "$(cat "$_f" 2>/dev/null)" in
       ''|*[!0-9]*) continue ;;
     esac
@@ -3193,6 +3256,30 @@ _enforce_recheck() {   # from
     return 0
   fi
   _rq_d=$(_depth); _rq_t=$(_depth_at)
+  # A TRANSITION IS THE EVENT WORTH VERIFYING ON, and this is where that
+  # happens. `_cross_one` runs the act and report tiers and NOTHING else, so
+  # nothing has ever verified at a crossing; the periodic pass was the only
+  # verifier there was, which is why it had to run everything every minute.
+  #
+  # NOT INLINE IN THE CROSSING, for a measured reason. A read-back straight
+  # after an actuator fires before the device can settle: the mute LED comes
+  # back two seconds later, and an in-line check "detected exactly nothing while
+  # adding a call to the lock path". Deferring to the next pass gives the
+  # hardware up to a minute to settle and costs the security path nothing at
+  # all.
+  #
+  # So: the rung was entered since we last verified it -> check EVERYTHING, no
+  # throttling. Otherwise the peripheral hooks may skip, and what remains every
+  # minute is the handful that answer a security question.
+  _rq_seen=$STATE_ROOT/recheck-verified
+  _rq_last=$(cat "$_rq_seen" 2>/dev/null || true)
+  case "${_rq_last:-}" in ''|*[!0-9]*) _rq_last=0 ;; esac
+  if [ "$_rq_t" -gt "$_rq_last" ]; then
+    VIGILANCE_RECHECK=
+  else
+    VIGILANCE_RECHECK=1
+  fi
+  export VIGILANCE_RECHECK
   # ALERTS ARE THE RECHECK'S TO RAISE, not its verify's. Set across the call
   # and cleared straight after, so an ordinary crossing-time verify -- which
   # has no verdict to weigh and no chance to be invalidated -- still alerts
@@ -3207,6 +3294,10 @@ _enforce_recheck() {   # from
     _log "NO-VERDICT: an edge was crossed while verifying '$_rq_d'"
     return 0
   fi
+  # RECORDED ONLY ON A KEPT VERDICT, and only below the discard checks above: a
+  # pass whose answer was thrown away has verified nothing, so the next one must
+  # still treat the transition as unverified.
+  printf '%s\n' "$_rq_t" > "$_rq_seen" 2>/dev/null || true
   case "${_rvrc:-0}" in
     0) return 0 ;;
     # NOT DRIFT. Drift means we looked and the machine was wrong; 78 means

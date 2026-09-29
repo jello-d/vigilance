@@ -95,6 +95,22 @@ esac
 # ...AND A REAL ONE IS STILL CAUGHT. Without this the fix could be "never look",
 # which passes the case above and drops a genuine finding: a device dimmed and
 # never restored is a screen someone has to fix by hand.
+# AND A DOTFILE IS BOOKKEEPING, NOT A LEVEL. The rule above, "the content is a
+# number", broke the FIRST time a non-saver hook kept state (an idle counter
+# snapshot: a permanent FAIL at every lit rung on two boxes) and broke AGAIN
+# when a verify throttle stamped an epoch. Two numbers, neither a level. So
+# state that is not a restorable level is named with a leading dot, and a rule
+# beats the heuristic it replaces: "levels are small numbers" works until a
+# device has a large range.
+printf '%s\n' "$(date +%s)" > "$_ST/20-dimmer/.last-checked"
+_out=$("$VIGILANT" report 2>&1 || true)
+case $(_section "$_out" "recorded state") in
+  *"saved levels outstanding"*) printf '%s\n' "$_out" >&2
+     fail "a dotfile of bookkeeping was reported as an unrestored device. Every
+stateful hook that is not a saver hits this, and the finding is a permanent FAIL
+at every lit rung about a file working exactly as intended" ;;
+esac
+
 printf '80\n' > "$_ST/20-dimmer/level"
 _out=$("$VIGILANT" report 2>&1 || true)
 case $(_section "$_out" "recorded state") in

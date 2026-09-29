@@ -101,6 +101,19 @@ Stated plainly rather than implied:
   `test/level-rules.t`, whose `second-descent-re-asserts` case runs against the
   generic rules and each shipped adapter. A hook with no level to restore is
   still discipline only.
+- **A peripheral verifier is checked hourly, not every minute.** Cadence
+  follows consequence: `locker-up` answers "is the session secured" and earns a
+  minute, while "is the keyboard's RGB still off" does not. What makes that
+  safe is the EVENT -- the first pass after the rung CHANGES verifies
+  everything, because that is when drift is introduced (the keyboard-backlight
+  drift appeared 14 seconds after a crossing). The hourly pass is a backstop
+  for the case nobody thought of. Measured before it: the recheck ran the whole
+  tier every minute at 2.0s a pass, 48 minutes of work a day on an idle
+  machine, one second of it a single ddcutil probe, while in the entire log
+  history the peripheral verifiers had reported drift exactly NEVER. Crossings
+  still do not verify in line, deliberately: a read-back fires before a device
+  can settle (the mute LED returns two seconds later) and it would add a verify
+  pass to the lock path.
 - **A counter clock is blind during vigilance's own supervision pass.** The
   pass reads the clock before any hook runs and tells its sources to
   re-baseline afterwards, so traffic our own hooks generate on an input device

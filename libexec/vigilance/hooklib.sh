@@ -47,6 +47,71 @@
 # The local copy is the standalone fallback (a hook run by hand, or by a test),
 # and test/intent.t asserts the two agree, because a fallback that can drift
 # silently is worse than no fallback.
+# hook_throttle <seconds>: true when this check may be SKIPPED as not due.
+#
+# WHY A CADENCE AT ALL. The standing recheck runs the whole verify tier every
+# minute, and that was measured on a live box at 2.0s a pass -- 48 minutes of
+# work a day on an idle machine, of which ONE SECOND is a ddcutil probe. Against
+# that: in the entire log history, the peripheral verifiers have reported drift
+# exactly never. Every drift the recheck ever caught came from a bug of ours,
+# since fixed.
+#
+# SO CADENCE FOLLOWS CONSEQUENCE, not uniformity. A check that answers "is the
+# session secured" earns a minute. A check that answers "is the keyboard's RGB
+# still off" does not, and an hour is generous for something that has never once
+# had anything to say.
+#
+# THE EVENT IS THE TRANSITION, and it is what makes a slow cadence safe: the
+# recheck forces a FULL verify on the first pass after the rung changes, which
+# is when drift is actually introduced -- the keyboard-backlight drift appeared
+# 14 seconds after a crossing. The hourly pass is a backstop for the case nobody
+# thought of, not the primary mechanism.
+#
+# ONLY THE STANDING RECHECK MAY THROTTLE. VIGILANCE_RECHECK is set only there,
+# so an explicit `vigilant verify` -- including the one lock-on-sleep runs
+# before a suspend -- is always real. "I looked an hour ago" is not an answer to
+# "is the session secured right now".
+#
+#   hook_throttle "${VIGILANCE_PERIPHERAL_EVERY:-3600}" && exit 75
+hook_throttle() {   # seconds
+  _ht_every=${1:-3600}
+  case "$_ht_every" in ''|*[!0-9]*) return 1 ;; esac
+  [ "$_ht_every" -gt 0 ] || return 1
+  # A LEADING DOT MARKS BOOKKEEPING, not a level to restore. `report` scans hook
+  # state dirs for outstanding saves and reads a number as one, so a bare
+  # `last-checked` holding an epoch reads as an unrestored device -- a permanent
+  # FAIL at every lit rung. That exact bug shipped once already for an idle
+  # counter snapshot; session-ladder.t caught this one before it left the tree.
+  _ht_f=${VIGILANCE_STATE_DIR:-/tmp}/.last-checked
+  _ht_now=$(date +%s)
+  _ht_at=$(cat "$_ht_f" 2>/dev/null || true)
+  case "${_ht_at:-}" in ''|*[!0-9]*) _ht_at= ;; esac
+  # A CHECK THAT RUNS RESETS THE CLOCK, whatever made it run -- a transition, an
+  # explicit `vigilant verify`, or the hour elapsing. The first cut returned
+  # early when throttling was not on offer and so stamped nothing, which meant
+  # the pass after every transition ran the check a second time for no reason.
+  # Its own test caught that.
+  if [ -z "${VIGILANCE_RECHECK:-}" ]; then
+    printf '%s\n' "$_ht_now" > "$_ht_f" 2>/dev/null || true
+    return 1
+  fi
+  # A STAMP FROM THE FUTURE IS NOT A RECENT CHECK. A wall clock is not
+  # monotonic, and a skew that reads as "checked 3600s in the future" would
+  # silence a verifier for as long as the skew lasted -- the same family as
+  # every other elapsed-time guard in this package.
+  if [ -n "$_ht_at" ] && [ "$_ht_at" -le "$_ht_now" ] \
+     && [ "$(( _ht_now - _ht_at ))" -lt "$_ht_every" ]; then
+    return 0
+  fi
+  # STAMPED NOW, BEFORE the check runs, and deliberately: a check that fails
+  # should not re-run every minute and alert every minute. The drift is already
+  # reported once, and the crossing trigger re-checks it the moment anything
+  # moves. Tolerant, because a bookkeeping failure must never suppress the
+  # check.
+  printf '%s\n' "$_ht_now" > "$_ht_f" 2>/dev/null || true
+  return 1
+}
+
 hook_intent() {   # edge -> dark | lit | none
   _hi=${VIGILANCE_INTENT:-}
   if [ -z "$_hi" ]; then

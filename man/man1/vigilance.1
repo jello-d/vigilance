@@ -553,6 +553,31 @@ committed before the act tier and the record is ahead of the machine on
 purpose. This caps how long a marker left behind by a killed vigilant can
 suppress that check; the writer being alive is the primary test.
 .TP
+.B VIGILANCE_PERIPHERAL_EVERY
+how often a PERIPHERAL verifier re\-checks under the standing recheck, seconds
+(default 3600). Cadence follows consequence, not uniformity: a check that
+answers "is the session secured" earns a minute, and one that answers "is the
+keyboard's RGB still off" does not. Measured before this existed: the recheck
+ran the whole verify tier every minute at 2.0s a pass, 48 minutes of work a
+day on an idle machine, of which one second was a single ddcutil probe -- and
+in the entire log history the peripheral verifiers had reported drift exactly
+never.
+.IP
+WHAT MAKES A SLOW CADENCE SAFE is that the recheck forces a FULL verify on the
+first pass after the rung CHANGES, which is when drift is actually introduced:
+the keyboard\-backlight drift appeared 14 seconds after a crossing. The hourly
+pass is a backstop for the case nobody thought of, not the primary mechanism.
+An explicit
+.B vigilant verify
+never throttles, including the one
+.B lock\-on\-sleep
+runs before a suspend.
+.TP
+.B VIGILANCE_RECHECK
+set by the runner, never by hand: present only while the standing recheck is
+verifying, which is the one context in which a hook may skip as not due (exit
+75).
+.TP
 .B VIGILANCE_IDLE_PHASE
 set by the runner, never by hand: `settle` tells an
 .B idle.d

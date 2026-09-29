@@ -428,4 +428,108 @@ $_n notification(s). A number that identifies a thing is not a measurement of
 it, and merging those hides the second fault behind the first"
 rm -rf "$VIGILANCE_HOOK_ROOT/watchdog.d"
 
+# --- CADENCE FOLLOWS CONSEQUENCE, and a TRANSITION is what forces a full pass
+# -- WHY: the recheck ran the whole verify tier every minute, measured at 2.0s a
+# pass on a live box -- 48 minutes of work a day on an idle machine, one second
+# of it a single ddcutil probe -- and in the entire log history the peripheral
+# verifiers had reported drift exactly NEVER. Every drift the recheck ever
+# caught came from a bug of ours, since fixed.
+#
+# WHAT MAKES A SLOW CADENCE SAFE is the event: the first pass after the rung
+# CHANGES verifies everything, because that is when drift is introduced (the
+# keyboard-backlight drift appeared 14 seconds after a crossing). Crossings
+# themselves do NOT verify and deliberately still do not: an in-line read-back
+# fires before a device can settle -- the mute LED comes back two seconds later
+# -- and it would add a verify pass to the lock path.
+VIGILANCE_ALERT_COOLDOWN=0
+# THE TIER IS CLEARED FIRST. An earlier case leaves a deliberately FAILING probe
+# wired here, and a failing tier makes cmd_verify print FAIL and never reach the
+# line this case is about -- so the assertion was about a neighbour's fixture.
+# Exactly the trap this file's own header warns about, hit again in it.
+rm -f "$VIGILANCE_HOOK_ROOT"/sleep.verify.d/* 2>/dev/null || true
+_slow=$VIGILANCE_HOOK_ROOT/sleep.verify.d/70-slow
+mkdir -p "$VIGILANCE_HOOK_ROOT/sleep.verify.d"
+{ printf '#!/bin/sh\n'
+  printf '. %s\n' "$HERE/libexec/vigilance/hooklib.sh"
+  printf 'hook_throttle "${VIGILANCE_PERIPHERAL_EVERY:-3600}" && exit 75\n'
+  printf 'printf x >> %s\n' "$T/slowran"
+} > "$_slow"
+chmod +x "$_slow"
+: > "$T/slowran"
+
+# PRIMED FIRST, and this ordering is the whole assertion. A hook that has NEVER
+# been checked runs whatever the cadence says, so without a fresh stamp in place
+# the case cannot tell "ran because the rung changed" from "ran because it had
+# no stamp yet" -- and the mutation disabling the trigger passed it.
+go sleep
+"$VIGILANT" enforce >/dev/null 2>&1 || true
+[ -s "$T/slowran" ] || fail "fixture: the priming pass did not run the hook, so
+there is no fresh stamp for the transition to have to override"
+: > "$T/slowran"
+
+# A TRANSITION: the first pass after it must run the hook DESPITE the fresh
+# stamp.
+go lock; go sleep
+"$VIGILANT" enforce >"$T/e1" 2>&1 || true
+[ -s "$T/slowran" ] || fail "the first pass after a transition did not run the
+peripheral verifier. The transition IS the event this cadence rests on: without
+it a slow check is just a check that happens less often, and the drift it exists
+to catch appears seconds after a crossing"
+
+# THE NEXT PASS, no transition: it must now be skipped, and SAID rather than
+# silently dropped.
+: > "$T/slowran"
+_out=$("$VIGILANT" enforce 2>&1) || true
+[ ! -s "$T/slowran" ] || fail "with no transition since the last verify, the
+hourly peripheral check ran again. That is the 2.0s-a-minute cost this exists to
+remove"
+# AND THE SKIP IS REPORTED, asserted on the verify itself rather than on the
+# recheck's output: the recheck is SILENT when clean, deliberately, or it would
+# log once a minute. So this asks in exactly the state the recheck creates.
+_vout=$(VIGILANCE_RECHECK=1 "$VIGILANT" verify sleep 2>&1) || true
+case "$_vout" in
+  *"not due"*) ;;
+  *) printf '%s\n' "$_vout" >&2
+     fail "a skipped check was not reported as not due. A silent skip is how a
+cadence quietly becomes 'never', and the accounting has to tell 'checked
+recently' from 'nothing looked at it'" ;;
+esac
+# ...AND A DEFERRAL BESIDE AN n/a IS STILL COVERED. Measured with the real
+# hooks: four deferred and one declined reported "NOTHING CHECKED ... its state
+# is unknown rather than good" about a tier whose checks had all run within the
+# hour -- a false failure that would have alerted. A deferral ANYWHERE means the
+# tier is covered; only an all-declined tier is the absent verdict.
+mkdir -p "$VIGILANCE_HOOK_ROOT/sleep.verify.d"
+printf '#!/bin/sh\nexit 78\n' > "$VIGILANCE_HOOK_ROOT/sleep.verify.d/71-na"
+chmod +x "$VIGILANCE_HOOK_ROOT/sleep.verify.d/71-na"
+_mout=$(VIGILANCE_RECHECK=1 "$VIGILANT" verify sleep 2>&1) || _mrc=$?
+case "$_mout" in
+  *"not due"*"n/a"*) ;;
+  *) printf '%s\n' "$_mout" >&2
+     fail "a tier with deferrals AND a declining hook was not reported as
+covered-but-not-due: '$_mout'" ;;
+esac
+[ "${_mrc:-0}" = 0 ] || fail "a covered tier exited ${_mrc:-0}: a deferral
+beside an n/a is not an absent verdict, and treating it as one alerts on
+a machine whose checks all ran inside the hour"
+rm -f "$VIGILANCE_HOOK_ROOT/sleep.verify.d/71-na"
+
+# ...AND IT IS NOT CALLED n/a. "Nothing is wired to look" is a FAILURE, while
+# "everything was checked recently" is the machine being covered. Collapsing
+# them would make a fully-throttled tier read as a verify nothing performed.
+case "$_vout" in
+  *"NOTHING CHECKED"*) printf '%s\n' "$_vout" >&2
+     fail "a deferred check was counted as a declined one" ;;
+esac
+
+# AND AN EXPLICIT VERIFY IS ALWAYS REAL, which is the load-bearing half: the one
+# lock-on-sleep runs as ExecStartPost gates a suspend, and "I looked an hour
+# ago" is not an answer to "is the session secured right now".
+: > "$T/slowran"
+"$VIGILANT" verify sleep >/dev/null 2>&1 || true
+[ -s "$T/slowran" ] || fail "an EXPLICIT verify was throttled. Only the standing
+recheck may skip: a human asking, and the check that gates a suspend, must
+always be answered"
+rm -f "$_slow"
+
 pass

@@ -50,6 +50,13 @@ fi
 if [ "$_intent" = dark ]; then _want=off; else _want=on; fi
 
 if [ "${VIGILANCE_KIND:-act}" = verify ]; then
+  # NOT DUE? A peripheral check earns an hour, not a minute. The standing
+  # recheck forces a FULL verify on the first pass after the rung changes, which
+  # is when drift is actually introduced, so this cadence is a backstop rather
+  # than the primary mechanism -- and in the whole log history these verifiers
+  # have reported drift exactly never. Only the recheck offers the skip; an
+  # explicit `vigilant verify` is always real.
+  hook_throttle "${VIGILANCE_PERIPHERAL_EVERY:-3600}" && exit 75
   # sway reports each output's dpms state, so this is a real readback rather
   # than a proxy -- the same standard ddc-monitor's verify is held to.
   # SPLIT ON COMMAS FIRST. swaymsg pretty-prints by default but not in every

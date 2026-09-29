@@ -222,6 +222,14 @@ _bright_lit() {   # bus
 _verify=0
 if [ "${VIGILANCE_KIND:-act}" = verify ]; then _verify=1; fi
 
+# NOT DUE? A peripheral check earns an hour, not a minute. The standing recheck
+# forces a FULL verify on the first pass after the rung changes, which is when
+# drift is actually introduced, so this cadence is a backstop rather than the
+# primary mechanism -- and in the whole log history these verifiers have
+# reported drift exactly never. Only the recheck offers the skip; an explicit
+# `vigilant verify` is always real.
+hook_throttle "${VIGILANCE_PERIPHERAL_EVERY:-3600}" && exit 75
+
 # WHAT WE DROVE DARK, remembered across the edge.
 #
 # THE TRAP THIS CLOSES, observed on manifestor. A monitor commanded into a power
