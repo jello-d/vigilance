@@ -21,7 +21,7 @@
 #                        a still-dark panel is stranded.
 #
 # THE RULES WERE IMPLEMENTED TWICE and that is what this table is for. They now
-# live once, in hooklib's hook_level_dark / hook_level_lit, with the actuator
+# live once, in hook_lib's hook_level_dark / hook_level_lit, with the actuator
 # supplied by the caller -- so the table runs the SAME cases through the generic
 # entry point AND through each shipped adapter. A rule that holds for
 # brightnessctl and not for DDC is exactly the shape that shipped twice, and it
@@ -30,7 +30,7 @@
 # RUNNING IT THROUGH THE ADAPTERS IS THE POINT, not decoration. Collapsing the
 # copies means the adapters are thin, and a thin adapter can still get its half
 # wrong: this tool reports an unreadable monitor by printing NOTHING and exiting
-# ZERO, while hooklib's contract is a non-zero level_get. Getting that mapping
+# ZERO, while hook_lib's contract is a non-zero level_get. Getting that mapping
 # backwards would turn an absent monitor into a hard failure on every edge, and
 # no amount of testing the generic implementation would show it.
 set -eu
@@ -38,8 +38,8 @@ set -eu
 harness_init level-rules
 
 PLUGINS=$HERE/libexec/vigilance
-HOOKLIB=$PLUGINS/hooklib.sh
-[ -f "$HOOKLIB" ] || fail "no hooklib at $HOOKLIB"
+HOOKLIB=$PLUGINS/hook_lib
+[ -f "$HOOKLIB" ] || fail "no hook_lib at $HOOKLIB"
 
 # --- the table --------------------------------------------------------------
 # Each case: a device that can be told to fail on read or on write, a save file

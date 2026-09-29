@@ -34,7 +34,7 @@
 set -eu
 
 _self=$(readlink -f "$0")
-. "$(dirname "$_self")/../hooklib.sh"
+. "$(dirname "$_self")/../hook_lib"
 
 # 78, NOT 0. Without brightnessctl this hook drives nothing, and exit 0
 # would count it as a tier that CHECKED -- the conflation the n/a
@@ -63,7 +63,7 @@ if [ "$_intent" = none ]; then exit 0; fi
 # does.
 #
 # Scoped, `get` fails on such a box ("Failed to read any devices of class
-# 'backlight'"), which hooklib already treats as n/a -- a desktop without a
+# 'backlight'"), which hook_lib already treats as n/a -- a desktop without a
 # panel backlight is not a broken desktop. kbd-backlight has always passed
 # --class=leds --device=...; this was the one hook trusting the default.
 BL="--class=backlight"

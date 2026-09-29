@@ -1,7 +1,7 @@
 #!/bin/sh
-# test/hooklib.t - the save/restore discipline every peripheral hook depends on.
+# test/hook_lib.t - the save/restore discipline every peripheral hook depends on.
 #
-# hooklib is the smallest and most load-bearing file in the package: five hooks
+# hook_lib is the smallest and most load-bearing file in the package: five hooks
 # source it, and it owns the rule that decides whether a screen comes back on.
 # It had no direct test.
 #
@@ -28,9 +28,9 @@
 # not in the `vigilant` group, which is the state manifold was in for weeks.
 set -eu
 . "$(dirname "$0")/harness_lib"
-harness_init hooklib
+harness_init hook_lib
 
-. "$HERE/libexec/vigilance/hooklib.sh"
+. "$HERE/libexec/vigilance/hook_lib"
 
 # A brightnessctl that can be made to fail on demand, so the denial path is
 # exercised rather than assumed. It is an ACTUATOR, which the suite's rule
@@ -67,7 +67,7 @@ SF=$T/save
 _lvl() { cat "$BC_LEVEL" 2>/dev/null || echo MISSING; }
 # EXPORTED, because the stub is a separate process. Without the export the
 # switches were invisible to it and every "failure" case silently exercised the
-# HAPPY path -- the test would have passed against the broken hooklib.
+# HAPPY path -- the test would have passed against the broken hook_lib.
 export BC_FAIL_GET= BC_FAIL_SET=
 _reset() {
   echo "${1:-80}" > "$BC_LEVEL"; rm -f "$SF"
@@ -201,7 +201,7 @@ BC_FAIL_GET=
 # It cannot self-heal either, and that is what makes it permanent: hook_dark
 # short-circuits on the save file's existence, so the descent never re-creates
 # the condition and never clears it. Measured on a live box: a save written by
-# an older hooklib outlived the fix and failed every wake for days.
+# an older hook_lib outlived the fix and failed every wake for days.
 _reset 45
 hook_dark "$SF" -d x || fail "setup: hook_dark failed on a healthy device"
 [ -f "$SF" ] || fail "setup: no save file to go stale"
@@ -386,7 +386,7 @@ _thr_dir=$T/throttle
 mkdir -p "$_thr_dir"
 _thr() {   # <recheck> <seconds> -> 0 if it says SKIP
   VIGILANCE_RECHECK=$1 VIGILANCE_STATE_DIR=$_thr_dir \
-    sh -c '. "'"$HERE/libexec/vigilance/hooklib.sh"'"
+    sh -c '. "'"$HERE/libexec/vigilance/hook_lib"'"
            hook_throttle "'"$2"'"'
 }
 

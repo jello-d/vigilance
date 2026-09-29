@@ -35,7 +35,7 @@
 # edge and teach its human to ignore the alert. Machine scope is for the
 # peripherals, which behave the same with nobody logged in; a locker does not.
 #
-# NO hooklib. It is sourced by a path relative to this file's own location, and
+# NO hook_lib. It is sourced by a path relative to this file's own location, and
 # this hook needs nothing from it -- no intent table, no dark/lit actuation,
 # because it only ever READS. Carrying the dependency anyway would buy nothing
 # and would break the moment someone COPIED this hook into a hooks dir instead

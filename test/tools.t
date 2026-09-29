@@ -15,7 +15,7 @@ _bad=0
 # `dash -n` finds in 0.05s. A probe is worse placed to absorb that, because the
 # cost of a broken one is somebody's cooperation rather than a rerun.
 for _f in "$HERE"/bin/* "$HERE"/setup.sh \
-          "$HERE"/libexec/vigilance/hooklib.sh \
+          "$HERE"/libexec/vigilance/hook_lib \
           "$HERE"/libexec/vigilance/hooks/* "$HERE"/test/probe/*; do
   [ -f "$_f" ] || continue
   # DOCUMENTATION IS NOT A SCRIPT. Skipped by extension rather than by dropping
@@ -49,7 +49,7 @@ done
 #
 # `dash -n` cannot see this: two definitions are perfectly valid shell.
 _dupes=
-for _f in "$HERE"/bin/* "$HERE"/libexec/vigilance/hooklib.sh \
+for _f in "$HERE"/bin/* "$HERE"/libexec/vigilance/hook_lib \
           "$HERE"/libexec/vigilance/hooks/* \
           "$HERE"/libexec/vigilance/providers/*; do
   [ -f "$_f" ] || continue

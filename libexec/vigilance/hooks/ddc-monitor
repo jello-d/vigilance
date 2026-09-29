@@ -35,7 +35,7 @@
 set -eu
 
 _self=$(readlink -f "$0")
-. "$(dirname "$_self")/../hooklib.sh"
+. "$(dirname "$_self")/../hook_lib"
 
 edge=${1:-${VIGILANCE_EDGE:-}}
 _intent=$(hook_intent "$edge")
@@ -149,12 +149,12 @@ _no_dark_reason() {   # bus
   esac
 }
 
-# --- the brightness fallback, on hooklib's save/restore discipline ----------
-# It IS hooklib now. This comment used to say the opposite ("not hooklib itself:
-# those helpers are brightnessctl-specific"), which stopped being true when the
-# rules were split from the brightnessctl adapter and was then left standing: a
-# comment asserting a constraint that no longer existed, which is part of what
-# kept the second copy alive long enough to drift.
+# --- the brightness fallback, on hook_lib's save/restore discipline ----------
+# It IS hook_lib now. This comment used to say the opposite ("not hook_lib
+# itself: those helpers are brightnessctl-specific"), which stopped being true
+# when the rules were split from the brightnessctl adapter and was then left
+# standing: a comment asserting a constraint that no longer existed, which is
+# part of what kept the second copy alive long enough to drift.
 _bright_save() { printf '%s/bright-%s' "${VIGILANCE_STATE_DIR:-/tmp}" "$1"; }
 
 _bright_get() {   # bus -> current luminance, or empty
@@ -162,35 +162,35 @@ _bright_get() {   # bus -> current luminance, or empty
     | sed -n 's/.*current value = *\([0-9]*\).*/\1/p'
 }
 
-# --- the save/restore rules come from hooklib, once ------------------------
+# --- the save/restore rules come from hook_lib, once ------------------------
 # THESE WERE HAND-WRITTEN HERE and that cost a live defect twice. The rules
 # (save once, assert every time, keep the save on a refused restore, drop it
 # when the device cannot be read) were learned for a sysfs backlight,
-# re-implemented here for a VCP write because hooklib only spoke brightnessctl,
+# re-implemented here for a VCP write because hook_lib only spoke brightnessctl,
 # and then a fix landed in ONE copy: _bright_dark short-circuited on the save
 # file existing, so every descent after the first was a silent no-op that
 # reported success. That is verbatim the defect root-caused for a keyboard LED
 # three weeks earlier, and on a monitor advertising no D6=02 with no sysfs
 # backlight this write is the ONLY way the screen goes dark.
 #
-# So the rules live in hooklib and this file supplies only the ACTUATOR. The
+# So the rules live in hook_lib and this file supplies only the ACTUATOR. The
 # copy going away is the point: a ratchet keeping two copies in step is a second
 # thing to maintain, and one implementation cannot drift from itself.
 #
 # THE ADAPTER CARRIES THE BUS in a variable rather than an argument, because
-# level_get and level_set take none by contract -- the same shape hooklib's own
+# level_get and level_set take none by contract -- the same shape hook_lib's own
 # brightnessctl adapters use for their selector.
 _bright_adapt() {   # bus
   _bl_bus=$1
   HOOK_LEVEL_TAG="ddc-monitor: bus $1"
   # EMPTY IS "CANNOT READ" HERE, and the conversion belongs in the adapter: this
   # tool reports an unreadable monitor by printing nothing and still exiting 0,
-  # while hooklib's contract is a NON-ZERO level_get. Getting that mapping wrong
-  # would turn an absent monitor into a hard failure on every edge.
+  # while hook_lib's contract is a NON-ZERO level_get. Getting that mapping
+  # wrong would turn an absent monitor into a hard failure on every edge.
   #
   # It says so on the way past, which the generic rules cannot: a bus that
   # ANSWERED detect and then will not report brightness is worth a line, where a
-  # device that is simply absent is the quiet n/a case hooklib is right to keep
+  # device that is simply absent is the quiet n/a case hook_lib is right to keep
   # silent.
   level_get() {
     _bl_v=$(_bright_get "$_bl_bus")
@@ -373,7 +373,7 @@ for _bus in $_map; do
       elif [ "$_intent" = lit ] && [ -f "$_bs" ]; then
         # A save still outstanding at a LIT rung means the restore never
         # happened: the panel is dim and the level it should return to is
-        # sitting in a file. Exactly hooklib's sharpest signal, per bus.
+        # sitting in a file. Exactly hook_lib's sharpest signal, per bus.
         echo "ddc-monitor: bus $_bus holds a saved brightness at a lit rung,"\
 " so it was dimmed and never put back" >&2
         _rc=1

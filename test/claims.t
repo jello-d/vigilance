@@ -168,7 +168,7 @@ done
 # nothing asked. This is what asks.
 _undoc=
 for _k in $(grep -ohE 'VIGILANCE_[A-Z_]+' "$HERE"/bin/* \
-              "$HERE"/libexec/vigilance/hooklib.sh \
+              "$HERE"/libexec/vigilance/hook_lib \
               "$HERE"/libexec/vigilance/hooks/* \
               "$HERE"/libexec/vigilance/providers/* 2>/dev/null | sort -u); do
   grep -qE "\b$_k\b" "$M" "$HERE/README.md" 2>/dev/null || _undoc="$_undoc $_k"

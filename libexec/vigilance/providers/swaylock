@@ -25,7 +25,7 @@
 set -eu
 
 _self=$(readlink -f "$0")
-. "$(dirname "$_self")/../hooklib.sh"
+. "$(dirname "$_self")/../hook_lib"
 
 edge=${1:-${VIGILANCE_EDGE:-}}
 [ "$edge" = lock ] || exit 0        # only the lock edge brings a locker up

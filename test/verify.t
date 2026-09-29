@@ -155,7 +155,7 @@ esac
 # wake already re-lit it; re-asserting would stomp a level set by hand), but the
 # lit assertion at those rungs is real and is the blackout check. One edge, two
 # answers, decided by VIGILANCE_KIND -- so pin both directions.
-. "$(dirname "$0")/../libexec/vigilance/hooklib.sh"
+. "$(dirname "$0")/../libexec/vigilance/hook_lib"
 for _e in lock unlock; do
   _a=$(VIGILANCE_KIND=act    hook_intent "$_e")
   _v=$(VIGILANCE_KIND=verify hook_intent "$_e")

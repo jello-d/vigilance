@@ -131,11 +131,11 @@ at the sleep rung, framebuffer still showing the lock surface. The capture
 cannot see a backlight, so judging emission by the capture alone is a claim
 this hook was never able to make"
 
-# ...and the threshold matches hooklib's, so the two tiers cannot disagree
+# ...and the threshold matches hook_lib's, so the two tiers cannot disagree
 # about what "dark" means on a device that floors above zero.
 printf '40\n' > "$T/haslight/intel_backlight/brightness"     # exactly max/10
 [ "$(_run sleep 0.276981)" = 0 ] || fail "a backlight at max/10 was called lit;
-hooklib treats that as dark, and two tiers disagreeing about the word is how a
+hook_lib treats that as dark, and two tiers disagreeing about the word is how a
 box reports drift and a fix that cannot clear it"
 
 # --- BUT A LIT BACKLIGHT STILL JUDGES THE FRAMEBUFFER -----------------------

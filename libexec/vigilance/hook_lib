@@ -1,10 +1,10 @@
-# hooklib.sh - shared helpers for vigilance's shipped peripheral hooks.
+# hook_lib - shared helpers for vigilance's shipped peripheral hooks.
 #
 # Sourced by libexec/vigilance/hooks/*. Those hooks are SYMLINKED into
 # ~/.config/vigilance/hooks/<edge>.d/ by the integrator, so each resolves its
 # own real path before sourcing this:
 #
-#   _self=$(readlink -f "$0"); . "$(dirname "$_self")/../hooklib.sh"
+#   _self=$(readlink -f "$0"); . "$(dirname "$_self")/../hook_lib"
 #
 # WHY THIS EXISTS: panel-power implemented the same save-once/restore/forget
 # discipline three separate times (backlight, kbd_backlight, mute_leds) as
@@ -260,7 +260,7 @@ hook_luma_is_dark() {   # <luma>
 # place.
 hook_level_dark() {   # <save-file>
   _sf=$1
-  _hl_t=${HOOK_LEVEL_TAG:-hooklib}
+  _hl_t=${HOOK_LEVEL_TAG:-hook_lib}
   _hld_new=0
   if [ ! -f "$_sf" ]; then
     _hld_new=1
@@ -310,7 +310,7 @@ hook_level_dark() {   # <save-file>
 
 hook_level_lit() {   # <save-file>
   _sf=$1
-  _hl_t=${HOOK_LEVEL_TAG:-hooklib}
+  _hl_t=${HOOK_LEVEL_TAG:-hook_lib}
   # A LIT EDGE RE-OPENS THE QUESTION. Whatever was driving the device may have
   # stopped -- the mute LED goes out when audio is unmuted -- so the next dark
   # edge should test it again rather than inherit a verdict from yesterday.

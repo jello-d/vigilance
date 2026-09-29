@@ -380,7 +380,7 @@ state; the whole point is that this panel must not be power-cycled" || :
 # --- 12. SAVE ONCE: a second descent must not record the 0 ------------------
 # This hook runs on `sleep` AND again on `resume`. Without the guard the second
 # save records the 0 just written, and restoring THAT leaves the panel black
-# with the operator convinced the monitor died. hooklib learned this the hard
+# with the operator convinced the monitor died. hook_lib learned this the hard
 # way; the rule is reproduced here rather than assumed.
 export DDC_BRIGHT_5=0                   # the panel is now dim, as we left it
 _act sleep || fail "a second descent errored"
@@ -398,7 +398,7 @@ black and looks exactly like a dead monitor"
 # Reproduced against this stub before the fix: the first descent wrote lum=0 and
 # saved 75, and a second descent with the panel back at 75 wrote NOTHING and
 # returned 0. It is the same bug hook_dark had on 2026-09-20, which was fixed in
-# hooklib while this hand-rolled copy kept it: the cost of two copies, paid.
+# hook_lib while this hand-rolled copy kept it: the cost of two copies, paid.
 #
 # Worse here than for a keyboard LED: on a panel advertising no D6=02, with no
 # sysfs backlight, this is the ONLY darkening mechanism on the box.

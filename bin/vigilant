@@ -904,7 +904,7 @@ _hooks_for() {   # edge [suffix]
 # bug this whole command exists to stop.
 # THE DARKNESS A RUNG IMPLIES, exported to every hook so nobody restates it.
 #
-# The mapping lives in hooklib.sh for the shipped plugins, but an INTEGRATOR
+# The mapping lives in hook_lib for the shipped plugins, but an INTEGRATOR
 # hook needs the identical table and getting it wrong is invisible. tackup's
 # kbd-rgb hand-rolled it, read `resume` as "coming back up, so light it", and
 # put a lit keyboard over a dark screen -- in the same pass as ddc-monitor,
@@ -2519,7 +2519,7 @@ _rep_machinery() {
 
 }
 
-# ACTUATOR WRITABILITY. hooklib DECLARES that the login user must be in the
+# ACTUATOR WRITABILITY. hook_lib DECLARES that the login user must be in the
 # `vigilant` group for brightnessctl to drive these nodes, and nothing checked
 # it, so the requirement was a comment. On a real box the user was in none of
 # input/video/i2c and every write was denied -- and hook_dark/hook_lit swallow
@@ -2697,7 +2697,7 @@ _rep_actuators() {
   done
   if [ "$_act_seen" = 0 ]; then
     # NAMES THE NODES, NOT A TOOL. The scan is over sysfs paths that are
-    # themselves knobs, and hooklib is no longer brightnessctl-shaped
+    # themselves knobs, and hook_lib is no longer brightnessctl-shaped
     # after 684a4ab, so blaming a tool for an absent DEVICE was both wrong
     # and the last mechanism name in a section that has none.
     _r_info "no writable backlight or LED nodes on this host (nothing"\

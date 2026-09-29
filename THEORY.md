@@ -56,7 +56,7 @@ wishes are visible.
      8  one crossing at a time
         cross-lock.t, including section 6: nothing may bypass the lock
      9  save once, assert every time
-        level-rules.t (the table, x3 adapters), hooklib.t, hooks.t
+        level-rules.t (the table, x3 adapters), hook_lib.t, hooks.t
     10  a verdict is about a rung, and a rung can move while you measure it
         standing-recheck.t sections 9 and 9b
     11  the record may lead the machine only during a crossing

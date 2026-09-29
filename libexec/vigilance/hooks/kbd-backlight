@@ -10,7 +10,7 @@
 set -eu
 
 _self=$(readlink -f "$0")
-. "$(dirname "$_self")/../hooklib.sh"
+. "$(dirname "$_self")/../hook_lib"
 
 # 78, NOT 0. Without brightnessctl this hook drives nothing, and exit 0
 # would count it as a tier that CHECKED -- the conflation the n/a

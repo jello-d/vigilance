@@ -123,7 +123,7 @@ t screen-dark
 +   exit 0
 
 = luma-counts-alpha
-f libexec/vigilance/hooklib.sh
+f libexec/vigilance/hook_lib
 t screen-dark lock-blank
 -         | timeout 25 magick - -alpha off -colorspace Gray \
 +         | timeout 25 magick - -colorspace Gray \
@@ -267,14 +267,14 @@ t lock-blank
 +     if [ "$_lbm" -ge 0 ]; then return 0; fi
 
 = hook-dark-trusts-the-save-file
-f libexec/vigilance/hooklib.sh
-t hooklib
+f libexec/vigilance/hook_lib
+t hook_lib
 -   if [ ! -f "$_sf" ]; then
 +   if [ -f "$_sf" ]; then return 0; elif true; then
 
 = hook-dark-clobbers-a-pre-existing-save
-f libexec/vigilance/hooklib.sh
-t hooklib
+f libexec/vigilance/hook_lib
+t hook_lib
 -     if [ "$_hld_new" = 1 ]; then rm -f "$_sf"; fi
 +     rm -f "$_sf"
 
@@ -291,13 +291,13 @@ t screen-dark
 +   if [ true ]; then
 
 = luma-compared-as-a-string
-f libexec/vigilance/hooklib.sh
+f libexec/vigilance/hook_lib
 t screen-dark
 -   awk -v v="$1" 'BEGIN { exit !(v + 0 <= 0.01) }' 2>/dev/null
 +   case "$1" in 0|0.00*) return 0 ;; *) return 1 ;; esac
 
 = luma-garbage-reads-as-dark
-f libexec/vigilance/hooklib.sh
+f libexec/vigilance/hook_lib
 t screen-dark
 -     ''|*[!0-9.eE+-]*) return 1 ;;
 +     '') return 1 ;;
@@ -357,8 +357,8 @@ t audit
 +     if false; then
 
 = generic-lit-drops-a-save-on-refusal
-f libexec/vigilance/hooklib.sh
-t hooklib
+f libexec/vigilance/hook_lib
+t hook_lib
 -   if ! level_get >/dev/null 2>&1; then
 +   if ! level_set "$_hll_lvl" >/dev/null 2>&1; then
 
@@ -392,8 +392,8 @@ t swayidle-watchdog
 + MARK=
 
 = verify-dark-calls-a-reasserted-device-drift
-f libexec/vigilance/hooklib.sh
-t hooklib
+f libexec/vigilance/hook_lib
+t hook_lib
 -       if [ -f "$_sf" ] && [ "$_cur" = "$(cat "$_sf" 2>/dev/null)" ]; then
 +       if false; then
 
@@ -680,7 +680,7 @@ t runtime-dir
 +   if false; then
 
 = level-dark-short-circuits-on-the-save-file
-f libexec/vigilance/hooklib.sh
+f libexec/vigilance/hook_lib
 t level-rules
 -   if [ ! -f "$_sf" ]; then
 + if [ -f "$_sf" ]; then return 0; elif true; then
@@ -698,13 +698,13 @@ t report
 +     _r_info "$IDLE_PROCESS NOT running: nothing will lock on idle"
 
 = level-dark-calls-an-unwritable-save-a-missing-device
-f libexec/vigilance/hooklib.sh
+f libexec/vigilance/hook_lib
 t level-rules
 -     if ! printf '%s\n' "$_hld_lvl" > "$_sf" 2>/dev/null; then
 + if false; then
 
 = level-dark-conflates-the-device-read-with-the-save-write
-f libexec/vigilance/hooklib.sh
+f libexec/vigilance/hook_lib
 t level-rules
 -     if ! _hld_lvl=$(level_get 2>/dev/null); then
 + if ! _hld_lvl=$(level_get) || ! printf '%s' "$_hld_lvl" >"$_sf"; then
@@ -794,14 +794,14 @@ t standing-recheck
 +   if false; then
 
 = throttle-applies-to-an-explicit-verify
-f libexec/vigilance/hooklib.sh
+f libexec/vigilance/hook_lib
 t standing-recheck
 -   if [ -z "${VIGILANCE_RECHECK:-}" ]; then
 +   if false; then
 
 = throttle-trusts-a-stamp-from-the-future
-f libexec/vigilance/hooklib.sh
-t hooklib
+f libexec/vigilance/hook_lib
+t hook_lib
 -   if [ -n "$_ht_at" ] && [ "$_ht_at" -le "$_ht_now" ] \
 +   if [ -n "$_ht_at" ] \
 

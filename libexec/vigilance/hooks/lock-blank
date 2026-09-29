@@ -31,7 +31,7 @@
 set -eu
 
 _self=$(readlink -f "$0")
-. "$(dirname "$_self")/../hooklib.sh"
+. "$(dirname "$_self")/../hook_lib"
 
 edge=${1:-${VIGILANCE_EDGE:-}}
 _intent=$(hook_intent "$edge")
@@ -114,7 +114,7 @@ fi
 # SAMPLE THE WHOLE SURFACE. A corner crop reads near-zero on a dark wallpaper
 # and would pass on a lit screen; the blank is a claim about the whole surface,
 # so `grim -s` downscales the whole thing rather than cropping part of it.
-# The measurement lives in hooklib now: `screen-dark` needs the same one, and
+# The measurement lives in hook_lib now: `screen-dark` needs the same one, and
 # two checks disagreeing about what "black" means would be its own bug.
 
 if [ "${VIGILANCE_KIND:-act}" = verify ]; then

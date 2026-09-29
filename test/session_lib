@@ -81,7 +81,7 @@ list has regressed and this tier would pass against nothing"
 
 # wire <edge> <tier> <hook>: symlink a REAL shipped hook, the way an integrator
 # does. BY SYMLINK, NEVER COPY -- a copied hook breaks the self-location that
-# lets it find hooklib, which is a live-box rule this tier should share.
+# lets it find hook_lib, which is a live-box rule this tier should share.
 wire() {   # <edge> <tier ('' | .verify | .due | .block)> <hook-name>
   _wd=$HOOKS/$1$2.d
   mkdir -p "$_wd"

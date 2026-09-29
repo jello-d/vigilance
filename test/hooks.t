@@ -96,7 +96,7 @@ run_hook wake sleep
 # --- absent hardware degrades to a clean no-op, never an error --------------
 # A minimal bin holding only the coreutils the hook needs, and deliberately NO
 # brightnessctl. Emptying PATH outright would not work: the hook shells out to
-# readlink and dirname to locate hooklib.sh.
+# readlink and dirname to locate hook_lib.
 mkdir -p "$T/minbin"
 for _u in sh readlink dirname basename cat rm; do
   _p=$(command -v "$_u" 2>/dev/null) || continue

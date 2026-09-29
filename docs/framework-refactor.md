@@ -391,7 +391,7 @@ Each stage lands independently and leaves the box working.
    `execl`, removes the `link/bin/panel-power` shim.
    BUILT so far: `bin/vigilant` (ladder, depth invariant, loud hook failure,
    `verify` as the shared oracle); `libexec/vigilance/hooks/{ddc-monitor,
-   panel-backlight,kbd-backlight,mute-leds}` plus `hooklib.sh`; `setup.sh`
+   panel-backlight,kbd-backlight,mute-leds}` plus `hook_lib`; `setup.sh`
    installs libexec AVAILABLE-but-unwired; the shared scenario vocabulary and
    four scenarios. NOT yet done: retire `panel-power` itself, and point
    swayidle at `vigilant go sleep` / `vigilant go lock` for the blank edges

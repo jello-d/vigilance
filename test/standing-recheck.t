@@ -450,7 +450,7 @@ rm -f "$VIGILANCE_HOOK_ROOT"/sleep.verify.d/* 2>/dev/null || true
 _slow=$VIGILANCE_HOOK_ROOT/sleep.verify.d/70-slow
 mkdir -p "$VIGILANCE_HOOK_ROOT/sleep.verify.d"
 { printf '#!/bin/sh\n'
-  printf '. %s\n' "$HERE/libexec/vigilance/hooklib.sh"
+  printf '. %s\n' "$HERE/libexec/vigilance/hook_lib"
   printf 'hook_throttle "${VIGILANCE_PERIPHERAL_EVERY:-3600}" && exit 75\n'
   printf 'printf x >> %s\n' "$T/slowran"
 } > "$_slow"

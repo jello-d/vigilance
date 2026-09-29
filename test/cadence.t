@@ -101,7 +101,7 @@ mkdir -p "$VIGILANCE_HOOK_ROOT/lock.verify.d"
 cat > "$VIGILANCE_HOOK_ROOT/lock.verify.d/10-throttled" <<EOF
 #!/bin/sh
 set -eu
-. "$HERE/libexec/vigilance/hooklib.sh"
+. "$HERE/libexec/vigilance/hook_lib"
 hook_throttle 3600 && exit 75
 echo "checked"
 EOF

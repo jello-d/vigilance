@@ -217,7 +217,7 @@ do_install() {
       # runs must be root-owned and not user-writable.
       #
       # Found on a real box after the migration: 19 entries under /opt/vigilance
-      # were jello:jello, including every hook and hooklib.sh itself.
+      # were jello:jello, including every hook and hook_lib itself.
       if [ "$(id -u)" = 0 ]; then
         chown -R root:root "$_lib/$PKG"
         # Strip group/other write as well. Ownership alone is not enough: a

@@ -2,7 +2,7 @@
 # test/intent.t - the rung-darkness table, and the two copies of it.
 #
 # The runner exports VIGILANCE_INTENT so no hook has to restate the mapping.
-# hooklib keeps a local copy as a standalone fallback, and a fallback that can
+# hook_lib keeps a local copy as a standalone fallback, and a fallback that can
 # drift silently is worse than no fallback: this pins them equal.
 #
 # WHY THE EXPORT EXISTS: tackup's kbd-rgb hand-rolled the table, read `resume`
@@ -15,7 +15,7 @@ set -eu
 . "$(dirname "$0")/scenario_lib"
 scenario_init intent
 
-. "$HERE/libexec/vigilance/hooklib.sh"
+. "$HERE/libexec/vigilance/hook_lib"
 # THE WHOLE LADDER REGION COMES WITH IT. _intent_of used to carry the entire
 # vocabulary in a case statement and could be lifted alone. It is DERIVED now
 # -- from LADDER_TABLE, through an eval that flattens the table into lookup
@@ -37,7 +37,7 @@ for _e in lock unlock sleep wake suspend resume; do
   _runner=$(_intent_of "$_e")
   _hook=$(VIGILANCE_KIND=verify hook_intent "$_e")
   [ "$_runner" = "$_hook" ] || fail "intent($_e): runner says '$_runner', the
-hooklib fallback says '$_hook' -- the two copies have drifted"
+hook_lib fallback says '$_hook' -- the two copies have drifted"
 done
 
 # --- the exported value WINS, so the ladder is stated once -------------------

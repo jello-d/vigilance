@@ -160,7 +160,7 @@ done
 # hook_lit returns early when there is no save file, so every case above skips
 # it entirely -- a mutation unscoping the `lit` tier passed until this existed.
 # Reaching it needs a save file present, which is precisely manifestor's
-# condition: one written 2026-09-14 by an older hooklib that swallowed the
+# condition: one written 2026-09-14 by an older hook_lib that swallowed the
 # failed dim, still there days later.
 #
 # It could not clear itself, and that is the trap. hook_dark short-circuits on

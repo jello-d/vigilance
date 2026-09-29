@@ -14,7 +14,7 @@ scenario_init actuators
 require unprivileged
 
 # --- an actuator that cannot be WRITTEN is drift, not silence ---------------
-# hooklib DECLARES that the login user must be in `input` for brightnessctl to
+# hook_lib DECLARES that the login user must be in `input` for brightnessctl to
 # drive these nodes, and nothing checked it, so the requirement was a comment.
 # On a real box the user was in none of input/video/i2c and every write was
 # denied -- while hook_dark/hook_lit swallow brightnessctl failure by design

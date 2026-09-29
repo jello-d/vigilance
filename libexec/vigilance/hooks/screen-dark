@@ -49,7 +49,7 @@
 set -eu
 
 _self=$(readlink -f "$0")
-. "$(dirname "$_self")/../hooklib.sh"
+. "$(dirname "$_self")/../hook_lib"
 
 # VERIFY ONLY. It actuates nothing: there is no "make the screen dark" here,
 # because choosing a mechanism is exactly what this hook refuses to do.
@@ -77,7 +77,7 @@ for _sb in "${VIGILANCE_SYS_BACKLIGHT:-/sys/class/backlight}"/*; do
   _sbm=$(cat "$_sb/max_brightness" 2>/dev/null || echo)
   case "${_sbc:-}${_sbm:-}" in ''|*[!0-9]*) continue ;; esac
   [ "$_sbm" -gt 0 ] || continue
-  # The same "dark is not exactly 0 on every device" threshold hooklib uses,
+  # The same "dark is not exactly 0 on every device" threshold hook_lib uses,
   # so the two tiers cannot disagree about what dark means.
   if [ "$_sbc" -le $((_sbm / 10)) ]; then
     exit 0

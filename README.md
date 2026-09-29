@@ -158,7 +158,7 @@ state is unknown rather than good. Using 78 is optional; a hook that exits 0 is
 counted as having checked, so nothing existing changes behaviour.
 
 A verify hook may also exit **75** to say **not due** -- "I checked recently".
-`hooklib.sh` supplies `hook_throttle <seconds>` for it, and the third code is
+`hook_lib` supplies `hook_throttle <seconds>` for it, and the third code is
 there for the same reason as the second: *nothing is wired to look* is a
 failure, while *everything was checked within the hour* is the machine being
 covered, and collapsing those two would make a fully throttled tier read as a
@@ -562,7 +562,7 @@ rung, both its edges, its intent, and every list that enumerates them. Policy
 stays separate (`NEVER_ENFORCED`), because `suspend` is a real edge that simply
 is not ours to force.
 
-`hooklib` separates the save/restore **discipline** from the **actuator**.
+`hook_lib` separates the save/restore **discipline** from the **actuator**.
 Define `level_get` and `level_set`, call `hook_level_dark` / `hook_level_lit`,
 and you inherit the rules without inheriting `brightnessctl`: save once, assert
 every time, **keep** the save when a device refuses a write, **drop** it when
