@@ -489,7 +489,39 @@ the PATH every hook is given
 .SS Mechanism: the dials for a different stack
 .TP
 .B VIGILANCE_LOCKER
-locker process name (default swaylock)
+locker process name (default swaylock). The NAME, because
+.B locker\-up
+finds it with
+.BR "pgrep \-x" ;
+its argv and its unit type are the two knobs below, which is the difference
+between a documented extension point and a name the code ignores.
+.TP
+.B VIGILANCE_LOCKER_ARGV
+extra arguments for it (default \fB\-f\fR, swaylock's \fB\-\-daemonize\fR).
+Hardcoded until 2026\-09\-29, which made
+.B VIGILANCE_LOCKER
+a half promise: \fBi3lock\fR resolved, passed the existence check and was then
+handed a flag it does not have, so the unit failed and the screen did not
+lock \(em on the one edge where that matters. An X11 box is
+.B "VIGILANCE_LOCKER=i3lock VIGILANCE_LOCKER_ARGV=\-n"
+with the type below.
+.IP
+The integrator's
+.B vigilance\-lock\-argv
+helper is asked separately and is passed the locker name, because ITS output is
+locker\-specific too: the shipped one emits swaylock's \fB\-C <conf>\fR, and
+before it was told which locker it was answering for, substituting one produced
+\fBi3lock \-C .../swaylock.conf\fR.
+.TP
+.B VIGILANCE_LOCKER_TYPE
+the transient unit's systemd
+.B Type
+(default \fBforking\fR). It asserts that the locker DETACHES once the screen is
+covered. A foreground locker (\fBxsecurelock\fR, \fBi3lock \-n\fR) under
+\fBforking\fR leaves
+.B systemd\-run
+waiting for a fork that never comes, and the provider then reports failure about
+a screen that is locked; such a locker wants \fBsimple\fR.
 .TP
 .B VIGILANCE_IDLE_PROCESS
 idle daemon; EMPTY means this box has none

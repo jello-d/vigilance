@@ -46,6 +46,21 @@ _vigilant=$(readlink -f "$_vigilant")
 
 UNIT=${VIGILANCE_LOCK_UNIT:-screen-lock.service}
 LOCKER=${VIGILANCE_LOCKER:-swaylock}
+# THE LOCKER'S ARGV AND UNIT TYPE ARE ITS OWN, and before this they were
+# swaylock's while the NAME was a knob -- a half promise, and the kind that
+# fails on the security path. `VIGILANCE_LOCKER=i3lock` resolved, passed the
+# `command -v` check, and was then handed `-f`, which i3lock does not have: the
+# unit fails and the screen does not lock. `Type=forking` is the same
+# assumption one layer down, because it says the locker DETACHES; a locker that
+# stays in the foreground (xsecurelock, `i3lock -n`) leaves systemd-run waiting
+# for a fork that never comes, so the provider reports failure about a screen
+# that is locked.
+#
+# Defaults are swaylock's, so nothing changes for the shipped configuration.
+# An X11 box is two knobs: VIGILANCE_LOCKER=i3lock VIGILANCE_LOCKER_ARGV=-n
+# with VIGILANCE_LOCKER_TYPE=simple.
+LOCKER_ARGV=${VIGILANCE_LOCKER_ARGV:--f}
+LOCKER_TYPE=${VIGILANCE_LOCKER_TYPE:-forking}
 
 command -v "$LOCKER" >/dev/null 2>&1 || {
   echo "swaylock provider: '$LOCKER' not found" >&2; exit 1; }
@@ -96,9 +111,20 @@ systemctl --user reset-failed "$UNIT" >/dev/null 2>&1 || true
 # The argv is computed by a separate helper so THIS file knows nothing about
 # panel counts, wallpapers or indicator sizing. That knowledge is HWDP's and
 # leaves with it; an absent helper simply yields a plain lock.
+#
+# IT IS ASKED ABOUT THE LOCKER IN USE, and that argument is the other half of
+# making the locker substitutable. The helper's output is inherently
+# locker-specific -- the shipped one emits swaylock's `-C <conf>` -- and the
+# provider used to hand it to whatever locker it was given, so substituting the
+# locker produced `i3lock -C .../swaylock.conf`. Caught by a test asserting the
+# argv for the first time, which is what a second platform buys before any of
+# its code exists.
+#
+# Backward compatible: a helper that ignores its argument behaves exactly as
+# before, which is every helper that exists today.
 _args=
 if command -v vigilance-lock-argv >/dev/null 2>&1; then
-  _args=$(vigilance-lock-argv 2>/dev/null || true)
+  _args=$(vigilance-lock-argv "$LOCKER" 2>/dev/null || true)
 fi
 
 # LOSING THE RACE IS NOT FAILING. Two lock requests can arrive together -- a
@@ -120,10 +146,10 @@ fi
 # requires of anything that mutates state.
 # shellcheck disable=SC2086
 if systemd-run --user --collect --unit="$UNIT" \
-     --property=Type=forking \
+     --property=Type="$LOCKER_TYPE" \
      --property=GuessMainPID=no \
      --property="ExecStopPost=$_vigilant go open" \
-     -- "$LOCKER" -f $_args >/dev/null 2>&1; then
+     -- "$LOCKER" $LOCKER_ARGV $_args >/dev/null 2>&1; then
   exit 0
 fi
 # WAIT FOR IT TO SETTLE, do not sample once. The refusal means the unit exists,

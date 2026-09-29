@@ -59,8 +59,10 @@ _runner() {
     lost)     printf '#!/bin/sh\necho active > %s\nexit 1\n' "$ACTIVE" ;;
     # A GENUINE failure: nothing started, nothing is up.
     dead)     printf '#!/bin/sh\nexit 1\n' ;;
-    # The ordinary path.
-    won)      printf '#!/bin/sh\necho active > %s\nexit 0\n' "$ACTIVE" ;;
+    # The ordinary path. It RECORDS ITS ARGV, because the provider's promise
+    # that the locker is substitutable is a claim about what it hands systemd.
+    won)      printf '#!/bin/sh\nprintf "%%s\\n" "$*" > %s\n' "$T/argv"
+              printf 'echo active > %s\nexit 0\n' "$ACTIVE" ;;
   esac > "$T/bin/systemd-run"
   chmod +x "$T/bin/systemd-run"
 }
@@ -138,5 +140,76 @@ This is the case the provider's exit status exists for: nothing came up, and
 lock-on-sleep must not report success"
 grep -q "could not start" "$T/err" || fail "a real failure said nothing about
 which unit could not be started"
+
+# --- THE LOCKER IS SUBSTITUTABLE, argv AND UNIT TYPE INCLUDED ---------------
+# THE ARGV HELPER IS PINNED, because the first version of this case asserted
+# against the DEVELOPER's live `vigilance-lock-argv` and their shapes config --
+# a host read, in the suite that ratchets against exactly that. It also records
+# the argument it was given, which is the contract being added here: the helper
+# is asked ABOUT THE LOCKER, because its output is inherently locker-specific.
+cat > "$T/bin/vigilance-lock-argv" <<EOF
+#!/bin/sh
+printf '%s\n' "\$1" > $T/helper-arg
+case "\$1" in
+  i3lock) echo "--color=000000" ;;
+  *)      echo "-C /shapes/swaylock.conf" ;;
+esac
+EOF
+chmod +x "$T/bin/vigilance-lock-argv"
+
+# `VIGILANCE_LOCKER` was a HALF PROMISE: the man page called it the locker
+# process name while `-f` (swaylock's --daemonize) and `Type=forking` were
+# hardcoded beside it. `VIGILANCE_LOCKER=i3lock` therefore resolved, passed the
+# `command -v` check, and was handed a flag i3lock does not have -- so the unit
+# fails and the screen does not lock, on the one edge where that matters.
+#
+# Type is the same assumption one layer down: it asserts the locker DETACHES. A
+# foreground locker under Type=forking leaves systemd-run waiting for a fork
+# that never comes, and the provider then reports failure about a locked screen.
+#
+# Found while costing X11 support, before any X11 code existed, which is the
+# argument for that work: a second platform does not add a mechanism so much as
+# it reads back the promises the first one let us leave untested.
+_runner won
+echo inactive > "$ACTIVE"
+rm -f "$T/argv"
+_hook
+[ "$RC" = 0 ] || fail "the default path failed (rc=$RC)"
+_a=$(cat "$T/argv" 2>/dev/null || true)
+case "$_a" in
+  *"Type=forking"*" swaylock -f "*"-C /shapes/swaylock.conf"*) ;;
+  *) fail "the DEFAULT invocation changed: a shipped box must still get
+swaylock with -f under Type=forking, followed by the helper's argv. Got:
+$_a" ;;
+esac
+[ "$(cat "$T/helper-arg" 2>/dev/null)" = swaylock ] || fail "the argv helper was
+not told which locker it is being asked about (got
+'$(cat "$T/helper-arg" 2>/dev/null)'). Its output is locker-specific, so a
+helper that cannot tell has to guess -- which is how i3lock was handed a
+swaylock config file"
+
+# ...and an X11-shaped locker gets ITS argv and ITS unit type.
+printf '#!/bin/sh\nexit 0\n' > "$T/bin/i3lock"; chmod +x "$T/bin/i3lock"
+echo inactive > "$ACTIVE"
+rm -f "$T/argv"
+RC=0
+VIGILANCE_LOCKER=i3lock VIGILANCE_LOCKER_ARGV=-n \
+  VIGILANCE_LOCKER_TYPE=simple VIGILANCE_EDGE=lock VIGILANCE_KIND=act \
+  sh "$HOOK" lock >>"$T/out" 2>>"$T/err" || RC=$?
+[ "$RC" = 0 ] || fail "a substituted locker failed to start (rc=$RC):
+$(tail -2 "$T/err")"
+_a=$(cat "$T/argv" 2>/dev/null || true)
+[ "$(cat "$T/helper-arg" 2>/dev/null)" = i3lock ] || fail "the helper was asked
+about '$(cat "$T/helper-arg" 2>/dev/null)' while the locker was i3lock"
+case "$_a" in
+  *"Type=simple"*" i3lock -n "*"--color=000000"*) ;;
+  *) fail "the locker knobs did not reach systemd-run. That is the difference
+between a documented extension point and a name the code ignores. Got:
+$_a" ;;
+esac
+case "$_a" in
+  *swaylock*|*" -f"*) fail "swaylock's name or flag survived a substitution:
+$_a" ;;
+esac
 
 pass
