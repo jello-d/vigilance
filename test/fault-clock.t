@@ -35,12 +35,16 @@ _restore_machine() { :; }   # replaced once the stash exists; the trap needs it
 session_init fault-clock
 
 OFFSET=${VIGILANCE_CLOCK_OFFSET:-3600}
-CLOCK_STEPPED=0
+# THE NET OFFSET, not a flag. This scenario steps the clock TWICE -- back, and
+# then forward past real time -- and a restore that assumed one direction would
+# leave the guest an hour out for every scenario after it in the same boot,
+# looking like their bug.
+CLOCK_NET=0
 _unstep() {
-  [ "$CLOCK_STEPPED" = 1 ] || return 0
-  date -s "@$(( $(date +%s) + OFFSET ))" >/dev/null 2>&1 || true
+  if [ "$CLOCK_NET" = 0 ]; then return 0; fi
+  date -s "@$(( $(date +%s) - CLOCK_NET ))" >/dev/null 2>&1 || true
   timedatectl set-ntp true >/dev/null 2>&1 || true
-  CLOCK_STEPPED=0
+  CLOCK_NET=0
 }
 trap '_unstep; _restore_machine; session_done; rm -rf "$T"' EXIT INT TERM HUP
 
@@ -156,7 +160,7 @@ timedatectl set-ntp false >/dev/null 2>&1 || true
 _t_pre=$(date +%s)
 date -s "@$(( _t_pre - OFFSET ))" >/dev/null 2>&1 \
   || fail "could not set the clock; the fault cannot be injected here"
-CLOCK_STEPPED=1
+CLOCK_NET=$(( CLOCK_NET - OFFSET ))
 _t_post=$(date +%s)
 # THE PRECONDITION, ASSERTED. A step that silently did not take makes every
 # assertion below pass for the wrong reason, which is the rule every other cell
@@ -254,5 +258,81 @@ await 15 locker_up || fail "after the clock was restored, the ladder could not
 lock. The records written during the skew outlived it, turning a transient fault
 into a permanent one"
 [ "$(depth)" = lock ] || fail "depth is '$(depth)' after the clock was restored"
+
+# --- 6. AND NOW FORWARD, which is the OTHER declared fault ------------------
+# FAULT: clock-jumped-forward. Same machine, opposite direction, and the two are
+# not symmetric: backward made `now - then` NEGATIVE and disabled three
+# mechanisms, while forward makes every record look OLD. That expires things
+# early rather than never -- a dedup cooldown, a phantom cooldown -- so the
+# failure mode is a burst, not a silence, and the matrix asks for DEGRADE.
+#
+# WHAT IS NOT ASSERTED HERE, deliberately: the idle clock's ceiling. A forward
+# jump looks exactly like a long gap between samples, which
+# input-counters.t already holds down ("A GAP IN SAMPLING IS NOT A QUIET SEAT")
+# against pinned counter files -- and this guest has no countable input device
+# at scenario time anyway, so the source declines and the assertion would be
+# vacuous. A cell that restates another test's claim about a fixture it does not
+# have is the coverage-shaped nothing this matrix exists to avoid.
+: > "$T/alerts"
+_fwd_bad=$("$VIGILANT" report 2>&1 | grep -c '^\[FAIL\]' || true)
+_f_pre=$(date +%s)
+date -s "@$(( _f_pre + OFFSET ))" >/dev/null 2>&1 \
+  || fail "could not step the clock forward; the fault cannot be injected"
+CLOCK_NET=$(( CLOCK_NET + OFFSET ))
+[ "$(date +%s)" -gt "$_f_pre" ] || fail "the clock did not move forward. NTP may
+have stepped it back, in which case nothing below is a measurement"
+
+# A forward jump makes the depth record look an hour old. That is not a fault,
+# and report must not invent one: every elapsed time is positive and nothing is
+# ahead of the clock, so the skew diagnosis belongs to the OTHER direction.
+"$VIGILANT" status > "$T/fwd-status.out" 2>&1 || true
+grep -q 'skew' "$T/fwd-status.out" && fail "status claimed a clock SKEW after a
+FORWARD jump. Skew means a record is ahead of the clock; here every record is
+behind it, which is an ordinary old machine -- and a diagnosis that fires in
+both directions tells a reader nothing about either:
+$(grep -i skew "$T/fwd-status.out" | head -2)" || :
+_fwd_after=$("$VIGILANT" report 2>&1 | grep -c '^\[FAIL\]' || true)
+[ "$_fwd_after" -le "$_fwd_bad" ] || fail "report gained $(( _fwd_after -
+_fwd_bad )) FAIL(s) purely from the clock moving FORWARD an hour"
+
+# AND THE ALERTS SETTLE. Every dedup stamp now reads an hour old, so the first
+# pass after the jump is ENTITLED to notify: the cooldown genuinely expired.
+# What must not happen is that it keeps happening.
+#
+# SO THE CLAIM IS ABOUT THE LATER PASSES, not a ceiling on the total. My first
+# version guessed "at most 2" and the guest said 3 -- and the guess was the
+# wrong shape rather than the wrong number: this tier raises TWO kinds for one
+# fault (hook-failed from the planted verifier, drift from the recheck's own
+# verdict), so the entitled round is two or three notifications and a ceiling
+# either passes vacuously or fails a correct machine. Splitting the passes needs
+# no magic number and states the actual property.
+_pass() { VIGILANCE_ALERT_COOLDOWN=3600 "$VIGILANT" enforce >>"$T/out" 2>&1 \
+            || true; }
+_pass
+_pass
+_fwd_round=$(wc -l < "$T/alerts" | tr -d ' ')
+_pass
+_pass
+_fwd_after=$(wc -l < "$T/alerts" | tr -d ' ')
+[ "$_fwd_after" = "$_fwd_round" ] || fail "two further supervision passes
+notified $(( _fwd_after - _fwd_round )) more times about an unchanging finding,
+after the round the clock jump legitimately entitled it to. That is a storm
+arriving by way of the clock, and it is the documented reason a live box had its
+supervision timer stopped BY HAND -- after which every report was green because
+nothing was running.
+alerts seen:
+$(cat "$T/alerts")"
+# ...AND THE ENTITLED ROUND DID HAPPEN, or the settling above is the silence of
+# a tier that stopped rather than one that is satisfied.
+[ "$_fwd_round" -gt 0 ] || fail "no alert at all after the clock jumped forward,
+so the dedup cannot be shown to have settled: an expired cooldown must notify
+once, and this case would pass identically against a sink nothing reaches"
+
+# ...and the ladder still crosses with the clock ahead, then restored.
+_unstep
+"$VIGILANT" force open >/dev/null 2>&1 || true
+"$VIGILANT" go lock >>"$T/out" 2>>"$T/stderr" || true
+await 15 locker_up || fail "after a forward step and restore, the ladder could
+not lock"
 
 pass

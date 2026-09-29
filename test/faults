@@ -194,11 +194,16 @@ f SIGKILL the machine mid-crossing, lock held, then boot the same disk
 e RECOVER: coherent rung, no leaked lock, committed log records intact
 t vm/crash
 
+# NOT SYMMETRIC WITH BACKWARD, which is why both are declared. Backward makes
+# `now - then` negative and DISABLES a mechanism for the length of the skew;
+# forward makes every record look old, so cooldowns expire EARLY and the failure
+# mode is a burst. The ceiling half is input-counters.t's (a forward jump is
+# indistinguishable from a long sampling gap) and is not restated here.
 = clock-jumped-forward
 m the supervision timer
-f set the guest clock forward an hour
-e DEGRADE: no alert storm; the ceiling and the dedup cooldown hold
-t -
+f step the guest clock forward an hour under a live ladder
+e DEGRADE: no new FAILs, no alert storm, and no false skew diagnosis
+t fault-clock
 
 # THE DANGEROUS DIRECTION, AND NOBODY HAD DECLARED IT. Only "forward" was on
 # this list, and backward is the one that disables things: every record here is
