@@ -8,8 +8,8 @@
 # two tiers exist for -- and declaring the need is better than a silent
 # `[ "$(id -u)" != 0 ]` guard, because a skip nobody sees overstates coverage.
 set -eu
-. "$(dirname "$0")/lib.sh"
-. "$(dirname "$0")/scenario.sh"
+. "$(dirname "$0")/harness_lib"
+. "$(dirname "$0")/scenario_lib"
 scenario_init actuators
 require unprivileged
 

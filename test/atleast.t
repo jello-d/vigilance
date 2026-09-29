@@ -18,8 +18,8 @@
 # outright would strand every resume on the fleet at a dark rung while looking
 # like a hardening, which is why the plain-`go` case below is not decoration.
 set -eu
-. "$(dirname "$0")/lib.sh"
-. "$(dirname "$0")/scenario.sh"
+. "$(dirname "$0")/harness_lib"
+. "$(dirname "$0")/scenario_lib"
 scenario_init atleast
 
 _atleast() {   # <state>

@@ -16,7 +16,7 @@
 #   the subject is not present or not running at all, which is a different
 #     tier's finding and must not be reported twice in different words.
 set -eu
-. "$(dirname "$0")/lib.sh"
+. "$(dirname "$0")/harness_lib"
 harness_init swayidle-watchdog
 
 HOOK=$HERE/libexec/vigilance/hooks/swayidle-watchdog

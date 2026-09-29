@@ -2,7 +2,7 @@
 # test/tools.t - every shipped script parses under its own shell (the shebang
 # picks sh vs bash; smart-lock uses bash arrays). Catches a syntax
 # regression before it ships.
-. "$(dirname "$0")/lib.sh"
+. "$(dirname "$0")/harness_lib"
 harness_init tools
 
 # The shipped HOOKS and their shared lib are swept too: they are as shipped as

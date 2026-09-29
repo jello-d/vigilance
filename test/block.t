@@ -13,8 +13,8 @@
 # exactly where it was and reports exit 3 (refused), not 1 (degraded). A unit
 # receiving 3 knows the state did not move.
 set -eu
-. "$(dirname "$0")/lib.sh"
-. "$(dirname "$0")/scenario.sh"
+. "$(dirname "$0")/harness_lib"
+. "$(dirname "$0")/scenario_lib"
 scenario_init block
 
 VIGILANCE_LOG=$T/vigilant.log

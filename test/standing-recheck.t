@@ -18,8 +18,8 @@
 # by hand -- which is not hypothetical, it happened on a live box, and every
 # subsequent report was green because nothing was running.
 set -eu
-. "$(dirname "$0")/lib.sh"
-. "$(dirname "$0")/scenario.sh"
+. "$(dirname "$0")/harness_lib"
+. "$(dirname "$0")/scenario_lib"
 scenario_init standing-recheck
 
 mkdir -p "$VIGILANCE_HOOK_ROOT/sleep.verify.d" "$VIGILANCE_HOOK_ROOT/alert.d"

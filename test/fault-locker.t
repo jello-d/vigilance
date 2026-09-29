@@ -14,8 +14,8 @@
 # and NOTHING HAS EVER TESTED THAT IT FIRES -- lock-span.t asserts systemd runs
 # the ExecStopPost, which is a different claim from the ladder following it.
 set -eu
-. "$(dirname "$0")/lib.sh"
-. "$(dirname "$0")/session.sh"
+. "$(dirname "$0")/harness_lib"
+. "$(dirname "$0")/session_lib"
 session_init fault-locker
 trap 'session_done; rm -rf "$T"' EXIT INT TERM HUP
 

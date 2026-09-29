@@ -13,8 +13,8 @@
 # That visible skip is the point: a green stub run must never read as full
 # coverage.
 set -eu
-. "$(dirname "$0")/lib.sh"
-. "$(dirname "$0")/scenario.sh"
+. "$(dirname "$0")/harness_lib"
+. "$(dirname "$0")/scenario_lib"
 scenario_init depth-survives-suspend
 
 require systemd suspend

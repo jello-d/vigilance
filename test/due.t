@@ -11,8 +11,8 @@
 # primary mechanism win, a block must stop enforcement, forcing must be opt-in,
 # and `suspend` must never be an enforcement target.
 set -eu
-. "$(dirname "$0")/lib.sh"
-. "$(dirname "$0")/scenario.sh"
+. "$(dirname "$0")/harness_lib"
+. "$(dirname "$0")/scenario_lib"
 scenario_init due
 
 # A due hook prints SECONDS on stdout. Anything else means "no opinion".

@@ -32,8 +32,8 @@
 # both acts and reports on itself can be wrong in one direction and agree with
 # itself. The hook's verify is asserted too, separately.
 set -eu
-. "$(dirname "$0")/lib.sh"
-. "$(dirname "$0")/session.sh"
+. "$(dirname "$0")/harness_lib"
+. "$(dirname "$0")/session_lib"
 session_init session-greeter
 
 require compositor

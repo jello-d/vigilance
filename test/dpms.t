@@ -18,8 +18,8 @@
 # what every other hook test does. It is also the only way to assert what was
 # NOT called.
 set -eu
-. "$(dirname "$0")/lib.sh"
-. "$(dirname "$0")/scenario.sh"
+. "$(dirname "$0")/harness_lib"
+. "$(dirname "$0")/scenario_lib"
 scenario_init dpms
 
 DPMS=$HERE/libexec/vigilance/hooks/dpms

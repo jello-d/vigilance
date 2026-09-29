@@ -13,8 +13,8 @@
 # `status` while three documents described it as a wiring audit. No test could
 # have caught that -- none of them asked what the verbs were.
 set -eu
-. "$(dirname "$0")/lib.sh"
-. "$(dirname "$0")/scenario.sh"
+. "$(dirname "$0")/harness_lib"
+. "$(dirname "$0")/scenario_lib"
 scenario_init cli
 
 # --- status reports the rung, and the roots of BOTH scopes -------------------

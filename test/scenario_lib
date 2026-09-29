@@ -1,4 +1,4 @@
-# test/scenario.sh - the SHARED vocabulary for vigilance scenarios.
+# test/scenario_lib - the SHARED vocabulary for vigilance scenarios.
 #
 # Scenarios live once, in test/scenarios/, and are executed by TWO substrates:
 #

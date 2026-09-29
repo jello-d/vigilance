@@ -24,8 +24,8 @@
 #      that uid, the ssh one included, so the real record is still findable; and
 #   2. the last resort was a SHARED NAME in a sticky world-writable directory.
 set -eu
-. "$(dirname "$0")/lib.sh"
-. "$(dirname "$0")/scenario.sh"
+. "$(dirname "$0")/harness_lib"
+. "$(dirname "$0")/scenario_lib"
 scenario_init runtime-dir
 
 VIG=$HERE/bin/vigilant

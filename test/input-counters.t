@@ -16,7 +16,7 @@
 # and this suite has now shipped that mistake three times (uptime, backlight,
 # luminance). A clock test that reads the real clock is not a test.
 set -eu
-. "$(dirname "$0")/lib.sh"
+. "$(dirname "$0")/harness_lib"
 harness_init input-counters
 
 HOOK=$HERE/libexec/vigilance/hooks/input-counters

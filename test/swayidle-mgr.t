@@ -16,7 +16,7 @@
 # the real session's idle timer. Stubbing an ACTUATOR is the sanctioned side of
 # the substrate rule; the trust root is never stubbed.
 set -eu
-. "$(dirname "$0")/lib.sh"
+. "$(dirname "$0")/harness_lib"
 harness_init swayidle-mgr
 
 mkdir -p "$T/bin" "$T/run" "$T/state"

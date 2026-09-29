@@ -19,7 +19,7 @@
 # mechanism failed, which is what you need to fix it. This says THAT the machine
 # is lying, which is what you need to know at all.
 set -eu
-. "$(dirname "$0")/lib.sh"
+. "$(dirname "$0")/harness_lib"
 harness_init screen-dark
 
 HOOK=$HERE/libexec/vigilance/hooks/screen-dark

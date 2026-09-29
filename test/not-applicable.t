@@ -20,8 +20,8 @@
 # counted as having CHECKED, exactly as before. The signal only adds
 # information; it cannot turn a working integration into a failing one.
 set -eu
-. "$(dirname "$0")/lib.sh"
-. "$(dirname "$0")/scenario.sh"
+. "$(dirname "$0")/harness_lib"
+. "$(dirname "$0")/scenario_lib"
 scenario_init not-applicable
 
 _mk() {   # <dir> <name> <exit>

@@ -13,8 +13,8 @@
 # reporter is LOUD in the log and INVISIBLE in the exit status, which is the
 # one place this suite deliberately separates "noisy" from "failed".
 set -eu
-. "$(dirname "$0")/lib.sh"
-. "$(dirname "$0")/scenario.sh"
+. "$(dirname "$0")/harness_lib"
+. "$(dirname "$0")/scenario_lib"
 scenario_init report
 
 hook lock        10-act

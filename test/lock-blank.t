@@ -19,7 +19,7 @@
 # only way to assert WHICH signal was sent, and what was NOT sent. Nothing here
 # stands in for system state.
 set -eu
-. "$(dirname "$0")/lib.sh"
+. "$(dirname "$0")/harness_lib"
 harness_init lock-blank
 
 HOOK=$HERE/libexec/vigilance/hooks/lock-blank

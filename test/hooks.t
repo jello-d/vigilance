@@ -11,8 +11,8 @@
 # Treating ascent as "restore" would light the screen of a machine that is
 # still locked and blanked.
 set -eu
-. "$(dirname "$0")/lib.sh"
-. "$(dirname "$0")/scenario.sh"
+. "$(dirname "$0")/harness_lib"
+. "$(dirname "$0")/scenario_lib"
 scenario_init hooks
 
 HOOKS=$HERE/libexec/vigilance/hooks

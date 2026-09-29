@@ -5,7 +5,7 @@
 # real logind and a real suspend, inside a throwaway KVM guest. Nothing here
 # re-implements an assertion: the scenario files are the single source of
 # truth for what correct means, and this only supplies the capabilities the
-# stub substrate honestly cannot (see test/scenario.sh).
+# stub substrate honestly cannot (see test/scenario_lib).
 #
 # WHY A VM AT ALL: the bugs in this suite's history were never logic errors,
 # they were WIRING errors, and every one of them survived a green stub run.

@@ -45,89 +45,89 @@ SYN_REPORT, SW_LID, KEY_A = 0x00, 0x00, 30
 
 
 def _open():
-    for path in ("/dev/uinput", "/dev/input/uinput"):
-        try:
-            return os.open(path, os.O_WRONLY | os.O_NONBLOCK)
-        except OSError:
-            continue
-    sys.exit("uinject: no /dev/uinput (try: modprobe uinput)")
+  for path in ("/dev/uinput", "/dev/input/uinput"):
+    try:
+      return os.open(path, os.O_WRONLY | os.O_NONBLOCK)
+    except OSError:
+      continue
+  sys.exit("uinject: no /dev/uinput (try: modprobe uinput)")
 
 
 def _emit(fd, etype, code, value):
-    # input_event: two longs of timeval, then type, code, value.
-    os.write(fd, struct.pack("@llHHi", 0, 0, etype, code, value))
+  # input_event: two longs of timeval, then type, code, value.
+  os.write(fd, struct.pack("@llHHi", 0, 0, etype, code, value))
 
 
 def _create(fd, name):
-    # The LEGACY setup path (write a uinput_user_dev) rather than UI_DEV_SETUP:
-    # fewer ioctls, and it is still supported. name[80], id{4 shorts},
-    # ff_effects_max, then four 64-entry abs arrays this device never uses.
-    os.write(fd, struct.pack("@80sHHHHi256i", name.encode()[:79],
-                             0x03, 0x1234, 0x5678, 1, 0, *([0] * 256)))
-    fcntl.ioctl(fd, UI_DEV_CREATE)
-    # udev has to see the device and tag it before logind will care about it.
-    time.sleep(1.0)
+  # The LEGACY setup path (write a uinput_user_dev) rather than UI_DEV_SETUP:
+  # fewer ioctls, and it is still supported. name[80], id{4 shorts},
+  # ff_effects_max, then four 64-entry abs arrays this device never uses.
+  os.write(fd, struct.pack("@80sHHHHi256i", name.encode()[:79],
+                0x03, 0x1234, 0x5678, 1, 0, *([0] * 256)))
+  fcntl.ioctl(fd, UI_DEV_CREATE)
+  # udev has to see the device and tag it before logind will care about it.
+  time.sleep(1.0)
 
 
 def lid(state, hold):
-    fd = _open()
-    fcntl.ioctl(fd, UI_SET_EVBIT, EV_SW)
-    fcntl.ioctl(fd, UI_SET_SWBIT, SW_LID)
-    fcntl.ioctl(fd, UI_SET_EVBIT, EV_SYN)
-    _create(fd, "uinject-lid")
-    _emit(fd, EV_SW, SW_LID, 1 if state == "close" else 0)
-    _emit(fd, EV_SYN, SYN_REPORT, 0)
-    print("uinject: lid %s, holding %ss" % (state, hold), flush=True)
-    try:
-        time.sleep(hold)
-    finally:
-        fcntl.ioctl(fd, UI_DEV_DESTROY)
-        os.close(fd)
-
-
-def key(taps, hold, delay=0.0):
-    fd = _open()
-    fcntl.ioctl(fd, UI_SET_EVBIT, EV_KEY)
-    fcntl.ioctl(fd, UI_SET_KEYBIT, KEY_A)
-    fcntl.ioctl(fd, UI_SET_EVBIT, EV_SYN)
-    _create(fd, "uinject-kbd")
-    # A DELAY BEFORE THE FIRST TAP, so a caller can open its measurement window
-    # FIRST and have the stimulus land inside it. That is not a convenience: the
-    # evdev probe reads "did anything arrive since I opened this device", so
-    # taps that happen before the open are invisible BY DESIGN. Its first run
-    # tapped at 14:25:26 and opened the device at 14:25:27, and reported that
-    # evdev cannot see input at all -- an instrument bug wearing the costume of
-    # a finding, in the phase whose entire job is to prove the instrument works.
-    if delay > 0:
-        time.sleep(delay)
-    for _ in range(taps):
-        for value in (1, 0):
-            _emit(fd, EV_KEY, KEY_A, value)
-            _emit(fd, EV_SYN, SYN_REPORT, 0)
-        time.sleep(0.02)
-    print("uinject: %d key taps" % taps, flush=True)
-    # HELD AFTER THE TAPS, and the default is only the short hold that stops the
-    # device vanishing in the same instant: that races whatever is counting, and
-    # a counter that missed the event reads exactly like one that does not work.
-    #
-    # A LONG hold exists for a sharper reason. test/probe/evdev-idle-proof has
-    # to ask whether a quiet seat comes back NOT readable, and if the device
-    # were destroyed first then "not readable" would be true because there was
-    # nothing to read: a vacuous pass on the one phase that decides the
-    # experiment. So the device stays alive and goes SILENT, which is the state
-    # under test.
+  fd = _open()
+  fcntl.ioctl(fd, UI_SET_EVBIT, EV_SW)
+  fcntl.ioctl(fd, UI_SET_SWBIT, SW_LID)
+  fcntl.ioctl(fd, UI_SET_EVBIT, EV_SYN)
+  _create(fd, "uinject-lid")
+  _emit(fd, EV_SW, SW_LID, 1 if state == "close" else 0)
+  _emit(fd, EV_SYN, SYN_REPORT, 0)
+  print("uinject: lid %s, holding %ss" % (state, hold), flush=True)
+  try:
     time.sleep(hold)
+  finally:
     fcntl.ioctl(fd, UI_DEV_DESTROY)
     os.close(fd)
 
 
+def key(taps, hold, delay=0.0):
+  fd = _open()
+  fcntl.ioctl(fd, UI_SET_EVBIT, EV_KEY)
+  fcntl.ioctl(fd, UI_SET_KEYBIT, KEY_A)
+  fcntl.ioctl(fd, UI_SET_EVBIT, EV_SYN)
+  _create(fd, "uinject-kbd")
+  # A DELAY BEFORE THE FIRST TAP, so a caller can open its measurement window
+  # FIRST and have the stimulus land inside it. That is not a convenience: the
+  # evdev probe reads "did anything arrive since I opened this device", so
+  # taps that happen before the open are invisible BY DESIGN. Its first run
+  # tapped at 14:25:26 and opened the device at 14:25:27, and reported that
+  # evdev cannot see input at all -- an instrument bug wearing the costume of
+  # a finding, in the phase whose entire job is to prove the instrument works.
+  if delay > 0:
+    time.sleep(delay)
+  for _ in range(taps):
+    for value in (1, 0):
+      _emit(fd, EV_KEY, KEY_A, value)
+      _emit(fd, EV_SYN, SYN_REPORT, 0)
+    time.sleep(0.02)
+  print("uinject: %d key taps" % taps, flush=True)
+  # HELD AFTER THE TAPS, and the default is only the short hold that stops the
+  # device vanishing in the same instant: that races whatever is counting, and
+  # a counter that missed the event reads exactly like one that does not work.
+  #
+  # A LONG hold exists for a sharper reason. test/probe/evdev-idle-proof has
+  # to ask whether a quiet seat comes back NOT readable, and if the device
+  # were destroyed first then "not readable" would be true because there was
+  # nothing to read: a vacuous pass on the one phase that decides the
+  # experiment. So the device stays alive and goes SILENT, which is the state
+  # under test.
+  time.sleep(hold)
+  fcntl.ioctl(fd, UI_DEV_DESTROY)
+  os.close(fd)
+
+
 if __name__ == "__main__":
-    a = sys.argv[1:]
-    if len(a) >= 2 and a[0] == "lid" and a[1] in ("close", "open"):
-        lid(a[1], int(a[2]) if len(a) > 2 else 30)
-    elif a and a[0] == "key":
-        key(int(a[1]) if len(a) > 1 else 5,
-            float(a[2]) if len(a) > 2 else 1.0,
-            float(a[3]) if len(a) > 3 else 0.0)
-    else:
-        sys.exit(__doc__.split("Usage:")[1])
+  a = sys.argv[1:]
+  if len(a) >= 2 and a[0] == "lid" and a[1] in ("close", "open"):
+    lid(a[1], int(a[2]) if len(a) > 2 else 30)
+  elif a and a[0] == "key":
+    key(int(a[1]) if len(a) > 1 else 5,
+      float(a[2]) if len(a) > 2 else 1.0,
+      float(a[3]) if len(a) > 3 else 0.0)
+  else:
+    sys.exit(__doc__.split("Usage:")[1])

@@ -25,7 +25,7 @@
 #
 # This does not police prose. It polices claims with a checkable referent.
 set -eu
-. "$(dirname "$0")/lib.sh"
+. "$(dirname "$0")/harness_lib"
 harness_init claims
 
 R=$HERE/README.md

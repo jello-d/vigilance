@@ -20,7 +20,7 @@
 # where the greeter and the user session are offered the same hooks -- the one
 # it must not act in cannot answer it. No host list to keep in sync.
 set -eu
-. "$(dirname "$0")/lib.sh"
+. "$(dirname "$0")/harness_lib"
 harness_init sway-dpms
 
 HOOK=$HERE/libexec/vigilance/hooks/sway-dpms

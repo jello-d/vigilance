@@ -29,8 +29,8 @@
 # a boot with every other one, and a guest with no user bus fails each of them
 # afterwards in a way that looks like their own bug.
 set -eu
-. "$(dirname "$0")/lib.sh"
-. "$(dirname "$0")/session.sh"
+. "$(dirname "$0")/harness_lib"
+. "$(dirname "$0")/session_lib"
 session_init fault-userbus
 
 BUS_DOWN=0

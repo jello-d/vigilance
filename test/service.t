@@ -20,7 +20,7 @@
 # edge on logind's signal, while arming nothing. Believing that listener is up
 # when it is not is exactly the gap that leaves a machine unlocked.
 set -eu
-. "$(dirname "$0")/lib.sh"
+. "$(dirname "$0")/harness_lib"
 harness_init service
 
 PREFIX=$T/prefix

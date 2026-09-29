@@ -11,8 +11,8 @@
 # report (so the two cannot drift), rescue actuates only through hooks (so
 # there is one implementation, not two), and report tells drift from n/a.
 set -eu
-. "$(dirname "$0")/lib.sh"
-. "$(dirname "$0")/scenario.sh"
+. "$(dirname "$0")/harness_lib"
+. "$(dirname "$0")/scenario_lib"
 scenario_init rescue
 
 RESCUE_LOG=$T/rescue.log

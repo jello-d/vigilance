@@ -16,8 +16,8 @@
 # sleep and fire lock.d, whose provider would try to start a lock screen on top
 # of a session that already is one.
 set -eu
-. "$(dirname "$0")/lib.sh"
-. "$(dirname "$0")/scenario.sh"
+. "$(dirname "$0")/harness_lib"
+. "$(dirname "$0")/scenario_lib"
 scenario_init greeter
 
 # NO USER TREE AT ALL. Not an empty one -- absent, which is the greeter's actual

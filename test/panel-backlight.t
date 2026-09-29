@@ -26,7 +26,7 @@
 # is told to answer for, so a hook that does not scope reaches the leds device
 # and is caught doing it.
 set -eu
-. "$(dirname "$0")/lib.sh"
+. "$(dirname "$0")/harness_lib"
 harness_init panel-backlight
 
 HOOK=$HERE/libexec/vigilance/hooks/panel-backlight

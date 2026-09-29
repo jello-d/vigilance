@@ -24,8 +24,8 @@
 # The real figure on that box was 8 hooks. That is the argument for computing it
 # rather than leaving it to whoever remembers the tiers.
 set -eu
-. "$(dirname "$0")/lib.sh"
-. "$(dirname "$0")/scenario.sh"
+. "$(dirname "$0")/harness_lib"
+. "$(dirname "$0")/scenario_lib"
 scenario_init budget
 
 # The budget comes from scenario.sh (25s, the shipped unit's value), so the

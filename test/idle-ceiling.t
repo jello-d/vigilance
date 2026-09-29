@@ -26,8 +26,8 @@
 # no clock answered -- that would make `report` call a deadline measurable while
 # nothing measures it, which is this project's signature false green.
 set -eu
-. "$(dirname "$0")/lib.sh"
-. "$(dirname "$0")/scenario.sh"
+. "$(dirname "$0")/harness_lib"
+. "$(dirname "$0")/scenario_lib"
 scenario_init idle-ceiling
 
 _source() {   # <seconds> | none | declines

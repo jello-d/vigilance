@@ -17,8 +17,8 @@
 # was told, but the machine is fine). Alerting on the second would train the
 # human to ignore the first.
 set -eu
-. "$(dirname "$0")/lib.sh"
-. "$(dirname "$0")/scenario.sh"
+. "$(dirname "$0")/harness_lib"
+. "$(dirname "$0")/scenario_lib"
 scenario_init alert
 
 VIGILANCE_LOG=$T/vigilant.log

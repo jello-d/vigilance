@@ -1,4 +1,5 @@
-# test/lib.sh - harness for vigilance's shell tests (test/*.t), sourced by each.
+# test/harness_lib - harness for vigilance's shell tests (test/*.t).
+# Sourced by each of them; named for what it provides (harness_init).
 #
 # Call `harness_init <name>`: sets HERE (the repo root, so a test reaches
 # bin/, install, systemd/), a private scratch dir T (removed on exit), and the

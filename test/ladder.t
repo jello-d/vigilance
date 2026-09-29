@@ -2,8 +2,8 @@
 # test/ladder.t - the ladder: traversal, ordering, depth and FROM.
 # Substrate-agnostic (no systemd, no hardware), so it runs in BOTH tiers.
 set -eu
-. "$(dirname "$0")/lib.sh"
-. "$(dirname "$0")/scenario.sh"
+. "$(dirname "$0")/harness_lib"
+. "$(dirname "$0")/scenario_lib"
 scenario_init ladder
 
 hook lock    10-a; hook lock    20-b

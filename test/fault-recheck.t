@@ -32,8 +32,8 @@
 # crossing lock and writing the real depth record, against the real locker-up
 # hook reading a real absent process. Nothing here is a probe override.
 set -eu
-. "$(dirname "$0")/lib.sh"
-. "$(dirname "$0")/session.sh"
+. "$(dirname "$0")/harness_lib"
+. "$(dirname "$0")/session_lib"
 session_init fault-recheck
 trap 'session_done; rm -rf "$T"' EXIT INT TERM HUP
 

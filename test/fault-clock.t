@@ -29,8 +29,9 @@
 # Adding the offset BACK works without knowing how long the test took, because
 # the clock kept running normally while it was skewed.
 set -eu
-. "$(dirname "$0")/lib.sh"
-. "$(dirname "$0")/session.sh"
+_restore_machine() { :; }   # replaced once the stash exists; the trap needs it
+. "$(dirname "$0")/harness_lib"
+. "$(dirname "$0")/session_lib"
 session_init fault-clock
 
 OFFSET=${VIGILANCE_CLOCK_OFFSET:-3600}
@@ -41,7 +42,7 @@ _unstep() {
   timedatectl set-ntp true >/dev/null 2>&1 || true
   CLOCK_STEPPED=0
 }
-trap '_unstep; session_done; rm -rf "$T"' EXIT INT TERM HUP
+trap '_unstep; _restore_machine; session_done; rm -rf "$T"' EXIT INT TERM HUP
 
 command -v timedatectl >/dev/null 2>&1 \
   || fail "no timedatectl; this scenario cannot control the clock and would
@@ -61,7 +62,36 @@ wire lock .verify locker-up
 # to manufacture one, which taught me two things the hard way: stopping
 # screen-lock.service fires its ExecStopPost and CROSSES UNLOCK, so the machine
 # does not stay at `lock` at all, and whatever alert that did raise had an
-# identity I never established.
+# identity I never established. THE TIER IS REDUCED TO THIS HOOK ALONE, IN BOTH
+# SCOPES, because the dedup key is the alert TEXT and the alert carries the
+# whole verify output. Every other wired verifier contributes a note to that
+# text, and a PERIPHERAL one that DEFERS (they check hourly now) drops its note
+# from the next pass -- so the armed finding and the later one differ and the
+# cooldown comparison is never exercised. Observed exactly that way:
+# `ddc-monitor: ddcutil is not installed` in the armed message and gone an
+# instant later.
+#
+# THE MACHINE SCOPE IS MOVED ASIDE, NOT DELETED, and restored in the trap: those
+# symlinks are the integrator's, every later scenario in this boot needs them,
+# and a scenario that consumes another's fixture is the trap this suite keeps
+# paying for.
+MACHINE_V=/etc/vigilance/hooks/lock.verify.d
+STASH=$T/machine-verify
+if [ -d "$MACHINE_V" ]; then
+  mkdir -p "$STASH"
+  for _mv in "$MACHINE_V"/*; do
+    [ -e "$_mv" ] || continue
+    mv "$_mv" "$STASH/" 2>/dev/null || true
+  done
+fi
+_restore_machine() {
+  [ -d "$STASH" ] || return 0
+  for _mv in "$STASH"/*; do
+    [ -e "$_mv" ] || continue
+    mv "$_mv" "$MACHINE_V/" 2>/dev/null || true
+  done
+}
+rm -f "$HOOKS"/lock.verify.d/* 2>/dev/null || true
 mkdir -p "$HOOKS/lock.verify.d"
 { printf '#!/bin/sh\n'
   printf 'echo "a fixed finding, so the dedup key never moves" >&2\n'

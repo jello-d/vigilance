@@ -5,7 +5,7 @@
 # `timeout` running that command, and add NONE when the seam is unset. A stub
 # swayidle captures the timer list _run assembles. This is load-bearing: a
 # mistyped seam means no suspend timer, which is a flat battery.
-. "$(dirname "$0")/lib.sh"
+. "$(dirname "$0")/harness_lib"
 harness_init idle-suspend
 
 # swayidle stub: print the args _run exec's it with.

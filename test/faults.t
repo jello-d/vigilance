@@ -14,7 +14,7 @@
 # reward adding tests over adding faults, and the faults nobody has thought of
 # are the ones worth knowing about.
 set -eu
-. "$(dirname "$0")/lib.sh"
+. "$(dirname "$0")/harness_lib"
 harness_init faults
 
 F=$HERE/test/faults

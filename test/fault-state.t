@@ -16,8 +16,8 @@
 # refused even for root, and it is also the realistic shape: a full or
 # remounted-read-only filesystem is how this happens to a real box.
 set -eu
-. "$(dirname "$0")/lib.sh"
-. "$(dirname "$0")/session.sh"
+. "$(dirname "$0")/harness_lib"
+. "$(dirname "$0")/session_lib"
 session_init fault-state
 _unmount() { umount "$RUN" 2>/dev/null || true; }
 trap '_unmount; session_done; rm -rf "$T"' EXIT INT TERM HUP

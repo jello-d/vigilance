@@ -20,8 +20,8 @@
 # So the coverage check is STATIC and asks about every edge regardless of where
 # the machine is. That is what makes it able to see an edge you are not on.
 set -eu
-. "$(dirname "$0")/lib.sh"
-. "$(dirname "$0")/scenario.sh"
+. "$(dirname "$0")/harness_lib"
+. "$(dirname "$0")/scenario_lib"
 scenario_init coverage
 
 _report() { "$VIGILANT" report 2>>"$T/stderr" || true; }

@@ -31,7 +31,7 @@
 # real sessions or mutate a real one's hint, and what is under test is the
 # hook's CHOICE of session rather than logind's behaviour.
 set -eu
-. "$(dirname "$0")/lib.sh"
+. "$(dirname "$0")/harness_lib"
 harness_init logind-hint
 
 HOOK=$HERE/libexec/vigilance/hooks/logind-hint

@@ -27,7 +27,7 @@
 # It is not hypothetical either: brightnessctl is DENIED on a box whose user is
 # not in the `vigilant` group, which is the state manifold was in for weeks.
 set -eu
-. "$(dirname "$0")/lib.sh"
+. "$(dirname "$0")/harness_lib"
 harness_init hooklib
 
 . "$HERE/libexec/vigilance/hooklib.sh"

@@ -15,8 +15,8 @@
 #
 # Run against the real journal it reported 13 misses in 14 events over 3 days.
 set -eu
-. "$(dirname "$0")/lib.sh"
-. "$(dirname "$0")/scenario.sh"
+. "$(dirname "$0")/harness_lib"
+. "$(dirname "$0")/scenario_lib"
 scenario_init audit
 
 # An audit hook prints "<epoch> <edge> [note]" lines: one per external event

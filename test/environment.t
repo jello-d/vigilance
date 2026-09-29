@@ -28,7 +28,7 @@
 # shell trivia would rot, and a test nobody trusts is worse than none. Each case
 # below names the file that depends on it.
 set -eu
-. "$(dirname "$0")/lib.sh"
+. "$(dirname "$0")/harness_lib"
 harness_init environment
 
 _skip=

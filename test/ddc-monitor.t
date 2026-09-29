@@ -21,7 +21,7 @@
 # way to assert which code was written to which bus, and what was NOT written.
 # Nothing here stands in for system state.
 set -eu
-. "$(dirname "$0")/lib.sh"
+. "$(dirname "$0")/harness_lib"
 harness_init ddc-monitor
 
 HOOK=$HERE/libexec/vigilance/hooks/ddc-monitor

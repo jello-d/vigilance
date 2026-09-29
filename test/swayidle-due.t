@@ -29,7 +29,7 @@
 # edge name sits behind a HYPHEN, nor `suspend-if-battery`, which is the case my
 # first anchor wrongly excluded.
 set -eu
-. "$(dirname "$0")/lib.sh"
+. "$(dirname "$0")/harness_lib"
 harness_init swayidle-due
 
 HOOK=$HERE/libexec/vigilance/hooks/swayidle-due

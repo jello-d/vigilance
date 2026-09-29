@@ -32,7 +32,7 @@
 # file passed, and a live box failed the same way four hours later. A fixture
 # that cannot represent the failing state cannot test for it.
 set -eu
-. "$(dirname "$0")/lib.sh"
+. "$(dirname "$0")/harness_lib"
 harness_init lock-race
 
 HOOK=$HERE/libexec/vigilance/providers/swaylock

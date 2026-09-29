@@ -11,8 +11,8 @@
 # monitor down. Both hooks reported success. An integrator hook needs the
 # identical table, and getting it wrong is invisible.
 set -eu
-. "$(dirname "$0")/lib.sh"
-. "$(dirname "$0")/scenario.sh"
+. "$(dirname "$0")/harness_lib"
+. "$(dirname "$0")/scenario_lib"
 scenario_init intent
 
 . "$HERE/libexec/vigilance/hooklib.sh"

@@ -13,8 +13,8 @@
 # reports success while no locker came up means the machine sleeps unlocked
 # and calls it a clean crossing.
 set -eu
-. "$(dirname "$0")/lib.sh"
-. "$(dirname "$0")/scenario.sh"
+. "$(dirname "$0")/harness_lib"
+. "$(dirname "$0")/scenario_lib"
 scenario_init locker-up
 
 H=$HERE/libexec/vigilance/hooks/locker-up

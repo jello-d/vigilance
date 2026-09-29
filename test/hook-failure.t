@@ -14,8 +14,8 @@
 #   2. the failing hook is NAMED on stderr, so the log says which one
 #   3. siblings still run: one dark monitor must not leave the keyboard lit
 set -eu
-. "$(dirname "$0")/lib.sh"
-. "$(dirname "$0")/scenario.sh"
+. "$(dirname "$0")/harness_lib"
+. "$(dirname "$0")/scenario_lib"
 scenario_init hook-failure
 
 hook lock 10-ok

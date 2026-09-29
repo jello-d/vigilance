@@ -19,8 +19,8 @@
 # The heartbeat SHARING fate with the subject is the design, not a flaw: it
 # goes quiet precisely when the subject does. Only the observer must be apart.
 set -eu
-. "$(dirname "$0")/lib.sh"
-. "$(dirname "$0")/scenario.sh"
+. "$(dirname "$0")/harness_lib"
+. "$(dirname "$0")/scenario_lib"
 scenario_init watchdog
 
 _wd() {   # rc [message] -> install a watchdog hook with that verdict

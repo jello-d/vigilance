@@ -30,8 +30,8 @@
 #
 # Needs a real compositor, so it is VM-only and SKIPS loudly elsewhere.
 set -eu
-. "$(dirname "$0")/lib.sh"
-. "$(dirname "$0")/scenario.sh"
+. "$(dirname "$0")/harness_lib"
+. "$(dirname "$0")/scenario_lib"
 scenario_init lock-span
 
 require systemd compositor

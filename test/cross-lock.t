@@ -21,8 +21,8 @@
 # race it replaces, because the race's worst outcome is a spurious alert and a
 # wedge's worst outcome is a machine that will not lock.
 set -eu
-. "$(dirname "$0")/lib.sh"
-. "$(dirname "$0")/scenario.sh"
+. "$(dirname "$0")/harness_lib"
+. "$(dirname "$0")/scenario_lib"
 scenario_init cross-lock
 
 LOCK=$VIGILANCE_RUN_DIR/crossing.lock

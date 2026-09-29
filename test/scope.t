@@ -18,8 +18,8 @@
 # depends on hardware being awake, which is exactly the case that is hardest
 # to debug after the fact.
 set -eu
-. "$(dirname "$0")/lib.sh"
-. "$(dirname "$0")/scenario.sh"
+. "$(dirname "$0")/harness_lib"
+. "$(dirname "$0")/scenario_lib"
 scenario_init scope
 
 hook  sleep 10-u; hook  sleep 90-u

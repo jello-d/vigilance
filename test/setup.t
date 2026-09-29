@@ -3,7 +3,7 @@
 # which is the separate `service` verb) -> check -> uninstall -> assert gone. A
 # scratch HOME; nothing outside it is touched. `service` is not exercised: its
 # `systemctl --user enable` would reach the real session manager.
-. "$(dirname "$0")/lib.sh"
+. "$(dirname "$0")/harness_lib"
 harness_init setup
 
 BIN=$T/bin; SHR=$T/share; CFG=$T/config

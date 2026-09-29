@@ -9,8 +9,8 @@
 # existing tiers passed straight through, because both replace the hooks with
 # recorders and neither runs a daemon.
 set -eu
-. "$(dirname "$0")/lib.sh"
-. "$(dirname "$0")/session.sh"
+. "$(dirname "$0")/harness_lib"
+. "$(dirname "$0")/session_lib"
 session_init session-ladder
 trap 'session_done; rm -rf "$T"' EXIT INT TERM HUP
 

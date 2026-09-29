@@ -34,7 +34,7 @@
 # backwards would turn an absent monitor into a hard failure on every edge, and
 # no amount of testing the generic implementation would show it.
 set -eu
-. "$(dirname "$0")/lib.sh"
+. "$(dirname "$0")/harness_lib"
 harness_init level-rules
 
 PLUGINS=$HERE/libexec/vigilance

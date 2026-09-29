@@ -12,8 +12,8 @@
 # timer, so every timeout fires in order at exactly its threshold. The thing
 # that makes idle behaviour hard to test on a desk is what makes it easy here.
 set -eu
-. "$(dirname "$0")/lib.sh"
-. "$(dirname "$0")/session.sh"
+. "$(dirname "$0")/harness_lib"
+. "$(dirname "$0")/session_lib"
 session_init session-idle
 trap 'session_done; rm -rf "$T"' EXIT INT TERM HUP
 

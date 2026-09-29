@@ -37,11 +37,11 @@
 # here, so this PRIMES and then ASSERTS that priming worked, rather than letting
 # a missed event read as a passing case.
 set -eu
-. "$(dirname "$0")/lib.sh"
-. "$(dirname "$0")/session.sh"
+. "$(dirname "$0")/harness_lib"
+. "$(dirname "$0")/session_lib"
 session_init fault-lid
 
-# THE PLUMBING IS SHARED (test/session.sh), because all three preconditions
+# THE PLUMBING IS SHARED (test/session_lib), because all three preconditions
 # above are easy to get subtly wrong and a wrong one does not fail loudly: the
 # signal simply never arrives, and "the machine did not move" is exactly what a
 # passing lid-close-at-sleep looks like.

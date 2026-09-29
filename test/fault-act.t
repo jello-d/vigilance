@@ -16,8 +16,8 @@
 # the budget arithmetic (budget.t). Neither answers the question an operator
 # cares about: with a hook genuinely wedged, does the machine still lock?
 set -eu
-. "$(dirname "$0")/lib.sh"
-. "$(dirname "$0")/session.sh"
+. "$(dirname "$0")/harness_lib"
+. "$(dirname "$0")/session_lib"
 session_init fault-act
 trap 'session_done; rm -rf "$T"' EXIT INT TERM HUP
 

@@ -28,7 +28,7 @@
 # exists to prevent. And it is only meaningful while the device still EXISTS: a
 # destroyed device is unreadable for the wrong reason, so that is asserted too.
 set -eu
-. "$(dirname "$0")/lib.sh"
+. "$(dirname "$0")/harness_lib"
 harness_init evdev-sample
 require uinput
 

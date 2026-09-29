@@ -29,8 +29,8 @@
 # invoked directly, which would test the ladder while skipping the listener that
 # has to survive the burst.
 set -eu
-. "$(dirname "$0")/lib.sh"
-. "$(dirname "$0")/session.sh"
+. "$(dirname "$0")/harness_lib"
+. "$(dirname "$0")/session_lib"
 session_init fault-storm
 
 BURST=${VIGILANCE_STORM_BURST:-100}

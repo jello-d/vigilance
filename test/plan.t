@@ -19,8 +19,8 @@
 #   this suite that is silent BY CONSTRUCTION, and it is why this verb exits
 #   non-zero rather than merely printing.
 set -eu
-. "$(dirname "$0")/lib.sh"
-. "$(dirname "$0")/scenario.sh"
+. "$(dirname "$0")/harness_lib"
+. "$(dirname "$0")/scenario_lib"
 scenario_init plan
 
 # EVERY COMPONENT of the path is walked, and mktemp gives 0700 -- so without

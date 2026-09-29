@@ -13,7 +13,7 @@
 # to update. It runs no mutation and executes nothing: it just asserts the
 # corpus and the code still agree.
 set -eu
-. "$(dirname "$0")/lib.sh"
+. "$(dirname "$0")/harness_lib"
 harness_init mutants
 
 CORPUS=$HERE/test/mutants

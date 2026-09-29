@@ -18,8 +18,8 @@
 # so this asks systemd itself. No VIGILANCE_LOCK_ACTIVE_FILE here on purpose:
 # the override exists for the substrate that cannot answer, and this one can.
 set -eu
-. "$(dirname "$0")/lib.sh"
-. "$(dirname "$0")/scenario.sh"
+. "$(dirname "$0")/harness_lib"
+. "$(dirname "$0")/scenario_lib"
 scenario_init lock-race-real
 require systemd userbus
 

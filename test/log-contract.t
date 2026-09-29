@@ -21,8 +21,8 @@
 # would just move the restatement. What is asserted is the ROUND TRIP: whatever
 # the runner writes, the auditor must understand.
 set -eu
-. "$(dirname "$0")/lib.sh"
-. "$(dirname "$0")/scenario.sh"
+. "$(dirname "$0")/harness_lib"
+. "$(dirname "$0")/scenario_lib"
 scenario_init log-contract
 
 # An audit source claiming "an event happened just now that should have

@@ -1,4 +1,4 @@
-# test/session.sh - the SESSION tier: real hooks, real daemons, real ladder.
+# test/session_lib - the SESSION tier: real hooks, real daemons, real ladder.
 #
 # WHY A THIRD TIER. The other two never run the shipped hooks at all:
 # scenario_init points VIGILANCE_HOOK_ROOT at a tree of RECORDER hooks, and the

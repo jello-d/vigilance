@@ -30,8 +30,8 @@
 # probe added without an override; each time, the author (me) did not notice,
 # because nothing asked.
 set -eu
-. "$(dirname "$0")/lib.sh"
-. "$(dirname "$0")/scenario.sh"
+. "$(dirname "$0")/harness_lib"
+. "$(dirname "$0")/scenario_lib"
 scenario_init hermetic
 
 VIG=$HERE/bin/vigilant
@@ -43,7 +43,7 @@ for _p in VIGILANCE_HOOK_ROOT VIGILANCE_MACHINE_HOOKS VIGILANCE_RUN_DIR \
           VIGILANCE_LOG VIGILANCE_SYS_BACKLIGHT VIGILANCE_SYS_DRM \
           VIGILANCE_SYS_LEDS VIGILANCE_LOCKER_UP VIGILANCE_SESSION \
           VIGILANCE_IDLE_CMDLINE VIGILANCE_SLEEP_BUDGET; do
-  grep -q "export $_p=" "$HERE/test/scenario.sh" \
+  grep -q "export $_p=" "$HERE/test/scenario_lib" \
     || fail "$_p is an overridable host probe, but scenario_init does not set
 it. Every scenario therefore reads the DEVELOPER'S box for that fact, and its
 verdict changes with their screen, their hardware or their session"

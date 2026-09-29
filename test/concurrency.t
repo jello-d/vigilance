@@ -27,8 +27,8 @@
 # Rare is not the same as impossible, and the cost is not proportional to the
 # odds. A minutely timer gets 1,440 attempts a day, forever.
 set -eu
-. "$(dirname "$0")/lib.sh"
-. "$(dirname "$0")/scenario.sh"
+. "$(dirname "$0")/harness_lib"
+. "$(dirname "$0")/scenario_lib"
 scenario_init concurrency
 
 # The real functions, extracted, so this tests the SHIPPED implementation rather

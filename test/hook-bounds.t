@@ -35,8 +35,8 @@
 # leaves a child holding stdout, because that is the only shape that tells a
 # real bound from a decorative one.
 set -eu
-. "$(dirname "$0")/lib.sh"
-. "$(dirname "$0")/scenario.sh"
+. "$(dirname "$0")/harness_lib"
+. "$(dirname "$0")/scenario_lib"
 scenario_init hook-bounds
 
 # `sleep` is a CHILD of the hook shell, so it survives the shell being killed

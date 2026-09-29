@@ -25,8 +25,8 @@
 # The audit source is blind to the second: when the exec fails there is no event
 # to reconcile, because the log entry is written by the command that never ran.
 set -eu
-. "$(dirname "$0")/lib.sh"
-. "$(dirname "$0")/scenario.sh"
+. "$(dirname "$0")/harness_lib"
+. "$(dirname "$0")/scenario_lib"
 scenario_init idle-audit
 
 SRC=$HERE/libexec/vigilance/hooks/swayidle-idle-audit

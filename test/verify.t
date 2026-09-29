@@ -10,8 +10,8 @@
 # So: an empty tier says n/a EXPLICITLY, and a populated one actually catches
 # the drift it claims to.
 set -eu
-. "$(dirname "$0")/lib.sh"
-. "$(dirname "$0")/scenario.sh"
+. "$(dirname "$0")/harness_lib"
+. "$(dirname "$0")/scenario_lib"
 scenario_init verify
 
 # --- an empty tier must NOT read as a pass ----------------------------------
