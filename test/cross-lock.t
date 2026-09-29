@@ -52,9 +52,16 @@ chmod +x "$VIGILANCE_HOOK_ROOT/lock.d/10-slow"
 # properties overlap: a 2s hook against a 2s wait had losers timing out and
 # crossing anyway, so the first draft of this case measured the fallback while
 # claiming to measure the lock. One assertion, one property.
+# EACH REQUEST IS BOUNDED, and that is about this test being able to FAIL. The
+# wait is fail-open, so a waiter that never gives up blocks `wait` below for
+# ever -- which is exactly what the corpus record removing the wait cap
+# produced: cross-lock.t blocked, the mutation driver sat on it with no output,
+# and a mutation whose whole point is a missing bound reached no verdict at all.
+# 30s is far past the 10s wait plus a 2s hook, so it is invisible to a correct
+# crossing and decisive for a wedged one.
 true > "$T/ran"
 for _i in 1 2 3 4; do
-  ( VIGILANCE_CROSS_WAIT=10 "$VIGILANT" go lock \
+  ( VIGILANCE_CROSS_WAIT=10 timeout 30 "$VIGILANT" go lock \
       >>"$T/out" 2>>"$T/stderr"; echo "$?" >> "$T/rcs" ) &
 done
 wait
@@ -119,7 +126,10 @@ broken"
 sleep 600 & _holder=$!
 printf '%s %s\n' "$_holder" "$(date +%s)" > "$LOCK"
 true > "$T/vigilant.log"
-VIGILANCE_CROSS_WAIT=1 "$VIGILANT" go lock >/dev/null 2>>"$T/stderr" \
+# BOUNDED for the reason case 1 states: this is THE case the missing-cap
+# mutation has to kill, and without a bound it blocks instead of failing.
+VIGILANCE_CROSS_WAIT=1 timeout 15 "$VIGILANT" go lock \
+  >/dev/null 2>>"$T/stderr" \
   || fail "a live lock holder made the crossing fail"
 [ "$(_crossings)" = 1 ] || fail "a live holder blocked the crossing past the
 wait. FAIL-OPEN is the rule: cross anyway and say so"
@@ -179,7 +189,8 @@ without firing once"
 rm -f "$VIGILANCE_HOOK_ROOT/lock.d/10-reenter"
 true > "$LOCK"                       # created, not yet written: pid unknown
 true > "$T/vigilant.log"
-VIGILANCE_CROSS_WAIT=1 "$VIGILANT" go lock >/dev/null 2>>"$T/stderr" || true
+VIGILANCE_CROSS_WAIT=1 timeout 15 "$VIGILANT" go lock \
+  >/dev/null 2>>"$T/stderr" || true
 _said "breaking a crossing lock" && fail "a lock file with no pid yet was
 treated as a dead holder and broken. That is a claim microseconds old, and
 stealing it puts two writers in the critical section -- exactly the race this
