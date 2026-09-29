@@ -1,0 +1,109 @@
+#!/bin/sh
+# x11-dpms - power the screen off at a dark rung and on at a lit one, in an X11
+# session only.
+#
+# THE THIRD HOOK FOR ONE QUESTION, and the count is the point rather than an
+# embarrassment: `dpms` is wlopm and deliberately ON-only (powering an output
+# off on the Wayfire build this package was written for re-modesets and was
+# observed to DESTROY VIEWS, which test/dpms.t asserts mechanically and is not
+# being weakened); `sway-dpms` is swaymsg; this is `xset`. One rung, three
+# mechanisms, no shared code -- which is what the framework/plugin boundary is
+# FOR. If this file needed the runner to change, the boundary would be in the
+# wrong place.
+#
+# SELF-LIMITING BY CONSTRUCTION, exactly as sway-dpms is: the gate is the TOOL.
+# `xset` needs an X server it can reach, so in a Wayland session with no
+# Xwayland it declines and in one WITH Xwayland it talks to Xwayland, which owns
+# no outputs and whose DPMS is a no-op. There is no host list to keep in sync.
+#
+# WHY THIS IS SAFE WHERE `wlopm --off` IS NOT. The Wayfire hazard was a MODESET
+# on the compositor's own outputs destroying its views. X11 DPMS is the
+# standard blanking mechanism on that platform -- xscreensaver, xautolock and
+# the server's own idle timer all use it -- and nothing on X11 recreates
+# windows across it. Stated rather than assumed, because "the other platform's
+# off switch broke things" is not an argument about this one.
+#
+# IT IS NOT A MONITOR POWER STATE. DPMS stops scanout and the panel enters its
+# own standby; it writes no VCP D6, so it cannot reach the firmware hang that an
+# unimplemented power code caused on the AW2725Q. Coming back is `force on`,
+# which every ascent sends.
+set -eu
+
+_self=$(readlink -f "$0")
+. "$(dirname "$_self")/../hook_lib"
+
+edge=${1:-${VIGILANCE_EDGE:-}}
+_intent=$(hook_intent "$edge")
+case "$_intent" in
+  dark|lit) ;;
+  *)        exit 0 ;;
+esac
+
+# NOT APPLICABLE unless an X server is reachable. Exit 78 rather than 0: a hook
+# that could not act must not be counted as one that did, or an edge where
+# nothing could blank reads exactly like one where everything blanked.
+if ! command -v xset >/dev/null 2>&1; then
+  exit 78
+fi
+# DISPLAY is NOT guaranteed. These edges are crossed by system units and by a
+# supervision timer, neither of which inherits a session's environment -- the
+# same reason the provider has to be told WAYLAND_DISPLAY. An X11 integrator
+# imports DISPLAY into the user manager; without it there is nothing to talk to.
+if [ -z "${DISPLAY:-}" ]; then
+  exit 78
+fi
+if ! xset q >/dev/null 2>&1; then
+  exit 78
+fi
+
+# DPMS CAN BE DISABLED AT THE SERVER, and then `force off` is silently ignored:
+# xset returns 0 and the screen stays lit. That is the asserted-versus-actual
+# shape this package exists to catch, so it is a REFUSAL rather than a no-op --
+# nothing may enter a dark rung while claiming a mechanism that is switched off.
+if ! xset q 2>/dev/null | grep -q 'DPMS is Enabled'; then
+  if [ "$_intent" = dark ]; then
+    echo "x11-dpms: DPMS is disabled at the server, so 'force off' would be" \
+         "silently ignored (xset +dpms enables it)" >&2
+    exit 1
+  fi
+  # A LIT RUNG IS NOT BLOCKED BY IT. With DPMS off the screen is already on,
+  # which is what the ascent wants, and refusing here would fail every wake on
+  # a box that simply does not use DPMS.
+  exit 78
+fi
+
+if [ "$_intent" = dark ]; then _want=off; else _want=on; fi
+
+if [ "${VIGILANCE_KIND:-act}" = verify ]; then
+  # An hour, not a minute: the transition forces a full verify, so this cadence
+  # is a backstop. Only the standing recheck offers the skip.
+  hook_throttle "${VIGILANCE_PERIPHERAL_EVERY:-3600}" && exit 75
+  # A REAL READBACK. `xset q` reports the monitor's current power state, so this
+  # asks the server rather than trusting that our own write landed -- the
+  # standard ddc-monitor's verify is held to.
+  #
+  # THE SERVER'S VOCABULARY IS NOT OURS: it says Monitor is On / Standby /
+  # Suspend / Off, and the three non-On states are all "not scanning out". A
+  # check demanding exactly "Off" would fail a screen that went to Standby,
+  # which is the same mistake as expecting one DDC power code from every panel.
+  _state=$(xset q 2>/dev/null | sed -n 's/.*Monitor is *//p' | head -1)
+  case "${_state:-}" in
+    '')            echo "x11-dpms: the server did not report a monitor state" \
+                        >&2; exit 1 ;;
+    On)            _have=on ;;
+    Off|Standby|Suspend) _have=off ;;
+    *)             echo "x11-dpms: unknown monitor state '$_state'" >&2
+                   exit 1 ;;
+  esac
+  if [ "$_have" != "$_want" ]; then
+    echo "x11-dpms: monitor is $_state, expected $_want" >&2
+    exit 1
+  fi
+  exit 0
+fi
+
+if ! xset dpms force "$_want" >/dev/null 2>&1; then
+  echo "x11-dpms: could not force dpms $_want" >&2
+  exit 1
+fi
+exit 0

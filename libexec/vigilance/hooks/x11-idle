@@ -1,0 +1,64 @@
+#!/bin/sh
+# x11-idle - an idle.d source that ASKS THE SEAT, on X11.
+#
+# CONTRACT: print seconds idle on stdout and exit 0, or exit 78 for "I cannot
+# tell". 78 is not 0 here: zero means "input one second ago", which would
+# silently reset every deadline for ever and report a healthy machine.
+#
+# WHY THIS IS THE INTERESTING ONE. On Wayland there is no unprivileged way to
+# ask, so `input-counters` samples kernel counters and infers -- which works,
+# and carries two costs the shipped clock has to state: it can only observe what
+# happened BETWEEN samples, and ANYTHING that talks to an input device moves it
+# (a QMK keyboard reporting to itself every 60s pinned a live box's clock at
+# 74s against deadlines of 480 and 600). X11 has the answer directly: the server
+# tracks time since the last input event for its own screensaver, and
+# XScreenSaverQueryInfo reports it. `xprintidle` is a four-line wrapper on that
+# call.
+#
+# SO IT IS NOT A BETTER GUESS, IT IS A DIFFERENT KIND OF ANSWER: continuous
+# rather than sampled, and about INPUT EVENTS rather than about bus traffic.
+#
+# IT REPORTS NO CEILING, deliberately, and that is a contract the framework had
+# never had to state. `input-counters` carries `ceiling=` because a number from
+# it is not evidence the deadline is OBSERVABLE -- a clock that resets every 74s
+# can never witness 480 -- and `report` warns when the ceiling stays short.
+# Omitting the field means "the answer stands on its own", which is true here:
+# the X server's counter is not sampled and nothing resets it but real input, so
+# it can witness any duration. A source that omits it because it never
+# implemented it gets the same benefit of the doubt, which is why the man page
+# now says so out loud rather than leaving silence to mean two things.
+#
+# CONTENT: none. The reply is a duration; no scancode, no button, no coordinate.
+# That is the same property that makes the counter sources admissible -- the
+# mechanism is INCAPABLE of observing content rather than merely unwilling.
+set -eu
+
+if ! command -v xprintidle >/dev/null 2>&1; then
+  exit 78
+fi
+# DISPLAY is not guaranteed in a unit or a timer, for the same reason the X11
+# dpms hook says so: an integrator imports it into the user manager.
+if [ -z "${DISPLAY:-}" ]; then
+  exit 78
+fi
+
+# THROUGH A FILE, not a pipeline, so a failure is a failure rather than the
+# status of the last stage. `xprintidle` exits non-zero when it cannot reach the
+# server or the extension is missing, and that must read as "cannot tell".
+_out=$(xprintidle 2>/dev/null) || exit 78
+case "${_out:-}" in
+  ''|*[!0-9]*) exit 78 ;;
+esac
+
+# MILLISECONDS IN, SECONDS OUT. The unit mismatch is the whole risk in this
+# file: reporting milliseconds as seconds would make the seat look idle for a
+# thousand times longer than it is, which is the one direction that INVENTS a
+# finding -- a false overdue on a machine somebody is sitting at, which is the
+# documented reason a live box had its supervision timer stopped by hand.
+#
+# 11+ digits would overflow the shell's arithmetic, and the runner rejects such
+# a value anyway; refusing here says which source was wrong.
+if [ "${#_out}" -gt 13 ]; then
+  exit 78
+fi
+printf '%s\n' "$(( _out / 1000 ))"

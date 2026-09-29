@@ -186,15 +186,48 @@ hook_screen_luma() {   # -> mean luminance 0..1, or empty if unmeasurable
     printf '%s' "$VIGILANCE_SCREEN_LUMA"
     return 0
   fi
-  command -v grim >/dev/null 2>&1   || return 0
   command -v magick >/dev/null 2>&1 || return 0
+  # THE GRABBER IS THE PLATFORM, and the measurement is not. `grim` is Wayland's
+  # and `import` is X11's; both hand a frame to the same ImageMagick pipeline,
+  # so the threshold, the alpha handling and the whole-surface rule are shared
+  # rather than reimplemented per platform. That is the point of measuring the
+  # OUTCOME: a mechanism-blind check has no business knowing which compositor
+  # produced the pixels.
+  #
+  # ORDER: Wayland first, because a Wayland session running Xwayland has BOTH
+  # tools and `import` there would capture Xwayland's root window -- a window
+  # with none of the session's real content in it, which would read as black and
+  # certify a blank that never happened. The Wayland grabber is the one that
+  # sees the actual output, so it wins wherever it can run.
+  #
+  # WAYLAND_DISPLAY BREAKS A TIE; IT IS NOT A REQUIREMENT. `grim` with the
+  # variable unset still connects to `wayland-0`, so demanding it would switch
+  # off the capture on any box whose socket happens to be that -- a decline
+  # dressed as a measurement, which is the failure this whole hook exists to
+  # prevent. So grim is used whenever it is the only plausible grabber, and the
+  # variable only decides WHICH when a DISPLAY is also present.
+  _slg=
+  if command -v grim >/dev/null 2>&1 \
+     && { [ -n "${WAYLAND_DISPLAY:-}" ] || [ -z "${DISPLAY:-}" ]; }; then
+    _slg="timeout 25 grim -s 0.05 -"
+  elif command -v import >/dev/null 2>&1 && [ -n "${DISPLAY:-}" ]; then
+    # -window root is the whole screen, which is the same claim `grim -s 0.05`
+    # makes: a blank is about the WHOLE surface, and a corner reads 0.0156 on an
+    # ordinary desktop -- indistinguishable from black. -resize keeps the
+    # pipeline's cost comparable (1.3s at full resolution was measured as the
+    # reason for the downscale).
+    _slg="timeout 25 import -silent -window root -resize 5% png:-"
+  else
+    return 0
+  fi
   # ALWAYS RETURNS 0. A caller writes `_l=$(hook_screen_luma)` under `set -e`,
   # and an assignment from a command substitution that FAILS aborts the caller
   # outright -- so a grab that could not run would kill the hook before it ever
   # reached its own "nothing to measure" branch. Observed exactly that: the
   # unmeasurable case exited 1 instead of declining with 78, which would have
   # read as drift on every headless box.
-  _sl=$(timeout 25 grim -s 0.05 - 2>/dev/null \
+  # shellcheck disable=SC2086
+  _sl=$($_slg 2>/dev/null \
         | timeout 25 magick - -alpha off -colorspace Gray \
             -format '%[fx:mean]' info: 2>/dev/null) || _sl=
   printf '%s' "$_sl"

@@ -261,10 +261,12 @@ An integrator chooses which run on which edge, because that is policy:
     hooks/lock-blank       paint the LOCK SURFACE black, and restore it
                            (declines where a sysfs backlight can do it)
     hooks/sway-dpms        power outputs off/on -- SWAY sessions only
+    hooks/x11-dpms         the same, in an X11 session (xset dpms)
     hooks/screen-dark      VERIFY the screen is actually dark (framebuffer
                            + backlight; blind to DDC, which ddc-monitor owns)
     hooks/swayidle-watchdog  is the idle timer FIRING, not merely running?
     hooks/input-counters   idle.d: seconds since input, from kernel counters
+    hooks/x11-idle         idle.d: the same, ASKED of an X server (xprintidle)
     hooks/kbd-backlight    the keyboard backlight (vendor LED, discovered)
     hooks/mute-leds        the mute / mic-mute indicator LEDs
     hooks/logind-hint      SetLockedHint, so the rest of the desktop knows

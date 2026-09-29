@@ -633,6 +633,17 @@ verify hook queries a keyboard over raw HID and it answers because it was asked,
 which was measured at 6 URBs three seconds after every pass and pinned the clock
 at one interval for ever. A source that ignores this phase simply answers twice
 and the extra answer is discarded.
+.IP
+A SOURCE THAT REPORTS NO CEILING IS TAKEN AT ITS WORD, and that is a contract
+rather than an oversight. The field is an optional extension that exists
+because a NUMBER from a sampled clock is not evidence the deadline is
+OBSERVABLE: a clock that resets every 74 seconds can never witness 480. A
+source with a continuous answer has nothing to qualify,
+.B x11\-idle
+among them: it asks the X server, which tracks idle time for its own
+screensaver and is reset by nothing but real input, so it omits the field
+deliberately. Until a second source existed, silence here meant
+"unimplemented" and "unbounded" indistinguishably.
 .TP
 .B VIGILANCE_IDLE_MAXGAP
 how long a gap between idle samples may be before the clock stops trusting it,
