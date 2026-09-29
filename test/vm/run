@@ -36,8 +36,21 @@ RELEASE=${VIGILANCE_VM_RELEASE:-resolute}
 # THE MACHINE'S PACKAGES, declared here rather than in the run seed, because
 # they now belong to the PRESERVED image rather than to a run. Installing them
 # costs 93s of a 377s run, measured, and it is the same 93s every time.
+# X11 IS A SECOND PLATFORM, NOT A SECOND WINDOW MANAGER, and the package list is
+# where that shows. On Wayland, DPMS and idle time belong to the COMPOSITOR, so
+# sway-dpms has to speak swaymsg; on X11 both belong to the SERVER, so the hooks
+# are window-manager agnostic and a WM would add dependencies without covering a
+# line of them. Measured before choosing: the lean set is 4 new packages against
+# 19 for xfce4-session + xfwm4 + xfce4-settings.
+#
+# WHAT A DESKTOP SESSION WOULD BUY, for when that trade is worth taking: xfce
+# runs its OWN screensaver and DPMS policy, which is a COMPETING ACTUATOR on the
+# device vigilance drives -- and "two things driving one device" is a fault
+# class this suite has already paid for (mute-leds against mute-on-lock, twelve
+# hours of drift alerts about a fight that cannot be won). That is a scenario
+# worth having, and it is a different question from whether the hooks work.
 PKGS='dash util-linux sway swaylock swayidle dbus-user-session wayfire git
-greetd'
+greetd xvfb x11-xserver-utils xprintidle i3lock imagemagick'
 IMG=$VM/$RELEASE-server-cloudimg-amd64.img
 URL=https://cloud-images.ubuntu.com/$RELEASE/current/${IMG##*/}
 CONSOLE=$VM/console.log
@@ -508,6 +521,58 @@ runcmd:
         echo "  NO /dev/uinput; lid and input faults will SKIP"
       fi
 
+      # --- X11: a second platform, for the assumptions it reads back ------
+      # THE HOOKS TALK TO THE SERVER, not to a window manager, so a bare X
+      # server is the whole substrate they need: xset owns DPMS and the
+      # XScreenSaver extension owns idle time.
+      #
+      # IT REPORTS WHAT IT FINDS RATHER THAN ASSUMING. Whether a headless
+      # server implements DPMS for real is exactly the kind of thing this
+      # project gets wrong by reasoning, so the probe prints the state
+      # transitions and the scenarios assert against what it saw.
+      echo "=== X11 (a second platform) ==="
+      _x11=
+      if command -v Xvfb >/dev/null 2>&1 && command -v xset >/dev/null 2>&1
+      then
+        Xvfb :99 -screen 0 1024x768x24 +extension DPMS \
+          >/tmp/xvfb.log 2>&1 &
+        _n=0
+        while [ "$_n" -lt 20 ]; do
+          if DISPLAY=:99 xset q >/dev/null 2>&1; then break; fi
+          sleep 0.5; sleep 0; _n=$((_n + 1))
+        done
+        if DISPLAY=:99 xset q >/dev/null 2>&1; then
+          echo "  X server up on :99"
+          echo "  DPMS is $(DISPLAY=:99 xset q | sed -n 's/.*DPMS is //p')"
+          DISPLAY=:99 xset +dpms >/dev/null 2>&1 || true
+          DISPLAY=:99 xset dpms force off >/dev/null 2>&1 || true
+          _xm=$(DISPLAY=:99 xset q | sed -n 's/.*Monitor is *//p' | head -1)
+          echo "  after force off: ${_xm:-<no monitor line>}"
+          DISPLAY=:99 xset dpms force on >/dev/null 2>&1 || true
+          _xm=$(DISPLAY=:99 xset q | sed -n 's/.*Monitor is *//p' | head -1)
+          echo "  after force on:  ${_xm:-<no monitor line>}"
+          if command -v xprintidle >/dev/null 2>&1; then
+            echo "  xprintidle: $(DISPLAY=:99 xprintidle 2>&1 | head -1)ms"
+          else
+            echo "  xprintidle: ABSENT"
+          fi
+          if command -v import >/dev/null 2>&1; then
+            if DISPLAY=:99 import -silent -window root -resize 5% \
+                 png:/tmp/x11-grab.png >/dev/null 2>&1; then
+              echo "  import: $(wc -c < /tmp/x11-grab.png) bytes captured"
+            else
+              echo "  import: FAILED to capture the root window"
+            fi
+          fi
+          _x11=x11
+        else
+          echo "  no X server came up; X11 scenarios will SKIP"
+          tail -3 /tmp/xvfb.log 2>/dev/null | sed 's/^/    /' || true
+        fi
+      else
+        echo "  no Xvfb or xset; X11 scenarios will SKIP"
+      fi
+
       # ASSEMBLED AFTER EVERY PROBE, which is the only place it can be. It
       # used to sit beside the compositor probe, so the capabilities discovered
       # LATER -- the integrator and uinput -- were empty when the list was
@@ -515,7 +580,7 @@ runcmd:
       # them. A capability that is available and not claimed is as bad as the
       # reverse: both make a scenario report something that is not true.
       SCENARIO_CAPS_EXTRA="$_compositor $_userbus $_wayfire"
-      SCENARIO_CAPS_EXTRA="$SCENARIO_CAPS_EXTRA $_tackup $_uinput"
+      SCENARIO_CAPS_EXTRA="$SCENARIO_CAPS_EXTRA $_tackup $_uinput $_x11"
       echo "  capabilities: $SCENARIO_CAPS_EXTRA"
 
       echo "=== scenarios (VM substrate) ==="

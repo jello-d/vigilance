@@ -123,6 +123,25 @@ lie about a dark screen"
 rather than fail: the screen is already in the state the ascent wants"
 printf 'DPMS is Enabled\n  Monitor is On\n' > "$XSET_Q"
 
+# --- 3b. AND A SERVER WITH NO DPMS AT ALL IS 78, NOT A REFUSAL --------------
+# ABSENT IS NOT DISABLED. Found by running the hook against a real X server on
+# its first day: Xvfb reports no DPMS block whatever, even started with
+# `+extension DPMS`, and the first version of this hook read that as "disabled"
+# and FAILED every dark edge. A cry-wolf on every sleep, on a server where there
+# is nothing to fix and no remedy to name -- which is the one thing a check must
+# never do, because it teaches a reader to discount the tier.
+#
+# The two answers differ because only "Disabled" has a remedy (`xset +dpms`) and
+# only "Disabled" is a claim about a screen that COULD have gone dark.
+printf 'Keyboard Control:\n  auto repeat:  on\nPointer Control:\n' > "$XSET_Q"
+[ "$(_dpms sleep)" = 78 ] || fail "on a server with no DPMS extension at all the
+hook returned $(_dpms sleep), not 78. Absent is not disabled: nothing to
+enable, so a failure here is a permanent false alarm on a substrate that
+simply cannot do this (Xvfb, measured)"
+[ "$(_dpms wake)" = 78 ] || fail "a lit edge on a server with no DPMS must also
+decline"
+printf 'DPMS is Enabled\n  Monitor is On\n' > "$XSET_Q"
+
 # --- 4. VERIFY READS THE SERVER BACK, in the server's own vocabulary --------
 # It says On / Standby / Suspend / Off, and the three non-On states all mean
 # "not scanning out". A check demanding exactly "Off" would call a screen in
@@ -220,5 +239,43 @@ env DISPLAY= PATH="$PATH" sh "$IDLE" >/dev/null 2>>"$T/err" || _rc=$?
 [ "$(_idle 99999999999999)" = "rc=78" ] || fail "a 14-digit reading was taken;
 it overflows the shell's arithmetic, which is how an idle source once leaked
 '[: Illegal number:' into a comparison"
+
+# --- 9. THE CEILING IS THE SERVER'S SCREENSAVER TIMEOUT --------------------
+# MEASURED AGAINST A REAL SERVER, and the first version of this hook was wrong
+# about it: XScreenSaverQueryInfo reports idle time WITHIN the current
+# screensaver state, so when the saver activates the counter starts again.
+#
+#     x11-idle -> 306s     ... 3 seconds later ...     x11-idle -> 2s
+#
+# So a deadline longer than that timeout can never be witnessed here -- which is
+# precisely the question `ceiling=` answers, and why the counter clock has
+# carried one since a chattering keyboard capped it at 74s. `age` is reported
+# equal to the ceiling because the cap is STRUCTURAL and known at the first
+# call: report's "too young to have seen that yet" exemption must not excuse a
+# hard limit.
+printf 'Screen Saver:\n  timeout:  600    cycle:  600\n' > "$XSET_Q"
+_a=$(env DISPLAY=:0 XPI_MS=5000 PATH="$PATH" sh "$IDLE")
+[ "$_a" = "5 ceiling=600 age=600" ] || fail "with the server's screensaver at
+600s the source answered '$_a'. It must report that cap, or report calls a 480s
+deadline measurable on a clock that resets before it -- the exact false
+green the ceiling field was invented for"
+
+# ...AND NO CEILING WHEN THE SCREENSAVER IS OFF, because then the answer really
+# does stand on its own. Silence is "no opinion", which the runner passes
+# through and report reads as measurable.
+printf 'Screen Saver:\n  timeout:  0    cycle:  0\n' > "$XSET_Q"
+_a=$(env DISPLAY=:0 XPI_MS=5000 PATH="$PATH" sh "$IDLE")
+[ "$_a" = 5 ] || fail "with the screensaver disabled the source still qualified
+its answer ('$_a'). A cap that does not exist must not be reported, or every
+long deadline reads as unmeasurable on a correctly configured box"
+
+# ...and an xset it cannot run leaves the cap UNKNOWN, which is no opinion
+# rather than unbounded: the same direction every other doubt here takes.
+mv "$T/bin/xset" "$T/bin/xset.off"
+_a=$(env -i PATH="$_minpath:$T/bin" DISPLAY=:0 HOME="$T" XPI_MS=5000 \
+     sh "$IDLE" 2>/dev/null || echo "rc=$?")
+mv "$T/bin/xset.off" "$T/bin/xset"
+[ "$_a" = 5 ] || fail "with xset unavailable the source answered '$_a';
+it should still report the idle time it DOES know, unqualified"
 
 pass "x11-dpms and x11-idle, against a stubbed server"

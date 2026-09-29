@@ -56,21 +56,40 @@ if ! xset q >/dev/null 2>&1; then
   exit 78
 fi
 
-# DPMS CAN BE DISABLED AT THE SERVER, and then `force off` is silently ignored:
-# xset returns 0 and the screen stays lit. That is the asserted-versus-actual
-# shape this package exists to catch, so it is a REFUSAL rather than a no-op --
-# nothing may enter a dark rung while claiming a mechanism that is switched off.
-if ! xset q 2>/dev/null | grep -q 'DPMS is Enabled'; then
-  if [ "$_intent" = dark ]; then
-    echo "x11-dpms: DPMS is disabled at the server, so 'force off' would be" \
-         "silently ignored (xset +dpms enables it)" >&2
-    exit 1
-  fi
-  # A LIT RUNG IS NOT BLOCKED BY IT. With DPMS off the screen is already on,
-  # which is what the ascent wants, and refusing here would fail every wake on
-  # a box that simply does not use DPMS.
-  exit 78
-fi
+# ABSENT IS NOT DISABLED, and the first version of this hook conflated them --
+# found on its first run against a real X server, which is the whole argument
+# for a second platform. Xvfb reports NO DPMS block at all (even asked for
+# `+extension DPMS`), and treating that as "disabled" made every dark edge FAIL:
+# a cry-wolf on every sleep, on a server where there is nothing to fix.
+#
+#   no DPMS section          the server cannot do this -> 78, not applicable
+#   "DPMS is Disabled"       it can, and it is switched off -> see below
+#
+# The two need different answers because only the second has a remedy (`xset
+# +dpms`) and only the second is a claim about a screen that could have gone
+# dark.
+_dpmsq=$(xset q 2>/dev/null || true)
+case "$_dpmsq" in
+  *"DPMS is "*) ;;
+  *) exit 78 ;;
+esac
+# DISABLED AT THE SERVER means `force off` is silently ignored: xset returns 0
+# and the screen stays lit. That is the asserted-versus-actual shape this
+# package exists to catch, so it is a REFUSAL rather than a no-op -- nothing may
+# enter a dark rung while claiming a mechanism that is switched off.
+case "$_dpmsq" in
+  *"DPMS is Enabled"*) ;;
+  *)
+    if [ "$_intent" = dark ]; then
+      echo "x11-dpms: DPMS is disabled at the server, so 'force off' would be" \
+           "silently ignored (xset +dpms enables it)" >&2
+      exit 1
+    fi
+    # A LIT RUNG IS NOT BLOCKED BY IT. With DPMS off the screen is already on,
+    # which is what the ascent wants, and refusing here would fail every wake on
+    # a box that simply does not use DPMS.
+    exit 78 ;;
+esac
 
 if [ "$_intent" = dark ]; then _want=off; else _want=on; fi
 

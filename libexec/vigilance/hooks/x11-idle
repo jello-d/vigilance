@@ -17,16 +17,33 @@
 #
 # SO IT IS NOT A BETTER GUESS, IT IS A DIFFERENT KIND OF ANSWER: continuous
 # rather than sampled, and about INPUT EVENTS rather than about bus traffic.
+# Different, not unbounded -- see the ceiling below, which is the correction the
+# real server forced.
 #
-# IT REPORTS NO CEILING, deliberately, and that is a contract the framework had
-# never had to state. `input-counters` carries `ceiling=` because a number from
-# it is not evidence the deadline is OBSERVABLE -- a clock that resets every 74s
-# can never witness 480 -- and `report` warns when the ceiling stays short.
-# Omitting the field means "the answer stands on its own", which is true here:
-# the X server's counter is not sampled and nothing resets it but real input, so
-# it can witness any duration. A source that omits it because it never
-# implemented it gets the same benefit of the doubt, which is why the man page
-# now says so out loud rather than leaving silence to mean two things.
+# IT REPORTS A CEILING, AND THE FIRST VERSION DID NOT. That version said the X
+# server's counter "can witness any duration" because nothing resets it but real
+# input. MEASURED AGAINST A REAL SERVER, that is false:
+#
+#     x11-idle -> 306s     ... 3 seconds later ...     x11-idle -> 2s
+#
+# THE SERVER'S OWN SCREENSAVER RESETS IT. XScreenSaverQueryInfo reports idle
+# time WITHIN the current screensaver state, so when the saver activates at its
+# timeout the counter starts again -- and a seat that has been quiet for an hour
+# reports seconds. That is the safe direction for an alert (it suppresses a
+# finding rather than inventing one) and it is fatal to the question report
+# asks: a deadline longer than the screensaver timeout can never be
+# witnessed here.
+#
+# Which is EXACTLY what `ceiling=` exists for. The counter clock carries it
+# because a chattering keyboard caps what it can observe; this one carries it
+# because the screensaver does. The cap is STRUCTURAL rather than accumulated --
+# known from the server's own configuration at the first call, not learned -- so
+# `age` is reported equal to it: report's "the clock is too young to have seen
+# that yet" exemption must not apply to a hard limit.
+#
+# A timeout of 0 means the screensaver is disabled, and then the answer really
+# does stand on its own: no ceiling is emitted, which the runner reads as "no
+# opinion" and report reads as measurable.
 #
 # CONTENT: none. The reply is a duration; no scancode, no button, no coordinate.
 # That is the same property that makes the counter sources admissible -- the
@@ -61,4 +78,21 @@ esac
 if [ "${#_out}" -gt 13 ]; then
   exit 78
 fi
-printf '%s\n' "$(( _out / 1000 ))"
+# THE SERVER'S SCREENSAVER TIMEOUT IS THE CAP. `timeout:` appears once in
+# `xset q`, in the Screen Saver block; the DPMS block spells its own thresholds
+# Standby/Suspend/Off, so there is nothing to confuse it with. An `xset` we
+# cannot run leaves the cap unknown, and unknown is reported as no opinion
+# rather than as unbounded -- the same direction every other doubt in this
+# package takes.
+_cap=
+if command -v xset >/dev/null 2>&1; then
+  _cap=$(xset q 2>/dev/null | sed -n 's/^ *timeout: *\([0-9][0-9]*\).*/\1/p' \
+         | head -1)
+  case "${_cap:-}" in ''|*[!0-9]*) _cap= ;; esac
+  [ "${_cap:-0}" -gt 0 ] || _cap=
+fi
+if [ -n "$_cap" ]; then
+  printf '%s ceiling=%s age=%s\n' "$(( _out / 1000 ))" "$_cap" "$_cap"
+else
+  printf '%s\n' "$(( _out / 1000 ))"
+fi

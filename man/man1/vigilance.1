@@ -636,14 +636,23 @@ and the extra answer is discarded.
 .IP
 A SOURCE THAT REPORTS NO CEILING IS TAKEN AT ITS WORD, and that is a contract
 rather than an oversight. The field is an optional extension that exists
-because a NUMBER from a sampled clock is not evidence the deadline is
-OBSERVABLE: a clock that resets every 74 seconds can never witness 480. A
-source with a continuous answer has nothing to qualify,
-.B x11\-idle
-among them: it asks the X server, which tracks idle time for its own
-screensaver and is reset by nothing but real input, so it omits the field
-deliberately. Until a second source existed, silence here meant
+because a NUMBER is not evidence the deadline is OBSERVABLE: a clock that
+resets every 74 seconds can never witness 480. Omitting it claims the answer
+stands on its own. Until a second source existed, silence here meant
 "unimplemented" and "unbounded" indistinguishably.
+.IP
+AND ALMOST EVERY SOURCE HAS A CAP, which is worth saying because the second one
+looked like the exception and was not.
+.B x11\-idle
+asks the X server, so its answer is continuous rather than sampled \(em and
+XScreenSaverQueryInfo reports idle time WITHIN the current screensaver state, so
+the counter RESTARTS when the saver activates. Measured against a live server:
+306s, then 2s three seconds later. So it reports the server's own screensaver
+timeout as its ceiling, and reports none only when that timeout is 0. The cap is
+STRUCTURAL rather than accumulated, so it reports
+.B age
+equal to it: report's "the clock is too young to have seen that yet" exemption
+must not excuse a hard limit.
 .TP
 .B VIGILANCE_IDLE_MAXGAP
 how long a gap between idle samples may be before the clock stops trusting it,
