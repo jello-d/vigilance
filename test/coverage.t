@@ -331,4 +331,28 @@ case $(_section "$_out" deadlines) in
 idle clock at all, so reporting it as unmeasurable would be crying wolf" ;;
 esac
 
+# --- REPORT SETTLES THE CLOCK TOO -------------------------------------------
+# IT RUNS HOOKS. `_rep_verify` re-asserts the current rung, and a verify hook
+# that queries an input device over USB is traffic on it, so a human running
+# `report` was poisoning the NEXT supervision pass, which reads it as seat
+# input. Found by tripping over it: watching the fix land on a live box meant
+# running report to read the verdict, and each run reset the clock it measured.
+# The observer effect, in the one tier whose job is to observe.
+: > "$T/rphases"
+mkdir -p "$VIGILANCE_HOOK_ROOT/idle.d"   # an earlier case removes the whole dir
+_rsrc=$VIGILANCE_HOOK_ROOT/idle.d/92-rphases
+printf '#!/bin/sh\nprintf "%%s\\n" "${VIGILANCE_IDLE_PHASE:-judge}" >> %s\n' \
+  "$T/rphases" > "$_rsrc"
+printf 'echo 9\n' >> "$_rsrc"
+chmod +x "$_rsrc"
+_report >/dev/null 2>&1 || true
+grep -q '^settle$' "$T/rphases" || fail "report never told the sources to
+re-baseline, so the traffic its own verify tier generates lands in the
+window the next supervision pass judges, and that pass reads it as seat
+input.
+Phases seen: $(tr '\n' ' ' < "$T/rphases")"
+[ "$(head -1 "$T/rphases")" = judge ] || fail "report settled BEFORE taking its
+own reading, so it re-baselined past nothing: $(tr '\n' ' ' < "$T/rphases")"
+rm -f "$_rsrc"
+
 pass

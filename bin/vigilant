@@ -2641,6 +2641,22 @@ cmd_report() {
   _rep_actuators
   _rep_budget
   _rep_wiring
+  # REPORT SETTLES TOO, because it runs hooks. `_rep_verify` re-asserts the
+  # current rung, and a verify hook that queries an input device over USB is
+  # traffic on it -- so a human running `report` was poisoning the NEXT
+  # supervision pass, which would read that traffic as seat input.
+  #
+  # FOUND BY TRIPPING OVER IT: watching the fix land on a live box meant running
+  # `report` to read the verdict, and each run reset the clock I was measuring.
+  # The observer effect, in the one tier whose job is to observe.
+  #
+  # Its OWN reading is still taken mid-report, before this, so report can show a
+  # number that includes its own traffic. That errs toward ACTIVE -- a smaller
+  # idle time, which suppresses a finding rather than inventing one -- and it is
+  # displayed rather than alerted on.
+  _idle_phase=settle   # report ran hooks too
+  _idle_secs >/dev/null 2>&1 || true   # re-baseline, report's own traffic
+  _idle_phase=
   return "$RRC"
 }
 
@@ -3228,7 +3244,7 @@ cmd_enforce() {
   # the pass (the `settle` phase below). The window each source then judges is
   # the one between the end of the last pass and the start of this one, in which
   # vigilance did nothing at all.
-  _idle_secs >/dev/null 2>&1 || true
+  _idle_secs >/dev/null 2>&1 || true   # the reading this pass judges
   # Asked FIRST, and unconditionally: whether a deadline exists is a separate
   # question from whether the machine is still in the state it claims, and
   # every early return below would otherwise skip it.
@@ -3250,8 +3266,8 @@ cmd_enforce() {
   # keystrokes each landing in that 5% window, about 4e-11. The alternative --
   # counting our own traffic as input -- was not a small risk but a permanent
   # certainty.
-  _idle_phase=settle
-  _idle_secs >/dev/null 2>&1 || true
+  _idle_phase=settle   # past the traffic of the pass above
+  _idle_secs >/dev/null 2>&1 || true   # re-baseline, the pass's own traffic
   _idle_phase=
   _e=$(_next_down "$_from")
   if [ -z "$_e" ]; then

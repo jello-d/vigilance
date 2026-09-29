@@ -736,7 +736,7 @@ t coverage
 = supervision-pass-does-not-sample-the-clock
 f bin/vigilant
 t due
--   _idle_secs >/dev/null 2>&1 || true
+-   _idle_secs >/dev/null 2>&1 || true   # the reading this pass judges
 +   true
 
 = report-blames-a-device-for-a-person
@@ -778,5 +778,11 @@ t input-counters
 = supervision-never-re-baselines-the-clock
 f bin/vigilant
 t due
--   _idle_phase=settle
+-   _idle_phase=settle   # past the traffic of the pass above
++   _idle_phase=
+
+= report-never-re-baselines-the-clock
+f bin/vigilant
+t coverage
+-   _idle_phase=settle   # report ran hooks too
 +   _idle_phase=
