@@ -2112,10 +2112,19 @@ _rep_deadlines() {
         _r_ok "from '$_dr': '$_de' ${_ds}s idle-anchored, measurable"\
 " (clock has observed ${_dcm}s quiet)"
       elif [ "$_dca" -ge "$_ds" ] && [ "$_dqs" -ge "$_ds" ]; then
+        # NAME THE DEVICE. "Something talks to an input device on its own" was
+        # an inference dressed as a finding: true, unactionable, and unable to
+        # say which. The operator's only remedy is AT the device, so the source
+        # reports the one holding the clock down and this repeats it.
+        _dcr=$(awk '{print $3}' "$IDLE_DEMO" 2>/dev/null)
+        case "${_dcr:-}" in ''|-) _dcw="something talks to an input device on"\
+" its own, and no source named it" ;;
+          *) _dcw="$_dcr moved while the seat was quiet, so it reports to"\
+" itself (label:seconds-ago)" ;;
+        esac
         _r_warn "from '$_dr': '$_de' is ${_ds}s idle-anchored and the clock"\
 " has NEVER seen over ${_dcm}s quiet, though the machine has been at"\
-" '$_dqr' for ${_dqs}s: the seat WAS quiet and the clock missed it, so"\
-" something talks to an input device on its own"
+" '$_dqr' for ${_dqs}s: the seat WAS quiet and the clock missed it. $_dcw"
       else
         _r_info "from '$_dr': '$_de' ${_ds}s idle-anchored; longest quiet"\
 " seen is ${_dcm}s and the seat has not been quiet for ${_ds}s while the"\
@@ -2751,6 +2760,7 @@ _idle_secs() {   # -> seconds since last seat input, or empty if unknowable
   _imin=
   _cmax=
   _camax=
+  _crec=
   true > "$IDLE_DEMO" 2>/dev/null || true
   _iifs=$IFS; IFS='
 '
@@ -2821,9 +2831,14 @@ _idle_secs() {   # -> seconds since last seat input, or empty if unknowable
           | sed -n 's/.*ceiling=\([0-9][0-9]*\).*/\1/p')
     _ia=$(head -1 "$_iof" 2>/dev/null \
           | sed -n 's/.*age=\([0-9][0-9]*\).*/\1/p')
+    # AND WHICH DEVICE IS HOLDING IT DOWN, from the same source that won the
+    # comparison. Carried so `report` can NAME a self-reporting device instead
+    # of concluding one exists by elimination.
+    _ir=$(head -1 "$_iof" 2>/dev/null \
+          | sed -n 's/.*recent=\([^ ][^ ]*\).*/\1/p')
     if [ -n "$_ic" ] && [ -n "$_ia" ]; then
       if [ -z "$_cmax" ] || [ "$_ic" -gt "$_cmax" ]; then
-        _cmax=$_ic; _camax=$_ia
+        _cmax=$_ic; _camax=$_ia; _crec=$_ir
       fi
     fi
     IFS='
@@ -2832,7 +2847,8 @@ _idle_secs() {   # -> seconds since last seat input, or empty if unknowable
   IFS=$_iifs
   rm -f "$RUN_DIR/idle.$$" 2>/dev/null || true
   if [ -n "$_cmax" ]; then
-    printf '%s %s\n' "$_cmax" "$_camax" > "$IDLE_DEMO" 2>/dev/null || true
+    printf '%s %s %s\n' "$_cmax" "$_camax" "${_crec:--}" \
+      > "$IDLE_DEMO" 2>/dev/null || true
   fi
   # THE LADDER'S OWN RECORD IS A CEILING ON IDLE TIME, and a ceiling is NOT a
   # source: it bounds an answer, it cannot supply one. So it is applied after

@@ -114,6 +114,31 @@ Stated plainly rather than implied:
   UID: a machine-scope hook target must be root-visible or _greetd cannot even
   see it, which is a separate finding with no check of its own.
 
+### Ruled out, with the measurement
+
+Kept because a closed avenue reopens every time somebody re-derives the idea.
+
+An **evdev idle source** cannot exist under the no-daemon rule, and the probe
+that seemed to authorise one was answering a different question.
+`test/probe/evdev-idle-proof` established, on real hardware, that `open -> wait
+-> poll(0) -> close` sees input AND sees the absence of input without reading
+an event, and `test/evdev-sample.t` holds that down in the guest. Both are
+about a WINDOW.
+
+A clock needs more than that. A hook observes only while it runs -- about 8s of
+every 60 under its bound -- and **sampled observation cannot prove absence
+between samples**, so it would report idle time it never watched. That is the
+one unsafe direction for a clock gating an alert: it manufactures a finding
+rather than suppressing one. Continuous coverage means a persistent process
+next to the security path, which is what this package exists to avoid. A
+COUNTER is sampling-safe for the opposite reason: it accumulates between
+samples, so any interval sees everything that happened in it.
+
+So the remedy for a contaminated counter is not a second clock. It is to NAME
+the device that chatters, which the counters can already do and which needs no
+privilege, no evdev and nothing to opt into. What remains outside vigilance is
+the device's own firmware.
+
 ## 3. What is assumed about the world
 
 Each of these was at some point "everyone knows", and each was false here.

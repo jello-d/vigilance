@@ -744,3 +744,15 @@ f bin/vigilant
 t coverage
 -       elif [ "$_dca" -ge "$_ds" ] && [ "$_dqs" -ge "$_ds" ]; then
 +       elif [ "$_dca" -ge "$_ds" ]; then
+
+= idle-clock-does-not-attribute-a-moving-device
+f libexec/vigilance/hooks/input-counters
+t input-counters
+-       if [ "${_dp:-}" != "$_dc" ]; then _da=$_now; fi
++       if false; then _da=$_now; fi
+
+= report-does-not-name-the-self-reporting-device
+f bin/vigilant
+t coverage
+-         _dcr=$(awk '{print $3}' "$IDLE_DEMO" 2>/dev/null)
++         _dcr=

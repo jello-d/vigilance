@@ -260,4 +260,51 @@ cannot tell a clock that could witness a deadline from one that never has:
 esac
 [ "$IDLE" -ge 40 ] || fail "field 1 stopped being the idle seconds: '$DEMO'"
 
+# --- IT NAMES THE DEVICE THAT MOVED ----------------------------------------
+# WHY A NAME AT ALL: report used to conclude "something talks to an input device
+# on its own" by elimination, which is true, unactionable and unable to say
+# which -- and the operator's only remedy is AT the device. The counters already
+# know per device; only the attribution was missing.
+#
+# CONTENT-FREE, so this needs no privilege and nothing to opt into. A count
+# carries no scancode, button or coordinate. The alternative considered was an
+# evdev source and it cannot work: a hook observes only during its own bounded
+# window, and sampled observation cannot prove absence BETWEEN samples, so it
+# would over-report idle -- the one unsafe direction for a clock gating an
+# alert.
+rm -f "$T/state/input-counters" "$T/state/input-counters.devices"
+_irq 500; _usb 100
+# AFTER _usb, which is what creates the directory. Writing it first failed
+# silently behind a `|| true` and the label fell back to the basename -- the
+# tolerant-write habit hiding a fixture bug, which is why the assertion names
+# the expected label rather than just checking that SOMETHING was named.
+printf 'Test_Keyboard\n' > "$T/sys/usbdev/product"
+_run; _run
+_usb 106                            # ONLY the USB device moves
+_run
+case "$DEMO" in
+  *recent=Test_Keyboard:*) ;;
+  *) fail "the source did not name the device that moved: '$DEMO'. Without a
+name the finding is 'something on this machine reports to itself', which the
+operator cannot act on" ;;
+esac
+case "$DEMO" in
+  *recent=i8042*) fail "it named a device that did NOT move: '$DEMO'. The
+binding device is the one holding the clock down, and naming the wrong one sends
+the operator to the wrong hardware" ;;
+esac
+
+# AND THE OTHER WAY ROUND, or "always name the USB one" passes the case above. A
+# REAL GAP FIRST: both devices moved within the same second above, so both read
+# "0 seconds ago" and which one is named is a coin toss on file order. That is
+# fine behaviour -- either is the binding device -- but it is not a test, so the
+# case makes the ages actually differ.
+sleep 2
+_irq 511                            # only i8042 moves now
+_run
+case "$DEMO" in
+  *recent=i8042:*) ;;
+  *) fail "with only i8042 moving it was not named: '$DEMO'" ;;
+esac
+
 pass

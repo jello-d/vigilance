@@ -206,7 +206,7 @@ _backdate() {   # rung seconds-ago
   printf '%s %s\n' "$1" "$(( $(date +%s) - $2 ))" > "$VIGILANCE_RUN_DIR/depth"
 }
 _duehook lock 10-idle "480 idle"
-_idlesrc "42 ceiling=30 age=9999"
+_idlesrc "42 ceiling=30 age=9999 recent=Drop_CSTM65:3"
 _backdate sleep 9999
 _out=$(_report)
 case $(_section "$_out" deadlines) in
@@ -224,6 +224,30 @@ printf '%s\n' "$_out" | grep -qE '^ *\[WARN\].*NEVER seen' \
   || fail "the finding was reported below WARN, so report still exits 0 and
 anything reading the status is told the deadline is covered:
 $(printf '%s\n' "$_out" | grep -i 'never seen' | head -2)"
+
+# ...AND IT NAMES THE DEVICE. "Something talks to an input device on its own" is
+# true, unactionable and unable to say which -- and the remedy is AT the device,
+# so a finding that cannot name it asks the operator to search their own
+# machine.
+case $(_section "$_out" deadlines) in
+  *"Drop_CSTM65:3 moved while the seat was quiet"*) ;;
+  *) printf '%s\n' "$_out" >&2
+     fail "the finding did not name the device the source reported as holding
+the clock down. Naming a gap without saying where it is invites the reader to
+discount the whole tier" ;;
+esac
+
+# AND IT SAYS SO WHEN NOTHING NAMED ONE, rather than inventing a culprit or
+# silently dropping the sentence. A source predating this field reports no
+# `recent=` at all, and that must read as "no source named it".
+_idlesrc "42 ceiling=30 age=9999"
+_out=$(_report)
+case $(_section "$_out" deadlines) in
+  *"no source named it"*) ;;
+  *) printf '%s\n' "$_out" >&2
+     fail "with no device named, the finding did not say so. A sentence that
+just stops is read as a missing word rather than as missing evidence" ;;
+esac
 
 # --- 8c-bis. A MACHINE IN USE IS NOT A BROKEN CLOCK ------------------------
 # THE DEFECT 8c's FIRST VERSION SHIPPED. With the same short ceiling and the

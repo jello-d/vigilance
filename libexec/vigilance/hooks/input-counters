@@ -87,12 +87,37 @@ for _d in "$SYS_INPUT"/input*; do
     _p=$(dirname "$_p")
   done
 done
+# PER-DEVICE COUNTS ARE COLLECTED TOO, and only so the hook can NAME a device
+# that moves while nobody is present. `report` used to conclude "something talks
+# to an input device on its own" by elimination, which is an inference dressed
+# as a finding: it could not say WHICH, and the operator's only remedy is at the
+# device. A label and a delta turn that into something actionable.
+#
+# NO EVDEV, NO PRIVILEGE, NOTHING TO OPT INTO. A count carries no scancode,
+# button or coordinate, so this is the same content-free evidence the clock
+# itself rests on. The alternative considered was an evdev source, and it cannot
+# work: a hook can only observe during its own bounded window, and sampled
+# observation cannot prove absence BETWEEN samples, so it would over-report idle
+# -- the one unsafe direction for a clock that gates an alert. A counter
+# accumulates between samples, which is exactly why it was chosen.
+_draw=${STATE}.raw
+true > "$_draw" 2>/dev/null || _draw=
+_label() {   # sysfs path -> one token, readable if the device says who it is
+  _lb=$(cat "$1/product" 2>/dev/null || true)
+  [ -n "$_lb" ] || _lb=$(basename "$1")
+  printf '%s' "$_lb" | tr -cs 'A-Za-z0-9._-' '_'
+}
 for _p in $_parents; do
   _u=$(cat "$_p/urbnum" 2>/dev/null || echo)
   case "${_u:-}" in ''|*[!0-9]*) continue ;; esac
   _sig=$((_sig + _u))
   _seen=$((_seen + 1))
+  [ -z "$_draw" ] || printf '%s %s\n' "$(_label "$_p")" "$_u" >> "$_draw" \
+    2>/dev/null || true
 done
+if [ -n "$_draw" ] && [ "${_i8:-0}" -gt 0 ] 2>/dev/null; then
+  printf 'i8042 %s\n' "$_i8" >> "$_draw" 2>/dev/null || true
+fi
 
 # NOTHING TO COUNT is not "idle forever". A box with no countable input device
 # must say so: 78 leaves the deadline unmeasurable and visible in `report`,
@@ -149,6 +174,46 @@ _save() {   # sig last-change max [first-sample]
     > "$STATE" 2>/dev/null || true
 }
 
+# WHICH DEVICE MOVED, AND HOW LONG AGO. Kept beside the counters and compared on
+# the next pass, because a count alone cannot say when it changed. `report`
+# supplies the other half: it knows whether the machine is at a DARK rung, so a
+# device that moved while the seat was demonstrably quiet is a device reporting
+# to itself, named rather than inferred.
+#
+# TOLERANT THROUGHOUT. This is bookkeeping for a diagnosis, and a failure to
+# keep it must never change the clock's answer: that rule is _set_depth's,
+# learned when a state dir that could not be created aborted a hook before it
+# drove anything.
+_DEVS=${STATE}.devices
+_recent=
+_recent_age=
+if [ -n "$_draw" ]; then
+  _dnew=${STATE}.devices.new
+  if true > "$_dnew" 2>/dev/null; then
+    while read -r _dl _dc; do
+      [ -n "${_dl:-}" ] || continue
+      # `|| true` BECAUSE awk EXITS NON-ZERO ON A MISSING FILE, and under set -e
+      # a failed assignment ends the hook. On the FIRST pass there is no devices
+      # file yet, so this killed it outright with rc=2 and no message -- the
+      # convention two lines of this same file already follow for `cat`.
+      _dp=$(awk -v l="$_dl" '$1 == l { print $2; exit }' "$_DEVS" \
+            2>/dev/null || true)
+      _da=$(awk -v l="$_dl" '$1 == l { print $3; exit }' "$_DEVS" \
+            2>/dev/null || true)
+      case "${_da:-}" in ''|*[!0-9]*) _da=$_now ;; esac
+      if [ "${_dp:-}" != "$_dc" ]; then _da=$_now; fi
+      printf '%s %s %s\n' "$_dl" "$_dc" "$_da" >> "$_dnew" 2>/dev/null || true
+      _dq=$((_now - _da))
+      if [ "$_dq" -lt 0 ]; then _dq=0; fi
+      if [ -z "$_recent_age" ] || [ "$_dq" -lt "$_recent_age" ]; then
+        _recent=$_dl; _recent_age=$_dq
+      fi
+    done < "$_draw"
+    mv "$_dnew" "$_DEVS" 2>/dev/null || true
+  fi
+  rm -f "$_draw" 2>/dev/null || true
+fi
+
 # WHAT THE CLOCK HAS DEMONSTRATED, printed so something can READ it. The ceiling
 # used to be recorded and consumed by NOTHING: `report` decided a deadline was
 # measurable on "a number came back", which is the exact false green the ceiling
@@ -158,7 +223,16 @@ _save() {   # sig last-change max [first-sample]
 # FIELD 1 IS STILL THE IDLE SECONDS, so every existing consumer is unaffected:
 # the runner takes the first field of the first line.
 _answer() {   # idle
-  printf '%s ceiling=%s age=%s\n' "$1" "$_pmax" "$_age"
+  # THE MOST RECENTLY MOVED DEVICE IS THE BINDING ONE: it is what holds the
+  # clock down, so it is the only one worth naming. Appended after the existing
+  # fields, which are themselves after field 1, so every consumer is still
+  # unaffected.
+  if [ -n "$_recent" ]; then
+    printf '%s ceiling=%s age=%s recent=%s:%s\n' \
+      "$1" "$_pmax" "$_age" "$_recent" "$_recent_age"
+  else
+    printf '%s ceiling=%s age=%s\n' "$1" "$_pmax" "$_age"
+  fi
 }
 
 # FIRST RUN: a counter alone says nothing. Idle time is the interval since it
