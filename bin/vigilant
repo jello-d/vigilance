@@ -2947,6 +2947,86 @@ _audit_covered() {   # -> 0 if ANY audit source is wired
 # tell" -- which is NOT zero, because zero means "input one second ago" and is
 # the single most dangerous wrong answer here: it would silently reset every
 # deadline forever and report a healthy machine.
+
+# ONE PLACE THAT DECIDES WHAT A VALID ANSWER IS, split out of the reduction
+# below because it is the only part reading THIRD-PARTY input and it earns its
+# own name for that alone.
+#
+# VALIDATE, NEVER COERCE. This was `tr -dc '0-9'`, which DELETES every
+# non-digit rather than rejecting the value, so a source that answered badly
+# had a number invented for it. Measured, with a hook printing:
+#
+#   -99      -> the sign stripped, read as 99      -> a FALSE OVERDUE
+#   "1 2 3"  -> the fields concatenated, read as 123
+#   21 digits-> `[: Illegal number:` leaked to the user and the compare died
+#
+# An idle.d source is an EXTENSION POINT, so its output is third-party input;
+# and a fabricated idle time drives the overdue detector, whose false alerts
+# are the documented reason a live box had its supervision timer stopped by
+# hand. Seven other places in this file validate with a case guard: that one
+# site broke the convention.
+#
+# A REJECTED VALUE IS "NO ANSWER", not zero, and that is already visible: when
+# nothing answers, report's `deadlines` section says the deadline cannot be
+# measured. So this stays silent rather than logging once a minute. What is NOT
+# visible is one garbage source beside one good one, since the minimum-wins
+# rule makes the good one authoritative; naming a source that answers badly
+# belongs in `report` and is not done yet.
+#
+# It SETS rather than prints, which is this file's idiom for several returns
+# (see _rep_cadence_snap): a caller wanting four values out of one answer would
+# otherwise parse a string this just finished parsing.
+_idle_parse() {   # <file> -> sets _iv _ic _ia _ir; empty means "no answer"
+  _iv= _ic= _ia= _ir=
+  # READ ONCE. The fields all come off the SAME line, and asking `head` four
+  # times invited the four answers to come from four different reads.
+  _ipl=$(head -1 "$1" 2>/dev/null || true)
+  _iv=$(printf '%s' "$_ipl" | awk '{print $1}')
+  case "${_iv:-}" in ''|*[!0-9]*) _iv= ;; esac
+  # 11+ digits is past any clock and overflows the shell's own arithmetic,
+  # which is what produced the `Illegal number` above.
+  if [ -n "$_iv" ] && [ "${#_iv}" -gt 10 ]; then _iv=; fi
+  # THE OPTIONAL FIELDS, which a source may omit entirely: what it has
+  # DEMONSTRATED (the longest quiet stretch it has ever watched, and how long
+  # it has been watching) and WHICH DEVICE is holding the clock down. The last
+  # is carried so `report` can NAME a self-reporting device instead of
+  # concluding one exists by elimination. Absent is normal and is not an error:
+  # a source predating these fields answers exactly as it always did.
+  _ic=$(printf '%s' "$_ipl" | sed -n 's/.*ceiling=\([0-9][0-9]*\).*/\1/p')
+  _ia=$(printf '%s' "$_ipl" | sed -n 's/.*age=\([0-9][0-9]*\).*/\1/p')
+  _ir=$(printf '%s' "$_ipl" | sed -n 's/.*recent=\([^ ][^ ]*\).*/\1/p')
+}
+
+# THE LADDER'S OWN RECORD IS A CEILING ON IDLE TIME, and a ceiling is NOT a
+# source: it bounds an answer, it cannot supply one. So the caller applies this
+# only when something actually answered -- a box with no idle source still
+# reports nothing, which is what keeps `report` honest about the deadline being
+# unmeasurable. Its own function so that invariant has somewhere to be stated
+# rather than living as an indentation level.
+#
+# An ASCENT means something raised the machine, and whatever did also restarts
+# the clock of the mechanism being judged: swayidle rearms every timeout on a
+# resume. Our counters can miss the cause entirely -- a lid switch is not seat
+# input, and `systemctl restart vigilance-idle.service` makes swayidle run its
+# pending resume commands on SIGTERM, which is documented behaviour and not a
+# bug. Both raise the ladder while /proc/interrupts sits perfectly still.
+#
+# Measured on manifold: a tackup run restarted the idle unit at 23:46:51, the
+# shutdown resume crossed `wake`, and the overdue detector then alerted once a
+# minute that `sleep` was 3000s late -- about a freshly armed timer that was
+# going to fire on schedule. Without the ceiling the finding is not "the
+# mechanism is broken" but "our clock is older than the mechanism's".
+_idle_bound() {   # <seconds> -> the same, bounded by the last ascent
+  _ibv=$1
+  _ibat=$(_last_ascent)
+  if [ "$_ibat" -gt 0 ]; then
+    _ibs=$(( $(date +%s) - _ibat ))
+    if [ "$_ibs" -lt 0 ]; then _ibs=0; fi
+    if [ "$_ibs" -lt "$_ibv" ]; then _ibv=$_ibs; fi
+  fi
+  printf '%s' "$_ibv"
+}
+
 _idle_secs() {   # -> seconds since last seat input, or empty if unknowable
   _il=$(_hooks_for idle)
   if [ -z "$_il" ]; then return 0; fi
@@ -2979,32 +3059,9 @@ _idle_secs() {   # -> seconds since last seat input, or empty if unknowable
     VIGILANCE_KIND=idle VIGILANCE_STATE_DIR="$_isd" PATH="$HOOK_PATH" \
       VIGILANCE_IDLE_PHASE="${_idle_phase:-}" \
       $HOOK_TMO "$_ih" > "$_io" 2>/dev/null || _irc=$?
-    # VALIDATE, NEVER COERCE. This was `tr -dc '0-9'`, which DELETES every
-    # non-digit rather than rejecting the value, so a source that answered
-    # badly had a number invented for it. Measured, with a hook printing:
-    #
-    #   -99      -> the sign stripped, read as 99      -> a FALSE OVERDUE
-    #   "1 2 3"  -> the fields concatenated, read as 123
-    #   21 digits-> `[: Illegal number:` leaked to the user and the compare died
-    #
-    # An idle.d source is an EXTENSION POINT, so its output is third-party
-    # input; and a fabricated idle time drives the overdue detector, whose
-    # false alerts are the documented reason a live box had its supervision
-    # timer stopped by hand. Seven other places in this file validate with a
-    # case guard: this one site broke the convention.
-    #
-    # A REJECTED VALUE IS "NO ANSWER", not zero, and that is already visible:
-    # when nothing answers, report's `deadlines` section says the deadline
-    # cannot be measured. So this stays silent rather than logging once a
-    # minute. What is NOT visible is one garbage source beside one good one,
-    # since the minimum-wins rule makes the good one authoritative; naming a
-    # source that answers badly belongs in `report` and is not done yet.
-    _iv=$(head -1 "$_io" 2>/dev/null | awk '{print $1}')
-    _iof=$_io
-    case "${_iv:-}" in ''|*[!0-9]*) _iv= ;; esac
-    # 11+ digits is past any clock and overflows the shell's own arithmetic,
-    # which is what produced the `Illegal number` above.
-    if [ -n "$_iv" ] && [ "${#_iv}" -gt 10 ]; then _iv=; fi
+    # Every field this source answered with, validated: see _idle_parse for
+    # why none of it is coerced.
+    _idle_parse "$_io"
     if [ "$_irc" != 0 ] || [ -z "$_iv" ]; then continue; fi
     # THE MINIMUM, deliberately. Several sources should agree; when they do not,
     # the one reporting the LEAST idle time is the one that saw input most
@@ -3023,18 +3080,13 @@ _idle_secs() {   # -> seconds since last seat input, or empty if unknowable
     # the idle time itself must believe whichever source saw input most
     # recently.
     #
-    # THROUGH A FILE, because this function is called inside a command
-    # substitution and a variable set in a subshell never reaches the caller --
-    # the trap that once defeated a timeout bound in this same file.
-    _ic=$(head -1 "$_iof" 2>/dev/null \
-          | sed -n 's/.*ceiling=\([0-9][0-9]*\).*/\1/p')
-    _ia=$(head -1 "$_iof" 2>/dev/null \
-          | sed -n 's/.*age=\([0-9][0-9]*\).*/\1/p')
-    # AND WHICH DEVICE IS HOLDING IT DOWN, from the same source that won the
-    # comparison. Carried so `report` can NAME a self-reporting device instead
-    # of concluding one exists by elimination.
-    _ir=$(head -1 "$_iof" 2>/dev/null \
-          | sed -n 's/.*recent=\([^ ][^ ]*\).*/\1/p')
+    # PUBLISHED THROUGH A FILE below, because this function is called inside a
+    # command substitution and a variable set in a subshell never reaches the
+    # caller -- the trap that once defeated a timeout bound in this same file.
+    #
+    # The device NAME travels with the ceiling that won, not with the minimum:
+    # the question it answers is "what is holding this clock down", which
+    # belongs to whichever source has watched longest.
     if [ -n "$_ic" ] && [ -n "$_ia" ]; then
       if [ -z "$_cmax" ] || [ "$_ic" -gt "$_cmax" ]; then
         _cmax=$_ic; _camax=$_ia; _crec=$_ir
@@ -3049,31 +3101,12 @@ _idle_secs() {   # -> seconds since last seat input, or empty if unknowable
     printf '%s %s %s\n' "$_cmax" "$_camax" "${_crec:--}" \
       > "$IDLE_DEMO" 2>/dev/null || true
   fi
-  # THE LADDER'S OWN RECORD IS A CEILING ON IDLE TIME, and a ceiling is NOT a
-  # source: it bounds an answer, it cannot supply one. So it is applied after
-  # the minimum and only when something actually answered -- a box with no idle
-  # source still reports nothing, which is what keeps `report` honest about the
-  # deadline being unmeasurable.
-  #
-  # An ASCENT means something raised the machine, and whatever did also restarts
-  # the clock of the mechanism being judged: swayidle rearms every timeout on a
-  # resume. Our counters can miss the cause entirely -- a lid switch is not seat
-  # input, and `systemctl restart vigilance-idle.service` makes swayidle run its
-  # pending resume commands on SIGTERM, which is documented behaviour and not a
-  # bug. Both raise the ladder while /proc/interrupts sits perfectly still.
-  #
-  # Measured on manifold: a tackup run restarted the idle unit at 23:46:51, the
-  # shutdown resume crossed `wake`, and the overdue detector then alerted once a
-  # minute that `sleep` was 3000s late -- about a freshly armed timer that was
-  # going to fire on schedule. Without the ceiling the finding is not "the
-  # mechanism is broken" but "our clock is older than the mechanism's".
+  # BOUNDED BY THE LAST ASCENT, and ONLY when something answered: a ceiling is
+  # not a source, so it must never produce a number where no clock did. That
+  # guard is the load-bearing half and stays here, at the reduction, where
+  # "something answered" is known; _idle_bound says why the bound exists.
   if [ -n "$_imin" ]; then
-    _ia=$(_last_ascent)
-    if [ "$_ia" -gt 0 ]; then
-      _isince=$(( $(date +%s) - _ia ))
-      if [ "$_isince" -lt 0 ]; then _isince=0; fi
-      if [ "$_isince" -lt "$_imin" ]; then _imin=$_isince; fi
-    fi
+    _imin=$(_idle_bound "$_imin")
   fi
   printf '%s' "$_imin"
 }

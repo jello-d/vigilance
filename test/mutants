@@ -484,8 +484,8 @@ t standing-recheck
 = idle-ceiling-is-not-applied
 f bin/vigilant
 t idle-ceiling
--       if [ "$_isince" -lt "$_imin" ]; then _imin=$_isince; fi
-+       if false; then _imin=$_isince; fi
+-     if [ "$_ibs" -lt "$_ibv" ]; then _ibv=$_ibs; fi
++     if false; then _ibv=$_ibs; fi
 
 = idle-ceiling-invents-a-measurement
 f bin/vigilant
@@ -658,14 +658,14 @@ t swayidle-due
 = idle-source-output-is-coerced-not-validated
 f bin/vigilant
 t due
--     case "${_iv:-}" in ''|*[!0-9]*) _iv= ;; esac
-+     _iv=$(printf '%s' "$_iv" | tr -dc '0-9')
+-   case "${_iv:-}" in ''|*[!0-9]*) _iv= ;; esac
++   _iv=$(printf '%s' "$_iv" | tr -dc '0-9')
 
 = idle-source-number-may-overflow-the-shell
 f bin/vigilant
 t due
--     if [ -n "$_iv" ] && [ "${#_iv}" -gt 10 ]; then _iv=; fi
-+     true
+-   if [ -n "$_iv" ] && [ "${#_iv}" -gt 10 ]; then _iv=; fi
++   true
 
 = depth-record-rung-is-not-validated
 f bin/vigilant
