@@ -3256,6 +3256,21 @@ _enforce_recheck() {   # from
     return 0
   fi
   _rq_d=$(_depth); _rq_t=$(_depth_at)
+  # A DEFAULT IS NOT A CLAIM, and this guard is what keeps the line above from
+  # becoming one. `_depth` answers `open` when no record exists, and asserting
+  # from that that the screen must therefore be LIT is how `report` once
+  # declared FAIL over a machine doing exactly the right thing: nobody logged
+  # in, and the greeter -- a different user, with its own record -- had
+  # correctly put the monitor into DDC standby. Here it would ALERT rather than
+  # merely print.
+  #
+  # It was previously unreachable, because cmd_enforce returned before calling
+  # this whenever the record was missing. That return has moved below the
+  # watchdogs (which must run in exactly that state), so the abstention has to
+  # be stated where it is a property of the judgement rather than a side effect
+  # of the caller's control flow. Silent: cmd_enforce announces the same
+  # abstention once, and report's `cadence` section states it too.
+  if [ "$_rq_t" -le 0 ]; then return 0; fi
   # A TRANSITION IS THE EVENT WORTH VERIFYING ON, and this is where that
   # happens. `_cross_one` runs the act and report tiers and NOTHING else, so
   # nothing has ever verified at a crossing; the periodic pass was the only
@@ -3317,10 +3332,6 @@ cmd_enforce() {
   mkdir -p "$RUN_DIR" "$STATE_ROOT"
   _from=$(_depth)
   _at=$(_depth_at)
-  if [ "$_at" -le 0 ]; then
-    echo "enforce: no depth record; nothing is overdue"
-    return 0
-  fi
   # THE CLOCK IS SAMPLED BEFORE ANY HOOK RUNS, and that ordering is the whole
   # mechanism rather than tidiness. A counter clock reads the USB URB count of
   # every input device, and OUR OWN PASS generates traffic on one: the standing
@@ -3360,6 +3371,24 @@ cmd_enforce() {
   _idle_phase=settle   # past the traffic of the pass above
   _idle_secs >/dev/null 2>&1 || true   # re-baseline, the pass's own traffic
   _idle_phase=
+  # NO RECORD MEANS NO DEADLINE, and that is ALL it means.
+  #
+  # This return used to sit at the top of the function, above the two calls
+  # whose own comments say they are unconditional because "every early return
+  # below would skip it" -- so an early return ABOVE them skipped both, and
+  # nothing said so. REPRODUCED before moving it: against an empty runtime dir
+  # the watchdog hook ran zero times, and the clock was never sampled either.
+  #
+  # THE STATE IS SELF-SUSTAINING, which is what makes it worse than a gap.
+  # RUN_DIR is cleared at logout, so every fresh login starts with no record;
+  # an idle timer wedged from login crosses no edge, so no record is ever
+  # written, so the watchdog built to catch exactly that stayed inert for the
+  # life of the session. The founding failure of this package, in the one state
+  # where it hides itself.
+  if [ "$_at" -le 0 ]; then
+    echo "enforce: no depth record; nothing is overdue"
+    return "$_erc"
+  fi
   _e=$(_next_down "$_from")
   if [ -z "$_e" ]; then
     echo "enforce: nothing below '$_from' is an enforcement target"

@@ -816,3 +816,14 @@ f bin/vigilant
 t actuators
 -   for _f in "$STATE_ROOT"/*/*; do
 +   for _f in "$STATE_ROOT"/*/* "$STATE_ROOT"/*/.[!.]*; do
+
+= supervision-skips-everything-with-no-depth-record
+f bin/vigilant
+t watchdog
+-   _idle_secs >/dev/null 2>&1 || true   # the reading this pass judges
++   [ "$_at" -gt 0 ] || return 0
+
+= recheck-judges-a-default-rung
+f bin/vigilant
+t watchdog
+-   if [ "$_rq_t" -le 0 ]; then return 0; fi

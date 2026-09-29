@@ -95,6 +95,63 @@ skipped. 'Is anything overdue' and 'is the machinery that would do it alive'
 are different questions, and the second must not depend on the first"
 go lock
 
+# --- 4b. AND WHEN THERE IS NO RECORD AT ALL, which is every fresh login -----
+# The early return this one skipped sat ABOVE the unconditional calls, so the
+# comment on case 4 was true of four returns and false of the fifth. Found by
+# reproducing it: against an empty runtime dir the hook ran zero times.
+#
+# THE STATE IS SELF-SUSTAINING, which is why this is the sharpest of the five.
+# RUN_DIR is cleared at logout, so a session begins with no record; an idle
+# timer wedged from login crosses no edge, so no record is ever written, so the
+# one tier that can see a wedged timer stayed inert for the whole session. The
+# founding failure, in the state that hides it.
+: > "$T/alerts"
+_wd 1 "wedged"
+rm -f "$VIGILANCE_RUN_DIR/depth"
+[ "$(_run)" != 0 ] || fail "with no depth record the watchdog tier was skipped.
+That is every fresh login, and an idle timer wedged from login never writes a
+record -- so the tier built for exactly that failure would never run at all"
+case "$(_alerts)" in
+  *watchdog*) ;;
+  *) fail "no watchdog alert with no depth record: the tier ran and its
+finding went nowhere" ;;
+esac
+
+# ...AND THE RECHECK MUST STILL ABSTAIN THERE, which is the other half. With no
+# record `_depth` answers `open`, and judging that default asserts the screen
+# must be LIT: exactly how report once declared FAIL over a machine doing the
+# right thing, where the greeter had correctly put the monitor into standby.
+# Here it would ALERT. So moving the return must not have made the machine's
+# state judgeable, only its machinery observable.
+: > "$T/alerts"
+_wd 0
+mkdir -p "$VIGILANCE_HOOK_ROOT/unlock.verify.d"
+cat > "$VIGILANCE_HOOK_ROOT/unlock.verify.d/10-drift" <<'DRIFT'
+#!/bin/sh
+echo "the screen is dark"
+exit 1
+DRIFT
+chmod +x "$VIGILANCE_HOOK_ROOT/unlock.verify.d/10-drift"
+rm -f "$VIGILANCE_RUN_DIR/depth"
+[ "$(_run)" = 0 ] || fail "the standing recheck judged a machine with no depth
+record. The rung it judged was a DEFAULT, not a claim, and the verdict alerts"
+[ -z "$(_alerts)" ] || fail "an alert was raised about a default rung:
+$(_alerts)"
+
+# ...and it is not simply switched off: with a record, the same verifier IS
+# judged. Without this the fix reads identically to deleting the tier.
+go lock
+go open
+[ "$(_run)" != 0 ] || fail "with a depth record the standing recheck did not
+report a verifier that failed, so the no-record guard above is indistinguishable
+from having switched the recheck off"
+case "$(_alerts)" in
+  *drift*) ;;
+  *) fail "no drift alert once the rung was a real claim: $(_alerts)" ;;
+esac
+rm -f "$VIGILANCE_HOOK_ROOT/unlock.verify.d/10-drift"
+go lock
+
 # --- 5. IT IS BOUNDED -------------------------------------------------------
 # It runs on a one-minute timer forever. A watchdog that hangs wedges the
 # supervision loop that exists to notice things not happening -- which would be

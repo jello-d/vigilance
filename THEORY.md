@@ -86,6 +86,8 @@ wishes are visible.
     23  a security request may deepen the machine, never raise it, and a REAL
         lid switch is the case that proved it matters
         fault-lid (a uinput SW_LID through logind), atleast.t
+    24  the machinery is watched whether or not the machine has state to judge
+        watchdog.t cases 4 and 4b (no target, and no record at all)
 
 ### Invariants with no enforcing check
 
