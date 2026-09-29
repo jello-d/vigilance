@@ -157,6 +157,24 @@ edge where *every* hook declined is reported as `NOTHING CHECKED`, a FAIL: the
 state is unknown rather than good. Using 78 is optional; a hook that exits 0 is
 counted as having checked, so nothing existing changes behaviour.
 
+A verify hook may also exit **75** to say **not due** -- "I checked recently".
+`hooklib.sh` supplies `hook_throttle <seconds>` for it, and the third code is
+there for the same reason as the second: *nothing is wired to look* is a
+failure, while *everything was checked within the hour* is the machine being
+covered, and collapsing those two would make a fully throttled tier read as a
+verify nobody performed, in the safe-looking direction. So 75 is counted apart
+again, and a tier where every hook deferred is reported as such rather than as
+`NOTHING CHECKED`.
+
+**Only the standing recheck offers the deferral**, through
+`VIGILANCE_RECHECK=1`. An explicit `vigilant verify` is always real, including
+the one `lock-on-sleep.service` runs before a suspend, because "I looked an hour
+ago" is not an answer to "is the session secured right now". What makes a slow
+cadence safe is that the recheck forces a **full** verify on the first pass
+after the rung changes, which is when drift is actually introduced: a keyboard
+backlight once drifted 14 seconds after a crossing. See
+`VIGILANCE_PERIPHERAL_EVERY` in the man page for the measurements behind it.
+
 `block` hooks **fail open** by design: only an explicit exit 10 blocks an edge.
 A broken block hook must never be able to suppress a lock, because suppressing
 a lock is a security failure while allowing a redundant one is merely noise.

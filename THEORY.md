@@ -90,6 +90,8 @@ wishes are visible.
         watchdog.t cases 4 and 4b (no target, and no record at all)
     25  a mechanism that defers can be seen still looking
         cadence.t, including that the ages are read before report's own verify
+    26  every exit value the runner names is in the man page AND the README
+        claims.t, with the list derived from the constants
 
 ### Invariants with no enforcing check
 

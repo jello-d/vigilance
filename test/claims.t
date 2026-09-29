@@ -118,10 +118,43 @@ done
 # Units branch on these. The header calls them a contract; a contract documented
 # in only one place is one a caller can read the wrong version of.
 for _c in 0 1 2 3; do
-  grep -qE "^#   $_c  " "$V" \
+  grep -qE "^#  +$_c  " "$V" \
     || fail "exit code $_c is not documented in vigilant's own header"
   awk '/^\.SH EXIT STATUS/,/^\.SH FILES/' "$M" | grep -q "^\.B $_c\$" \
     || fail "exit code $_c is documented in the code but not in the man page"
+done
+
+# --- AND EVERY HOOK EXIT VALUE REACHES THE README ---------------------------
+# The general form of a gap that shipped. The README taught 78 carefully, in
+# the very section a third-party hook author reads before writing one, and said
+# nothing at all about 75. A hook that wants to defer then gets written to
+# `exit 0`, which claims work it did not do: the exact conflation the contract
+# exists to break, arriving in the docs rather than the code.
+#
+# THE MAN PAGE WAS ALREADY FORCED and the README never was. Every KNOB had to
+# appear in one or the other (below), and the exit codes in the man page and the
+# header -- so the front door of a public repo was the one surface nothing
+# checked. Both are required here because they answer different readers: the man
+# page is the reference, the README is what someone reads before writing a hook.
+#
+# DERIVED FROM THE CONSTANTS rather than listed. A check with a hardcoded
+# subject cannot see the value nobody thought to add, which is the only kind of
+# gap worth having a check for, and this one was found by a list of four.
+#
+# What it cannot judge is whether the explanation is any good; the BOLD is the
+# convention both entries use, so it distinguishes a value presented as a code
+# from a number that happens to appear in a measurement.
+for _hc in $(sed -n 's/^HOOK_[A-Z]*=\([0-9]*\)$/\1/p' "$V"); do
+  awk '/^\.SH EXIT STATUS/,/^\.SH FILES/' "$M" | grep -q "^\.B $_hc\$" \
+    || fail "$_hc is a named exit value in the runner and is missing from the
+man page's EXIT STATUS section. A hook author reading the reference for the
+contract they are implementing has to find every value in it."
+  grep -q "\*\*$_hc\*\*" "$R" \
+    || fail "$_hc is a named exit value in the runner and the README never
+mentions it as one. That is the surface an outside integrator reads before
+writing a hook, and a contract taught by halves is one they will implement by
+halves: the value they were never told about becomes exit 0, which claims work
+that did not happen."
 done
 
 # --- EVERY KNOB IS DOCUMENTED ----------------------------------------------

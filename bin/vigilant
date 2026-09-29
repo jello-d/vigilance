@@ -120,6 +120,12 @@
 #   1  crossed, but one or more hooks FAILED (degraded, but we did move)
 #   2  usage error
 #   3  refused: a precondition was not met and NOTHING happened
+#  78  NOTHING WAS CHECKED: `verify` found no hook for the edge, so the answer
+#      is ABSENT rather than good. lock-on-sleep.service branches on exactly
+#      this, which is why it is here and not merely in the hook contract.
+#
+# HOOKS have their own two, read by the runner and never returned by it: 78
+# (not applicable) and 75 (not due, offered only to the standing recheck).
 set -eu
 
 PKG=vigilant

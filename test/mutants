@@ -857,3 +857,9 @@ f bin/vigilant
 t cadence
 -     _r_info "no verifier defers: every supervision pass checks everything"
 +     :
+
+= exit-value-ratchet-is-hardcoded-not-derived
+f bin/vigilant
+t claims
+- HOOK_SKIP=75
++ HOOK_SKIP=76

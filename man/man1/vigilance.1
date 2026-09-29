@@ -746,6 +746,31 @@ Usage error.
 .TP
 .B 3
 Refused: a precondition was not met and nothing happened.
+.TP
+.B 75
+NOT DUE \(em a hook saying "I checked recently". Read from a hook by the runner
+and never returned by
+.BR vigilant ,
+and distinct from both of its neighbours for the same reason 78 is distinct from
+0: "nothing is wired to look" is a failure, while "everything was checked inside
+the hour" is the machine being COVERED, and collapsing those would make a fully
+throttled tier read as a verify nobody performed. In the safe\-looking
+direction.
+.IP
+OFFERED ONLY TO THE STANDING RECHECK, through
+.BR VIGILANCE_RECHECK .
+An explicit
+.B vigilant verify
+never throttles, including the one
+.B lock\-on\-sleep.service
+runs before a suspend, because "I looked an hour ago" is not an answer to "is
+the session secured right now".
+.B hooklib.sh
+supplies
+.B hook_throttle
+for it; see
+.B VIGILANCE_PERIPHERAL_EVERY
+for the cadence and the measurements behind it.
 .SH FILES
 .TP
 .IR $XDG_RUNTIME_DIR /vigilance/depth
