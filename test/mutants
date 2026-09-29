@@ -756,3 +756,9 @@ f bin/vigilant
 t coverage
 -         _dcr=$(awk '{print $3}' "$IDLE_DEMO" 2>/dev/null)
 +         _dcr=
+
+= report-blames-the-device-for-our-own-traffic
+f bin/vigilant
+t coverage
+- " either it reports to itself, or something here talks to it -- a hook in"\
++ " it reports to itself -- a hook in"\\

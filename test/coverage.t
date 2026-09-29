@@ -237,6 +237,21 @@ the clock down. Naming a gap without saying where it is invites the reader to
 discount the whole tier" ;;
 esac
 
+# ...AND IT DOES NOT ASSERT WHICH CAUSE. The first version said the device
+# "reports to itself", and that was WRONG on the box it was written for: the
+# supervision pass runs verify, a wired hook there queries that very keyboard
+# over raw HID, and the keyboard answered because it was ASKED. Measured, 6 URBs
+# three seconds after every pass. A finding that names a hardware cause sends
+# the operator to reflash a device that is behaving correctly.
+case $(_section "$_out" deadlines) in
+  *"either it reports to itself, or something here talks to it"*) ;;
+  *) printf '%s\n' "$_out" >&2
+     fail "the finding asserted ONE cause for the device's traffic. The counter
+cannot tell a self-reporting device from one this machine talks to, our own
+verify tier included, so stating either as fact is a diagnosis the evidence
+does not support" ;;
+esac
+
 # AND IT SAYS SO WHEN NOTHING NAMED ONE, rather than inventing a culprit or
 # silently dropping the sentence. A source predating this field reports no
 # `recent=` at all, and that must read as "no source named it".

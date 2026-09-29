@@ -2115,12 +2115,27 @@ _rep_deadlines() {
         # NAME THE DEVICE. "Something talks to an input device on its own" was
         # an inference dressed as a finding: true, unactionable, and unable to
         # say which. The operator's only remedy is AT the device, so the source
-        # reports the one holding the clock down and this repeats it.
+        # reports the one holding the clock down and this repeats it. NAMED, BUT
+        # NOT BLAMED. The first version of this said the device "reports to
+        # itself", and that cause was WRONG on the box it was written for.
+        # Traced: the standing recheck runs `verify`, tackup wires kbd-rgb
+        # there, kbd-rgb asks qmk-ripple for the board's RGB state, and that is
+        # a raw-HID exchange on the keyboard -- 6 URBs, three seconds after
+        # every supervision pass, measured. The keyboard answers because we
+        # ASKED. So vigilance was resetting its own idle clock and then telling
+        # the operator to go and fix their firmware.
+        #
+        # urbnum COUNTS OUR WRITES TOO, which the mechanism's own reasoning
+        # missed: "a URB completes only on a real report" is true of interrupt
+        # IN transfers and says nothing about the traffic we generate ourselves.
+        # Until the clock can separate the two, this names the device and states
+        # BOTH causes rather than asserting the one that sounds like hardware.
         _dcr=$(awk '{print $3}' "$IDLE_DEMO" 2>/dev/null)
-        case "${_dcr:-}" in ''|-) _dcw="something talks to an input device on"\
-" its own, and no source named it" ;;
-          *) _dcw="$_dcr moved while the seat was quiet, so it reports to"\
-" itself (label:seconds-ago)" ;;
+        case "${_dcr:-}" in ''|-) _dcw="something on this machine talks to an"\
+" input device, and no source named it" ;;
+          *) _dcw="$_dcr moved while the seat was quiet (label:seconds-ago):"\
+" either it reports to itself, or something here talks to it -- a hook in"\
+" this machine's own verify tier counts, if one queries that device" ;;
         esac
         _r_warn "from '$_dr': '$_de' is ${_ds}s idle-anchored and the clock"\
 " has NEVER seen over ${_dcm}s quiet, though the machine has been at"\
