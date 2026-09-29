@@ -568,8 +568,8 @@ wrong.
 So the SHARED LAYER is built first and both tiers are thin adapters on it.
 
     test/
-      lib.sh          existing harness (harness_init, pass, fail)
-      scenario.sh     the shared vocabulary; both substrates use it
+      harness_lib     existing harness (harness_init, pass, fail)
+      scenario_lib    the shared vocabulary; both substrates use it
       scenarios/      substrate-agnostic scenario files
       run             STUB substrate: fast, no root
       vm/run          VM substrate: root, real systemd + logind
@@ -578,7 +578,7 @@ Three rules make them cohere.
 
 ### 11.1 One scenario suite, two substrates
 
-Scenarios are written once against `scenario.sh` and executed by both drivers.
+Scenarios are written once against `scenario_lib` and executed by both drivers.
 Same assertions, different ground truth.
 
 ### 11.2 `vigilant verify` is the shared oracle

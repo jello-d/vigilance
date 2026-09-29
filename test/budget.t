@@ -28,7 +28,7 @@ set -eu
 . "$(dirname "$0")/scenario_lib"
 scenario_init budget
 
-# The budget comes from scenario.sh (25s, the shipped unit's value), so the
+# The budget comes from scenario_lib (25s, the shipped unit's value), so the
 # arithmetic is what is under test rather than the host's systemd.
 _hook_n() {   # <dir> <count>
   mkdir -p "$VIGILANCE_HOOK_ROOT/$1"

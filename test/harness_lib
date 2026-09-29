@@ -18,8 +18,8 @@ fail() { printf 'FAIL %s: %s\n' "$TEST_NAME" "$1" >&2; exit 1; }
 # provide systemd/logind/suspend/hardware, so it SKIPS and says so. The VM
 # substrate sets SCENARIO_CAPS to the list it can honour.
 #
-# HERE RATHER THAN IN scenario.sh, because the SESSION tier needs it and wants
-# none of scenario.sh's recorder setup. Gating which substrate a test may run
+# HERE RATHER THAN IN scenario_lib, because the SESSION tier needs it and wants
+# none of scenario_lib's recorder setup. Gating which substrate a test may run
 # on is a harness question, not a scenario one.
 require() {   # <capability>...
   for _c in "$@"; do

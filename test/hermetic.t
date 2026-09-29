@@ -49,7 +49,7 @@ it. Every scenario therefore reads the DEVELOPER'S box for that fact, and its
 verdict changes with their screen, their hardware or their session"
   # ...and it must actually be exported into the environment at runtime.
   eval "_v=\${$_p:-}"
-  [ -n "$_v" ] || fail "$_p is set by scenario.sh but empty at runtime"
+  [ -n "$_v" ] || fail "$_p is set by scenario_lib but empty at runtime"
 done
 
 # --- 2. THE RATCHET: no host read outside a declared-live function ----------
