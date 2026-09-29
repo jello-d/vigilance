@@ -2776,7 +2776,12 @@ _idle_secs() {   # -> seconds since last seat input, or empty if unknowable
   _cmax=
   _camax=
   _crec=
-  true > "$IDLE_DEMO" 2>/dev/null || true
+  # NOT TRUNCATED WHILE SETTLING. A settle pass takes no reading worth
+  # publishing, and wiping the file would drop what the pre-pass sample
+  # demonstrated before anything read it.
+  if [ -z "${_idle_phase:-}" ]; then
+    true > "$IDLE_DEMO" 2>/dev/null || true
+  fi
   _iifs=$IFS; IFS='
 '
   for _ih in $_il; do
@@ -2794,6 +2799,7 @@ _idle_secs() {   # -> seconds since last seat input, or empty if unknowable
     _isd=$STATE_ROOT/$(basename "$_ih")
     mkdir -p "$_isd" 2>/dev/null || true
     VIGILANCE_KIND=idle VIGILANCE_STATE_DIR="$_isd" PATH="$HOOK_PATH" \
+      VIGILANCE_IDLE_PHASE="${_idle_phase:-}" \
       $HOOK_TMO "$_ih" > "$_io" 2>/dev/null || _irc=$?
     # VALIDATE, NEVER COERCE. This was `tr -dc '0-9'`, which DELETES every
     # non-digit rather than rejecting the value, so a source that answered
@@ -3208,6 +3214,21 @@ cmd_enforce() {
     echo "enforce: no depth record; nothing is overdue"
     return 0
   fi
+  # THE CLOCK IS SAMPLED BEFORE ANY HOOK RUNS, and that ordering is the whole
+  # mechanism rather than tidiness. A counter clock reads the USB URB count of
+  # every input device, and OUR OWN PASS generates traffic on one: the standing
+  # recheck runs `verify`, a wired hook there queries the keyboard over raw HID,
+  # and the keyboard answers because it was asked. Measured on a live box: 6
+  # URBs three seconds after every pass, once a minute, for ever. The clock read
+  # that as seat input, so it could never accumulate idle past one interval and
+  # `report` concluded the deadlines were unmeasurable -- while blaming the
+  # device.
+  #
+  # So the reading is taken here, and the sources are told to re-baseline AFTER
+  # the pass (the `settle` phase below). The window each source then judges is
+  # the one between the end of the last pass and the start of this one, in which
+  # vigilance did nothing at all.
+  _idle_secs >/dev/null 2>&1 || true
   # Asked FIRST, and unconditionally: whether a deadline exists is a separate
   # question from whether the machine is still in the state it claims, and
   # every early return below would otherwise skip it.
@@ -3217,25 +3238,21 @@ cmd_enforce() {
   # deadline exists is a different question from whether the machinery that
   # would meet it is alive, and every early return below would skip it.
   _run_watchdogs || _erc=1
-  # AND THE CLOCK IS SAMPLED UNCONDITIONALLY TOO, which is the third thing on
-  # this list and the one that was missing. An idle.d source is a SAMPLER: the
-  # only unprivileged way to read idle time is to watch a monotonic counter and
-  # remember what it said last time, so this supervision pass IS its sampling
-  # loop -- that is stated in _idle_secs as the reason no daemon is needed.
+  # AND THE SOURCES RE-BASELINE HERE, past the traffic the two calls above just
+  # generated. `settle` means "take a reading and remember it, do not judge":
+  # anything that moved during our own pass is ours, so it must not count as
+  # seat input, and a source that ignores the phase simply answers again and is
+  # ignored.
   #
-  # IT WAS ONLY REACHED FROM THE idle-ANCHORED BRANCH BELOW, past two early
-  # returns. So at any rung with nothing beneath it to enforce -- `sleep` on a
-  # box whose console stays dark, which is most of the time on a server -- the
-  # clock was never sampled at all, while the timer dutifully fired every
-  # minute. MEASURED on manifestor: the service ran at 17:03:20 and 17:04:30 and
-  # the source's last sample stayed frozen at 16:53.
-  #
-  # A COUNTER CLOCK THAT IS NOT SAMPLED IS NOT A CLOCK. Its next reading is wall
-  # time since whoever last ran `report`, not idle time, so it credited a 690s
-  # "quiet" stretch to a keyboard that was in fact ticking every 60 seconds --
-  # and report called two deadlines measurable on the strength of it. The value
-  # is discarded here; the POINT is the sample.
+  # THE UNATTRIBUTED WINDOW IS THE PASS ITSELF, about three seconds in sixty,
+  # and real input inside it is missed. Stated with the arithmetic rather than
+  # waved at: reaching a 480s deadline falsely needs EIGHT consecutive
+  # keystrokes each landing in that 5% window, about 4e-11. The alternative --
+  # counting our own traffic as input -- was not a small risk but a permanent
+  # certainty.
+  _idle_phase=settle
   _idle_secs >/dev/null 2>&1 || true
+  _idle_phase=
   _e=$(_next_down "$_from")
   if [ -z "$_e" ]; then
     echo "enforce: nothing below '$_from' is an enforcement target"

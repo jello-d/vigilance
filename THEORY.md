@@ -101,6 +101,15 @@ Stated plainly rather than implied:
   `test/level-rules.t`, whose `second-descent-re-asserts` case runs against the
   generic rules and each shipped adapter. A hook with no level to restore is
   still discipline only.
+- **A counter clock is blind during vigilance's own supervision pass.** The
+  pass reads the clock before any hook runs and tells its sources to
+  re-baseline afterwards, so traffic our own hooks generate on an input device
+  is not counted as seat input -- which it was, once a minute, for ever. What
+  remains unattributed is the pass itself, about three seconds in sixty, and
+  real input inside that window is missed. Stated with the arithmetic rather
+  than waved at: falsely reaching a 480s deadline needs EIGHT consecutive
+  keystrokes each landing in that 5% window, about 4e-11. The alternative,
+  counting our own traffic, was not a small risk but a certainty.
 - **No performance guard exists.** A refactor once added an `awk` per hook per
   edge on the security path, about 7%, and nothing would have caught it. It was
   found by going looking.

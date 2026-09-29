@@ -553,6 +553,18 @@ committed before the act tier and the record is ahead of the machine on
 purpose. This caps how long a marker left behind by a killed vigilant can
 suppress that check; the writer being alive is the primary test.
 .TP
+.B VIGILANCE_IDLE_PHASE
+set by the runner, never by hand: `settle` tells an
+.B idle.d
+source to take a reading and remember it WITHOUT answering. The supervision pass
+reads the clock before any hook runs and settles afterwards, so the window a
+source judges is the one in which vigilance did nothing. That matters because
+the pass generates traffic on the devices a counter clock watches: a wired
+verify hook queries a keyboard over raw HID and it answers because it was asked,
+which was measured at 6 URBs three seconds after every pass and pinned the clock
+at one interval for ever. A source that ignores this phase simply answers twice
+and the extra answer is discarded.
+.TP
 .B VIGILANCE_IDLE_MAXGAP
 how long a gap between idle samples may be before the clock stops trusting it,
 seconds (default 300). An idle counter measures the interval since it last

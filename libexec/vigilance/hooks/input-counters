@@ -151,6 +151,15 @@ case "${_pfirst:-}" in ''|*[!0-9]*) _pfirst= ;; esac
 # activity, which is the safe direction for a clock gating an alert: it
 # suppresses a finding rather than inventing one.
 MAXGAP=${VIGILANCE_IDLE_MAXGAP:-300}
+
+# THE SETTLE PHASE: take a reading, remember it, judge nothing. The supervision
+# pass calls this after its own hooks have run, because those hooks generate USB
+# traffic on the very devices this counts -- one of them queries a keyboard over
+# raw HID, and the keyboard answers because it was asked. Anything that moved
+# during our own pass is OURS, so the baseline advances while `last_change` does
+# not, and the window judged next time is the one in which vigilance did
+# nothing.
+_PHASE=${VIGILANCE_IDLE_PHASE:-}
 _gapped=0
 if [ -n "$_plast" ]; then
   _gap=$((_now - _plast))
@@ -187,6 +196,13 @@ _save() {   # sig last-change max [first-sample]
 _DEVS=${STATE}.devices
 _recent=
 _recent_age=
+# THE ATTRIBUTION RUNS IN BOTH PHASES, but only a JUDGING pass may stamp a
+# device as having moved. Skipping the settle pass entirely was the first
+# attempt and it left the attribution fooled while the clock was fixed: the
+# counts stayed at their pre-pass values, so the next pass saw our own traffic
+# as a device moving and named the very keyboard WE talked to. Settle therefore
+# refreshes the counts and leaves the timestamps alone -- the same split the
+# clock itself makes.
 if [ -n "$_draw" ]; then
   _dnew=${STATE}.devices.new
   if true > "$_dnew" 2>/dev/null; then
@@ -201,7 +217,9 @@ if [ -n "$_draw" ]; then
       _da=$(awk -v l="$_dl" '$1 == l { print $3; exit }' "$_DEVS" \
             2>/dev/null || true)
       case "${_da:-}" in ''|*[!0-9]*) _da=$_now ;; esac
-      if [ "${_dp:-}" != "$_dc" ]; then _da=$_now; fi
+      if [ "${_dp:-}" != "$_dc" ] && [ "$_PHASE" != settle ]; then
+        _da=$_now
+      fi
       printf '%s %s %s\n' "$_dl" "$_dc" "$_da" >> "$_dnew" 2>/dev/null || true
       _dq=$((_now - _da))
       if [ "$_dq" -lt 0 ]; then _dq=0; fi
@@ -276,6 +294,17 @@ if [ "$_gapped" = 1 ]; then
 " dropping the ceiling it cannot vouch for" >&2
   _answer 0
   exit 0
+fi
+
+# SETTLE: store the reading, leave the verdict alone. `last_change` is NOT moved
+# -- that is the entire point, since a change during our own pass is our own
+# traffic -- while `last_sample` advances, so the gap detection above stays
+# honest about when the clock was last watching. 78, because this is not an
+# answer: an idle time reported here would be measured from a baseline that is
+# about to change.
+if [ "$_PHASE" = settle ]; then
+  _save "$_sig" "$_pat" "$_pmax" "$_pfirst"
+  exit 78
 fi
 
 # A LOWER COUNTER MEANS IT RESET, not that time ran backwards: a USB device was

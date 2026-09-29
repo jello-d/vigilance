@@ -378,6 +378,32 @@ skipping it here leaves the clock unsampled for as long as the machine sits at a
 dark rung -- and its next reading is wall time since somebody ran report, not
 idle time. The recheck and watchdogs are unconditional for this same reason."
 
+# AND THE READING IS TAKEN BEFORE ANY HOOK RUNS, then re-baselined after. The
+# pass generates traffic on the very devices a counter clock watches -- a wired
+# verify hook queries a keyboard over raw HID and it answers because it was
+# asked -- so a source must be able to tell our own pass apart from the seat.
+# Measured before this: 6 URBs three seconds after every pass, once a minute,
+# which pinned the clock at one interval for ever.
+: > "$T/phases"
+_src2=$VIGILANCE_HOOK_ROOT/idle.d/91-phases
+printf '#!/bin/sh\nprintf "%%s\\n" "${VIGILANCE_IDLE_PHASE:-judge}" >> %s\n' \
+  "$T/phases" > "$_src2"
+printf 'echo 7\n' >> "$_src2"
+chmod +x "$_src2"
+force sleep
+"$VIGILANT" enforce >/dev/null 2>&1 || true
+[ "$(head -1 "$T/phases")" = judge ] || fail "the first reading of the pass was
+not a judging one: the sources saw '$(head -1 "$T/phases")' first. The reading
+has to be taken BEFORE our own hooks generate traffic, or it measures us."
+grep -q '^settle$' "$T/phases" || fail "the sources were never told to
+re-baseline after the pass, so the traffic our own hooks generate stays in the
+window the next pass judges. Phases seen: $(tr '\n' ' ' < "$T/phases")"
+# ORDER, not just presence: a settle before the judging read would re-baseline
+# past nothing and leave our traffic in the judged window.
+[ "$(grep -n '^settle$' "$T/phases" | head -1 | cut -d: -f1)" -gt 1 ] \
+  || fail "the settle came first: $(tr '\n' ' ' < "$T/phases")"
+rm -f "$_src2"
+
 # AND STILL SAMPLED where there IS a target, or "call it once somewhere" passes.
 : > "$T/sampled"
 force open

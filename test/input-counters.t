@@ -307,4 +307,75 @@ case "$DEMO" in
   *) fail "with only i8042 moving it was not named: '$DEMO'" ;;
 esac
 
+# --- OUR OWN PASS IS NOT SEAT INPUT ----------------------------------------
+# THE DEFECT THIS CLOSES WAS SELF-INFLICTED AND LIVE. A counter clock reads the
+# URB count of every input device, and the supervision pass generates traffic on
+# one: the standing recheck runs `verify`, a wired hook there queries the
+# keyboard over raw HID, and the keyboard answers because it was ASKED.
+# Measured, 6 URBs three to four seconds after every pass, once a minute, for
+# ever. So the clock could never accumulate idle past one interval, and report
+# concluded the deadlines were unmeasurable while telling the operator to fix
+# their device.
+#
+# THE FIX IS A PHASE, not a heuristic. The pass takes its reading BEFORE any
+# hook runs, then tells the sources to re-baseline afterwards, so the window
+# each one judges is the one in which vigilance did nothing at all.
+rm -f "$T/state/input-counters" "$T/state/input-counters.devices"
+_irq 1000
+_run; _run
+_before=$IDLE
+
+# A GAP BEFORE THE SETTLE, so a wrongly-stamped timestamp is off by MORE than
+# the one second of tolerance the `date` skew needs. Without it the mutation
+# that stamps during the settle pass shifted the age by exactly 1s and survived:
+# the tolerance swallowed the whole defect.
+sleep 3
+# OUR traffic, then a settle: the baseline moves, the verdict does not.
+_irq 1006
+RC=0 IDLE=
+VIGILANCE_STATE_DIR="$T/state" VIGILANCE_PROC_INTERRUPTS="$T/interrupts" \
+  VIGILANCE_SYS_INPUT="$T/sys/input" VIGILANCE_IDLE_PHASE=settle \
+  sh "$HOOK" >"$T/out" 2>>"$T/stderr" || RC=$?
+[ "$RC" = 78 ] || fail "a settle pass answered with rc=$RC. It takes a reading
+and judges nothing, so an idle time reported there would be measured against a
+baseline that is about to change"
+[ ! -s "$T/out" ] || fail "a settle pass printed an answer: '$(cat "$T/out")'"
+
+sleep 2
+_run
+[ "$IDLE" -gt "$_before" ] || fail "OUR OWN TRAFFIC RESET THE CLOCK (idle was
+${_before}s, now ${IDLE}s). The supervision pass talks to input devices, so
+counting that as seat input pins the clock at one interval for ever:
+exactly what shipped, and what made report blame a keyboard for
+answering a question vigilance asked it."
+
+# AND THE ATTRIBUTION TOO, which the first version of this fix left fooled: it
+# skipped the settle pass entirely, so the stored counts stayed at their
+# pre-pass values and the NEXT pass read our own traffic as a device moving --
+# naming the very keyboard we had talked to. ASSERTED AGAINST THE CLOCK, not
+# against a magic number. The first version looked for `recent=i8042:0` and a
+# mutation removing the settle guard SURVIVED it: stamping during the settle
+# pass leaves the age at ~2s rather than 0, so the symptom I checked for only
+# appears at one timing. The invariant is that the named device cannot have
+# moved more recently than the clock's own last change, since both are measured
+# from the same event.
+_rage=$(printf '%s' "$DEMO" | sed -n 's/.*recent=[^:]*:\([0-9][0-9]*\).*/\1/p')
+[ -n "$_rage" ] || fail "no device age to check in '$DEMO'"
+[ "$_rage" -ge "$(( IDLE - 1 ))" ] || fail "the named device is younger than the
+clock's own idle time (device ${_rage}s, idle ${IDLE}s): '$DEMO'. Both are
+measured from the last genuine change, so a device stamped during OUR pass reads
+as having moved more recently than anything actually did -- and report NAMES the
+device from this field, so it would still point at the one we queried"
+
+# ...AND A REAL CHANGE BETWEEN PASSES STILL RESETS IT, or the fix is "ignore
+# everything", which passes every case above and switches the clock off.
+_irq 2000
+_run
+[ "$IDLE" = 0 ] || fail "a real counter change between passes did not reset the
+clock (idle ${IDLE}s). Only traffic DURING our own pass is ours"
+case "$DEMO" in
+  *recent=i8042:0*) ;;
+  *) fail "a real change did not stamp the device that moved: '$DEMO'" ;;
+esac
+
 pass

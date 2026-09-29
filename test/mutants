@@ -748,8 +748,8 @@ t coverage
 = idle-clock-does-not-attribute-a-moving-device
 f libexec/vigilance/hooks/input-counters
 t input-counters
--       if [ "${_dp:-}" != "$_dc" ]; then _da=$_now; fi
-+       if false; then _da=$_now; fi
+-       if [ "${_dp:-}" != "$_dc" ] && [ "$_PHASE" != settle ]; then
++       if false; then
 
 = report-does-not-name-the-self-reporting-device
 f bin/vigilant
@@ -762,3 +762,21 @@ f bin/vigilant
 t coverage
 - " either it reports to itself, or something here talks to it -- a hook in"\
 + " it reports to itself -- a hook in"\\
+
+= idle-clock-counts-our-own-pass
+f libexec/vigilance/hooks/input-counters
+t input-counters
+- if [ "$_PHASE" = settle ]; then
++ if false; then
+
+= idle-attribution-stamps-our-own-pass
+f libexec/vigilance/hooks/input-counters
+t input-counters
+-       if [ "${_dp:-}" != "$_dc" ] && [ "$_PHASE" != settle ]; then
++       if [ "${_dp:-}" != "$_dc" ]; then
+
+= supervision-never-re-baselines-the-clock
+f bin/vigilant
+t due
+-   _idle_phase=settle
++   _idle_phase=
