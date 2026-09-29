@@ -1036,10 +1036,30 @@ _run_hooks() {   # edge from [suffix]
   HOOKS_SKIP_NAMES=
   if [ -z "$_list" ]; then return 0; fi
   _fails=0
+  # THE KIND STRING IS THE SAME FOR EVERY HOOK ON THIS EDGE, so it is computed
+  # ONCE here rather than per hook. It was `printf | tr -d .` inside the loop:
+  # two processes per hook per edge for a leading dot. Every value KINDS can
+  # hold has exactly one, so the expansion is equivalent -- `.` gives the empty
+  # string, which hooks already read as the act tier (`${VIGILANCE_KIND:-act}`).
+  _kind=${_sfx:-.act}
+  _kind=${_kind#.}
+  # SO IS THE INTENT, for the same reason: the edge does not change inside the
+  # loop. `_intent_of` is pure shell and forks no program, so no fork counter
+  # sees it -- but a command substitution is still a subshell per hook, and
+  # this is the loop where that is worth not paying. Hoisting it also puts the
+  # one call in the same place as the kind it travels with.
+  _intent=$(_intent_of "$_edge")
   while IFS= read -r _h; do
     if [ -z "$_h" ]; then continue; fi
-    _sd=$STATE_ROOT/$(basename "$_h")
-    mkdir -p "$_sd"
+    # IN-SHELL, not `basename`: this loop is the hottest path in the package
+    # (once per hook per edge) and perf.t measures exactly this. `${_h##*/}` is
+    # what basename does for an absolute path, and _hooks_for only ever emits
+    # absolute paths.
+    _sd=$STATE_ROOT/${_h##*/}
+    # AND ONLY WHEN IT IS MISSING. The contract is that the dir EXISTS before a
+    # hook runs, not that we call mkdir; after the first crossing of an edge it
+    # already does, which on a supervision timer is every crossing but one.
+    [ -d "$_sd" ] || mkdir -p "$_sd"
     _hrc=0
     # VIGILANCE_KIND lets ONE plugin serve several kinds: ddc-monitor drives
     # the monitor when act, and reads back VCP D6 when verify, sharing its bus
@@ -1047,8 +1067,8 @@ _run_hooks() {   # edge from [suffix]
     # cannot tell "do it" from "check it": the edge is `sleep` either way.
     VIGILANCE_EDGE="$_edge" VIGILANCE_FROM="$_from" \
       VIGILANCE_SOURCE="${VIGILANCE_SOURCE:-}" \
-      VIGILANCE_KIND="$(printf '%s' "${_sfx:-.act}" | tr -d .)" \
-      VIGILANCE_INTENT="$(_intent_of "$_edge")" \
+      VIGILANCE_KIND="$_kind" \
+      VIGILANCE_INTENT="$_intent" \
       PATH="$HOOK_PATH" \
       VIGILANCE_STATE_DIR="$_sd" \
       $HOOK_TMO "$_h" "$_edge" "$_from" || _hrc=$?

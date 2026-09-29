@@ -105,17 +105,21 @@ bounding its hooks; the second is a security regression this must not pass"
 # see that (it moves with the fixed cost too), so the claim is the SLOPE:
 # measure at two hook counts and divide.
 #
-# Measured on 2026-09-29: 4 per hook run -- the state dir (`mkdir`), the kind
-# string (`tr`), the hook name (`basename`) and the bound (`timeout`). Three of
-# those four are string work the shell does for nothing, which is a finding this
-# file made on its first run and not something it should quietly accept; only
-# the bound is unavoidable, and it must never be optimised away.
+# Measured on 2026-09-29: 1.5 per hook run. It was 4 when this file was written
+# -- the state dir (`mkdir`), the kind string (`tr`), the hook name (`basename`)
+# and the bound (`timeout`) -- and writing the guard is what made the first
+# three visible as forks that the shell does for nothing. Only the bound is
+# unavoidable, and it is the one that must never be optimised away.
 _n8=$(_measure 8) || fail "the 8-hook crossing failed"
-_slope=$(( (_n8 - _n2) / (16 - 4) ))
-[ "$_slope" -le 4 ] || fail "the runner now spawns $_slope external commands per
-hook run, against a ceiling of 4. With 8 hooks across two edges that is
-$(( _slope * 16 )) forks on the security path where 64 is the measured budget.
-This is the exact shape of the regression
+# IN TENTHS, because the honest figure is not a whole number and rounding hides
+# a regression. The per-hook state dir is created only when missing, and a hook
+# wired on two edges shares one state dir, so the `mkdir` is paid on the first
+# crossing and not the second: 1.5 per hook run, not 2.
+_slope=$(( (_n8 - _n2) * 10 / (16 - 4) ))
+[ "$_slope" -le 15 ] || fail "the runner now spawns $(( _slope / 10 )).$((
+_slope % 10 )) external commands per hook run, against a ceiling of 1.5. With 8
+hooks across two edges that is $(( _slope * 16 / 10 )) forks on the security
+path where 24 is the measured budget. This is the exact shape of the regression
 this file exists for: a helper called once per hook per edge that runs a program
 instead of using the shell.
 
@@ -126,9 +130,10 @@ do not nudge the number. n2=$_n2 n8=$_n8"
 # Everything that is not per-hook: reading the depth, the ladder flattening,
 # the lock, the log. Asserted as a ceiling on the small case, because the slope
 # above already covers the part that scales.
-[ "$_n2" -le 46 ] || fail "a lock+unlock pair with 2 hooks per edge now costs
-$_n2 external commands, against 46 measured. The slope is unchanged, so this is
+[ "$_n2" -le 36 ] || fail "a lock+unlock pair with 2 hooks per edge now costs
+$_n2 external commands, against 36 measured. The slope is unchanged, so this is
 STARTUP work: something the runner does once per invocation got more expensive,
 and every crossing pays it. Re-derive deliberately rather than raising it."
 
-pass "runner cost: $_n2 for 2 hooks/edge, $_n8 for 8, $_slope per hook run"
+pass "runner cost: $_n2 for 2 hooks/edge, $_n8 for 8, $(( _slope / 10 )).$((
+_slope % 10 )) per hook run"
