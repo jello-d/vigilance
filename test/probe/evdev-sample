@@ -37,139 +37,139 @@ SYS_INPUT = os.environ.get("VIGILANCE_SYS_INPUT", "/sys/class/input")
 
 
 def devices():
-  """Every evdev node, with the name the kernel gives it.
+    """Every evdev node, with the name the kernel gives it.
 
-  Named, not just numbered, because the whole question on one box is whether a
-  SPECIFIC device (a QMK keyboard that emits a burst every 40-60s with nobody
-  present) shows up here as well as in the USB counters. A table of event3,
-  event7 could not answer that.
-  """
-  out = []
-  try:
-    entries = sorted(os.listdir(SYS_INPUT))
-  except OSError as e:
-    print("evdev-sample: cannot read %s: %s" % (SYS_INPUT, e),
+    Named, not just numbered, because the whole question on one box is whether a
+    SPECIFIC device (a QMK keyboard that emits a burst every 40-60s with nobody
+    present) shows up here as well as in the USB counters. A table of event3,
+    event7 could not answer that.
+    """
+    out = []
+    try:
+        entries = sorted(os.listdir(SYS_INPUT))
+    except OSError as e:
+        print("evdev-sample: cannot read %s: %s" % (SYS_INPUT, e),
               file=sys.stderr)
+        return out
+    for ent in entries:
+        if not ent.startswith("event"):
+            continue
+        dev = "/dev/input/" + ent
+        if not os.path.exists(dev):
+            continue
+        name = "?"
+        for rel in ("device/name", "device/device/name"):
+            try:
+                with open(os.path.join(SYS_INPUT, ent, rel)) as fh:
+                    name = fh.read().strip()
+                break
+            except OSError:
+                continue
+        out.append((dev, name))
     return out
-  for ent in entries:
-    if not ent.startswith("event"):
-      continue
-    dev = "/dev/input/" + ent
-    if not os.path.exists(dev):
-      continue
-    name = "?"
-    for rel in ("device/name", "device/device/name"):
-      try:
-        with open(os.path.join(SYS_INPUT, ent, rel)) as fh:
-          name = fh.read().strip()
-        break
-      except OSError:
-        continue
-    out.append((dev, name))
-  return out
 
 
 def sample(devs, seconds):
-  """One window: open every device, wait, poll, close. Never read.
+    """One window: open every device, wait, poll, close. Never read.
 
-  THE OPEN IS INSIDE THE WINDOW, which is the entire mechanism. A poll
-  immediately after an open is always false (nothing has arrived since), and a
-  poll on a long-held fd answers "anything since I last drained", which for a
-  client that never drains is "ever". Only open-wait-poll-close asks about an
-  interval.
-  """
-  fds = {}
-  for dev, _name in devs:
-    try:
-      fds[dev] = os.open(dev, os.O_RDONLY | os.O_NONBLOCK)
-    except OSError as e:
-      fds[dev] = -errno.EACCES if e.errno == errno.EACCES else -1
-  time.sleep(seconds)
-  seen = {}
-  for dev, fd in fds.items():
-    if fd < 0:
-      seen[dev] = None          # could not look; NOT "nothing happened"
-      continue
-    poller = select.poll()
-    poller.register(fd, select.POLLIN)
-    seen[dev] = bool(poller.poll(0))
-    os.close(fd)
-  return seen
+    THE OPEN IS INSIDE THE WINDOW, which is the entire mechanism. A poll
+    immediately after an open is always false (nothing has arrived since), and a
+    poll on a long-held fd answers "anything since I last drained", which for a
+    client that never drains is "ever". Only open-wait-poll-close asks about an
+    interval.
+    """
+    fds = {}
+    for dev, _name in devs:
+        try:
+            fds[dev] = os.open(dev, os.O_RDONLY | os.O_NONBLOCK)
+        except OSError as e:
+            fds[dev] = -errno.EACCES if e.errno == errno.EACCES else -1
+    time.sleep(seconds)
+    seen = {}
+    for dev, fd in fds.items():
+        if fd < 0:
+            seen[dev] = None          # could not look; NOT "nothing happened"
+            continue
+        poller = select.poll()
+        poller.register(fd, select.POLLIN)
+        seen[dev] = bool(poller.poll(0))
+        os.close(fd)
+    return seen
 
 
 def self_test():
-  """The poll mechanics, with no device and no root.
+    """The poll mechanics, with no device and no root.
 
-  HONEST ABOUT WHAT IT DOES NOT COVER: a pipe is not an evdev device and
-  cannot model a per-client buffer, so this proves only that the poll call
-  reports pending and not-pending correctly. The per-client-buffer property is
-  exactly what the real experiment's negative phase is for, and a stub that
-  pretended to model it would be a lying stub.
-  """
-  r, w = os.pipe()
-  poller = select.poll()
-  poller.register(r, select.POLLIN)
-  if poller.poll(0):
-    print("self-test FAIL: an empty pipe polled readable")
-    return 1
-  os.write(w, b"x")
-  if not poller.poll(0):
-    print("self-test FAIL: a written pipe polled NOT readable")
-    return 1
-  os.close(r)
-  os.close(w)
-  print("self-test ok: poll(0) distinguishes pending from not-pending")
-  print("self-test NOTE: this does NOT cover the per-client buffer, which is")
-  print("self-test NOTE: the experiment's quiet-after-input phase tests.")
-  return 0
+    HONEST ABOUT WHAT IT DOES NOT COVER: a pipe is not an evdev device and
+    cannot model a per-client buffer, so this proves only that the poll call
+    reports pending and not-pending correctly. The per-client-buffer property is
+    exactly what the real experiment's negative phase is for, and a stub that
+    pretended to model it would be a lying stub.
+    """
+    r, w = os.pipe()
+    poller = select.poll()
+    poller.register(r, select.POLLIN)
+    if poller.poll(0):
+        print("self-test FAIL: an empty pipe polled readable")
+        return 1
+    os.write(w, b"x")
+    if not poller.poll(0):
+        print("self-test FAIL: a written pipe polled NOT readable")
+        return 1
+    os.close(r)
+    os.close(w)
+    print("self-test ok: poll(0) distinguishes pending from not-pending")
+    print("self-test NOTE: this does NOT cover the per-client buffer, which is")
+    print("self-test NOTE: the experiment's quiet-after-input phase tests.")
+    return 0
 
 
 def main(argv):
-  windows, seconds, as_json = 3, 5, False
-  i = 1
-  while i < len(argv):
-    a = argv[i]
-    if a == "--self-test":
-      return self_test()
-    elif a == "--windows":
-      windows = int(argv[i + 1]); i += 2
-    elif a == "--seconds":
-      seconds = int(argv[i + 1]); i += 2
-    elif a == "--json":
-      as_json = True; i += 1
-    else:
-      print(__doc__, file=sys.stderr)
-      return 2
-  devs = devices()
-  if not devs:
-    print("evdev-sample: no evdev devices found under %s" % SYS_INPUT,
+    windows, seconds, as_json = 3, 5, False
+    i = 1
+    while i < len(argv):
+        a = argv[i]
+        if a == "--self-test":
+            return self_test()
+        elif a == "--windows":
+            windows = int(argv[i + 1]); i += 2
+        elif a == "--seconds":
+            seconds = int(argv[i + 1]); i += 2
+        elif a == "--json":
+            as_json = True; i += 1
+        else:
+            print(__doc__, file=sys.stderr)
+            return 2
+    devs = devices()
+    if not devs:
+        print("evdev-sample: no evdev devices found under %s" % SYS_INPUT,
               file=sys.stderr)
-    return 78
-  tally = {dev: {"name": name, "hits": 0, "unreadable": 0}
-           for dev, name in devs}
-  for _ in range(windows):
-    for dev, got in sample(devs, seconds).items():
-      if got is None:
-        tally[dev]["unreadable"] += 1
-      elif got:
-        tally[dev]["hits"] += 1
-  if as_json:
-    print(json.dumps({"windows": windows, "seconds": seconds,
+        return 78
+    tally = {dev: {"name": name, "hits": 0, "unreadable": 0}
+             for dev, name in devs}
+    for _ in range(windows):
+        for dev, got in sample(devs, seconds).items():
+            if got is None:
+                tally[dev]["unreadable"] += 1
+            elif got:
+                tally[dev]["hits"] += 1
+    if as_json:
+        print(json.dumps({"windows": windows, "seconds": seconds,
                           "devices": tally}, sort_keys=True))
-    return 0
-  print("%d windows of %ds each" % (windows, seconds))
-  for dev in sorted(tally):
-    t = tally[dev]
-    # AN UNREADABLE DEVICE IS NOT A SILENT ONE. Reported apart, because
-    # collapsing "I could not look" into "nothing happened" is the exact
-    # conflation the whole package's exit-78 contract exists to break, and
-    # evdev is root:input 0660 with an empty input group on this fleet.
-    note = "" if not t["unreadable"] \
-      else "  (%d window(s) NOT PERMITTED to look)" % t["unreadable"]
-    print("  %-20s %d/%d  %s%s"
+        return 0
+    print("%d windows of %ds each" % (windows, seconds))
+    for dev in sorted(tally):
+        t = tally[dev]
+        # AN UNREADABLE DEVICE IS NOT A SILENT ONE. Reported apart, because
+        # collapsing "I could not look" into "nothing happened" is the exact
+        # conflation the whole package's exit-78 contract exists to break, and
+        # evdev is root:input 0660 with an empty input group on this fleet.
+        note = "" if not t["unreadable"] \
+            else "  (%d window(s) NOT PERMITTED to look)" % t["unreadable"]
+        print("  %-20s %d/%d  %s%s"
               % (dev, t["hits"], windows, t["name"], note))
-  return 0
+    return 0
 
 
 if __name__ == "__main__":
-  sys.exit(main(sys.argv))
+    sys.exit(main(sys.argv))
