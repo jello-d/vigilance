@@ -69,7 +69,16 @@ if [ "${VIGILANCE_KIND:-act}" = verify ]; then
         /"dpms"/ { d = ($0 ~ /true/) ? "on" : "off"
                    if (d != want) printf "%s(%s) ", n, d }')
   if [ -n "$_bad" ]; then
-    echo "sway-dpms: output(s) not $want: $_bad" >&2
+    # `$_want`, NOT `$want`. `want` exists only inside the awk program above,
+    # so the shell saw an unset name, and under `set -u` that is not a blank in
+    # a message: the hook DIED here with rc=2 and "want: parameter not set".
+    # This is the DRIFT path, so it only ran when the readback disagreed, which
+    # nothing had ever made happen: session-greeter.t drives the success path
+    # and the fault matrix had no cell where a second actuator fights this one.
+    # The consequence was the worst available: the greeter's only darkening
+    # mechanism reported drift by crashing, so the runner logged a usage error
+    # instead of naming the output that stayed lit.
+    echo "sway-dpms: output(s) not $_want: $_bad" >&2
     exit 1
   fi
   exit 0
