@@ -95,9 +95,27 @@ case $FLAVOUR in
     # every hook has a substrate here. What it lacks is a desktop session, and
     # therefore a competing actuator.
     PKGS_FLAVOUR='' ;;
+  xfce)
+    # A REAL X11 DESKTOP, and the reason it is the first flavour is
+    # xfce4-power-manager: a live rival driving the same DPMS that `x11-dpms`
+    # drives. The window manager is NOT the point and xfwm4 is here only
+    # because a session wants one; measured, no WM pulls a power or idle daemon,
+    # and on X11 both DPMS and idle belong to the SERVER, so i3 and openbox
+    # would be the lean flavour with extra packages.
+    #
+    # xfce4-notifyd IS LOAD-BEARING, and leaving it out is why the first attempt
+    # at this concluded xfce was untestable: xfce4-power-manager died with
+    # "libnotify-WARNING: Failed to connect to proxy" and an actuator that
+    # cannot start cannot contend for anything. It wants a notification service,
+    # so the honest price was never a WM plus a power manager, it is a SESSION.
+    #
+    # xfconf and xfce4-settings arrive with xfce4-session, and upower with the
+    # power manager, so they are not listed: a package list that repeats what a
+    # dependency already guarantees rots the moment the dependency changes.
+    PKGS_FLAVOUR='xfce4-session xfwm4 xfce4-power-manager xfce4-notifyd' ;;
   *)
     echo "vm: unknown flavour '$FLAVOUR'" >&2
-    echo "vm: known flavours: lean" >&2
+    echo "vm: known flavours: lean xfce" >&2
     exit 1 ;;
 esac
 [ -z "$PKGS_FLAVOUR" ] || PKGS="$PKGS $PKGS_FLAVOUR"
@@ -763,6 +781,96 @@ runcmd:
         echo "  no Xorg; x11dpms scenarios will SKIP"
       fi
 
+      # A REAL DESKTOP ENVIRONMENT, whose POWER MANAGER is the whole subject.
+      #
+      # THE GATE IS THE TOOL, not the flavour name: `xfce4-session` exists only
+      # in the xfce image, so the lean flavour walks past this with no flavour
+      # string anywhere in the guest's logic. Same reason `sway-dpms` is safe to
+      # wire in machine scope.
+      #
+      # AFTER THE :98 ROUND TRIP ON PURPOSE. The x11dpms capability is decided
+      # by forcing DPMS off and on, and a power manager watching that server
+      # could answer for it, so the rival must not exist until the capability is
+      # already settled.
+      #
+      # AND IT NEEDS :98 TO HAVE WORKED. On a server with no DPMS a power
+      # manager is a real actuator with NOTHING TO CONTEND FOR, so every
+      # assertion about coexistence would pass vacuously, which is worse than an
+      # empty cell. That is the measurement that ruled an X11 rival out before
+      # :98 existed, and it still decides the answer here.
+      _xfce=
+      if command -v xfce4-session >/dev/null 2>&1; then
+        if [ -z "${_x11dpms:-}" ]; then
+          echo "  xfce is installed but :98 has no working DPMS, so its power"
+          echo "  manager has no device to contend for; NOT claiming xfce"
+        else
+          DISPLAY=:98 xfce4-session >/tmp/xfce.log 2>&1 &
+          # `pgrep -f`, NOT `-x`: comm is truncated to 15 characters by the
+          # kernel, so the 19-character "xfce4-power-manager" can never match an
+          # exact comm and `-x` would report the rival absent while it ran.
+          _n=0
+          while [ "$_n" -lt 40 ]; do
+            if pgrep -f xfce4-power-manager >/dev/null 2>&1; then break; fi
+            sleep 0.5; sleep 0; _n=$((_n + 1))
+          done
+          if pgrep -f xfce4-power-manager >/dev/null 2>&1; then
+            echo "  xfce4-session up; power manager alive after $_n polls"
+            # QUIETED BY DEFAULT. Several scenarios already drive :98, and a
+            # rival blanking it on its own timer would make them flaky for a
+            # reason that is not theirs. session-xfce.t turns this back ON for
+            # its own duration and restores it in its trap, which is the pattern
+            # fault-actuator.t already uses for the machine-scope symlinks.
+            xfconf-query -c xfce4-power-manager \
+              -p /xfce4-power-manager/dpms-enabled -n -t bool -s false \
+              >/dev/null 2>&1 || true
+            echo "  xfpm dpms-enabled reads: $(xfconf-query \
+              -c xfce4-power-manager -p /xfce4-power-manager/dpms-enabled \
+              2>&1 | head -1)"
+            # DUMPED, NEVER ASSUMED. A scenario has to name xfpm's properties to
+            # enable the rivalry deliberately, and those names are this
+            # package's contract rather than ours. Reading them out of the live
+            # daemon is the only way to write that scenario against what is
+            # actually there instead of what I remember.
+            echo "  xfpm properties (live):"
+            xfconf-query -c xfce4-power-manager -lv 2>&1 | head -24 \
+              | sed 's/^/    /'
+            echo "  xfce processes: $(pgrep -c -f 'xfce4-' 2>/dev/null \
+              || echo 0)"
+            # LEFT LIT WHATEVER HAPPENED, because everything after this shares
+            # the server and a scenario inheriting a dark :98 would fail about
+            # the wrong thing.
+            DISPLAY=:98 xset dpms force on >/dev/null 2>&1 || true
+            _xm=$(DISPLAY=:98 xset q | sed -n 's/.*Monitor is *//p' | head -1)
+            echo "  :98 monitor after xfce start: ${_xm:-<none>}"
+            _xfce=xfce
+          else
+            echo "  xfce4-power-manager did NOT come up; xfce scenarios SKIP"
+            tail -12 /tmp/xfce.log 2>/dev/null | sed 's/^/    /' || true
+          fi
+        fi
+      fi
+
+      # WHO HAS TAKEN THE LID, and this is printed in EVERY flavour on purpose.
+      # `fault-lid` passes in the lean guest and FAILED in the xfce one, run
+      # concurrently against identical trees on the same host, so the desktop is
+      # doing something to that path. The suspicion is a logind INHIBITOR: a
+      # desktop power manager conventionally takes `handle-lid-switch` so it can
+      # implement its own policy, and logind then stops emitting Session.Lock on
+      # lid close, which is the event vigilance's trigger listens for.
+      #
+      # DUMPED IN BOTH FLAVOURS so the comparison is mechanical rather than two
+      # different readings, and asked of logind ITSELF rather than inferred from
+      # which packages are installed: BlockInhibited and DelayInhibited are the
+      # authoritative answer to "will the lid still reach me".
+      echo "=== logind: lid policy and who has inhibited it ==="
+      systemd-inhibit --list 2>&1 | head -14 | sed 's/^/  /'
+      for _lp in HandleLidSwitch HandleLidSwitchExternalPower \
+                 BlockInhibited DelayInhibited; do
+        echo "  $_lp = $(busctl get-property org.freedesktop.login1 \
+          /org/freedesktop/login1 org.freedesktop.login1.Manager "$_lp" \
+          2>&1 | head -1)"
+      done
+
       # ASSEMBLED AFTER EVERY PROBE, which is the only place it can be. It
       # used to sit beside the compositor probe, so the capabilities discovered
       # LATER (the integrator and uinput) were empty when the list was
@@ -771,7 +879,7 @@ runcmd:
       # reverse: both make a scenario report something that is not true.
       SCENARIO_CAPS_EXTRA="$_compositor $_userbus $_wayfire"
       SCENARIO_CAPS_EXTRA="$SCENARIO_CAPS_EXTRA $_tackup $_uinput $_x11"
-      SCENARIO_CAPS_EXTRA="$SCENARIO_CAPS_EXTRA $_x11dpms"
+      SCENARIO_CAPS_EXTRA="$SCENARIO_CAPS_EXTRA $_x11dpms $_xfce"
       echo "  capabilities: $SCENARIO_CAPS_EXTRA"
       # SAY WHICH ENVIRONMENT THIS IS. Four flavours produce four console logs
       # that are otherwise near-identical, and a verdict filed against the wrong
