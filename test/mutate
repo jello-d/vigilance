@@ -29,8 +29,31 @@ CORPUS=$HERE/test/mutants.rec
 # police duration: a mutation that removes a bound can block the test that was
 # meant to notice, and then the driver reports nothing at all.
 MUT_TIMEOUT=${MUT_TIMEOUT:-120}
-T=$(mktemp -d)
-trap 'rm -rf "$T"' EXIT INT HUP TERM
+T=$(mktemp -d) || { echo "mutate: mktemp -d failed" >&2; exit 1; }
+# CHECKED, THEN BAKED IN, per the HARD rule in _common.md: `rm -rf` never runs
+# with a variable expansion, and a destructive trap is the sharpest case because
+# it defers the expansion to FIRE TIME on an error path. The single-quote
+# refusal is the hazard the bake-in introduces, since the literal is quoted.
+case $T in
+  /*) ;;
+  *) echo "mutate: mktemp -d gave '$T', not an absolute path" >&2; exit 1 ;;
+esac
+case $T in
+  *"'"*) echo "mutate: mktemp -d gave a path containing a single quote, which
+the cleanup quotes literally" >&2; exit 1 ;;
+esac
+_T_LITERAL="'$T'"
+# AND A SIGNAL MUST EXIT, WHICH IS A SEPARATE BUG THIS LINE USED TO HAVE.
+# A POSIX shell runs a non-EXIT trap handler and then RESUMES, so
+# `trap 'rm -rf "$T"' TERM` deleted this driver's own scratch dir MID-RUN and
+# carried on without one. MEASURED: `timeout 200 sh test/mutate` did not bound
+# it at all, and three drivers were still running minutes later, mutating the
+# same tree as each other. That is the shape these notes keep recording, a
+# fault-injection tool its own fault can wedge, in the instrument that certifies
+# every other guard. The EXIT trap still fires on the way out, so the removal is
+# not duplicated by accident: it is idempotent.
+trap "rm -rf $_T_LITERAL" EXIT
+trap "rm -rf $_T_LITERAL; exit 143" INT HUP TERM
 
 # THE SAME CAPABILITIES test/run GRANTS. Without them a capability-gated test
 # SKIPS and exits 0 under this driver, so every mutation naming one is
