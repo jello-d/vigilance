@@ -1,0 +1,228 @@
+#!/bin/sh
+# greeter-observe: what a REAL greeter's sleep path does, on real hardware.
+#
+# THE OLDEST UNPAID DEBT IN THIS PROJECT. The greeter's sleep edge has been
+# reasoned about since 2026-09-19 and observed only in a guest:
+# test/session-greeter.t drives the real machine hook set at the `lock` rung
+# against a real sway and reads output dpms back independently, so the MECHANISM
+# is known to work. Two things that scenario cannot answer, by construction:
+#
+#   it runs as the session tier's user, NOT as the greeter's uid, so it says
+#   nothing about whether _greetd can SEE the hooks at all; and
+#   it is a headless guest, so no real panel has ever been observed going dark
+#   on a greeter edge.
+#
+# THE FIRST IS THE ONE THAT BITES, and it is silent by construction. `_hooks_in`
+# lists a hook only `if [ -x "$_hh" ]`, and that test is FALSE for a uid that
+# cannot traverse to the target. So a hook wired into the machine scope does not
+# FAIL for the greeter, it does not EXIST: no log line, no alert, no
+# missing-hook warning, and the greeter's hook set is quietly smaller than the
+# wiring declares. The only honest way to ask is AS THAT UID, which is why this
+# needs root and is a handoff rather than something the agent can run.
+#
+# READ-ONLY BY DEFAULT. `--drive` additionally crosses the greeter's sleep edge
+# and reads the panel back from DRM sysfs, which is the observation nobody has
+# made. It REFUSES when a normal graphical session is active, because darkening
+# then would hit the session you are sitting in.
+#
+# THE DURABLE COPY IS IN THE REPO, at test/probe/greeter-observe, and the pkg
+# clone tracks head, so ~/.cache/tackup/pkgs/vigilance/test/probe/ is always
+# current. A copy under /var/tmp is a convenience and can be stale: that trap
+# cost a probe run once, because tackup does not install test/ and the human's
+# own checkout was the old one.
+set -eu
+
+HANDOFF_BASE=${HANDOFF_BASE:-/var/tmp}; export HANDOFF_BASE
+. "$HOME/lib/handoff_lib"
+handoff_init greeter-observe
+
+DRIVE=0
+case "${1:-}" in
+  --drive) DRIVE=1 ;;
+  '') ;;
+  *) handoff_fail "usage: greeter-observe [--drive]" ;;
+esac
+
+VIGILANT=${VIGILANT:-/usr/local/bin/vigilant}
+MACHINE=${MACHINE_HOOK_DIR:-/etc/vigilance/hooks}
+
+say "greeter-observe on $(hostname), $(date '+%Y-%m-%d %H:%M:%S')"
+say "  read-only mode; pass --drive to cross the greeter's sleep edge"
+[ "$DRIVE" = 0 ] || say "  DRIVE MODE: this will darken the panel"
+sudo_once
+
+# --- 1. WHO IS THE GREETER, if anyone --------------------------------------
+# The field that makes a session REAL is its SEAT, and logind hands a user a
+# bookkeeping "manager" session as well as the real one: picking the first row
+# for a name reported the wrong session once, with garbled output.
+say ""
+say "1. sessions (Class, seat and type are what matter)"
+sudo loginctl list-sessions --no-legend > "$HANDOFF_LOG.sessions" 2>&1 || true
+_greeter_sess=
+_greeter_user=
+while read -r _id _uid _user _seat _rest; do
+  [ -n "${_id:-}" ] || continue
+  _class=$(sudo loginctl show-session "$_id" -p Class --value 2>/dev/null \
+           || true)
+  _type=$(sudo loginctl show-session "$_id" -p Type --value 2>/dev/null || true)
+  say "   session $_id: user=$_user class=${_class:-?} type=${_type:-?}" \
+      "seat=${_seat:-none}"
+  if [ "${_class:-}" = greeter ]; then
+    _greeter_sess=$_id; _greeter_user=$_user
+  fi
+done < "$HANDOFF_LOG.sessions"
+
+if [ -z "$_greeter_sess" ]; then
+  say "   NO greeter-class session is present right now."
+  say "   Everything below about the greeter's own view is therefore about the"
+  say "   ACCOUNT rather than a live session, which is still the question that"
+  say "   matters for hook visibility."
+fi
+# The account is knowable even with no session up, and it is what the visibility
+# question turns on.
+_gu=${_greeter_user:-$(getent passwd _greetd >/dev/null 2>&1 \
+     && echo _greetd || echo '')}
+if [ -z "$_gu" ]; then
+  say "   and no _greetd account either; this box has no greeter to observe"
+  handoff_done
+  exit 0
+fi
+say "   greeter account: $_gu"
+
+# --- 2. CAN THE GREETER SEE THE MACHINE HOOKS? ------------------------------
+# THE CORE QUESTION, and the only one that requires being that uid. A hook the
+# greeter cannot traverse to is not a failing hook, it is an ABSENT one.
+say ""
+say "2. machine-scope hooks, as $_gu sees them (the silent-absence case)"
+# THE UID SWITCH IS ASSERTED FIRST, because everything in this section is a
+# verdict about a DIFFERENT uid and a switch that silently did not happen makes
+# every line below pass for the wrong reason. That is the same rule the fault
+# cells learned when `chmod a-w` as root injected nothing at all: check the
+# precondition, do not assume the injection took.
+_mine=$(id -u)
+_theirs=$(sudo -u "$_gu" id -u 2>/dev/null || echo "$_mine")
+if [ "$_theirs" = "$_mine" ]; then
+  say "   REFUSING to judge: 'sudo -u $_gu id -u' answered $_theirs, the same"
+  say "   uid as this shell. The visibility answers below would be about ME,"
+  say "   not about the greeter, which is the whole question."
+  say "   (this is what a dry run with a stubbed sudo looks like)"
+  _skip2=1
+else
+  _skip2=
+  say "   uid switch confirmed: $_mine -> $_theirs"
+fi
+_seen=0; _blind=0
+if [ -z "${_skip2:-}" ] && [ -d "$MACHINE" ]; then
+  sudo find "$MACHINE" -mindepth 2 -maxdepth 2 \
+    > "$HANDOFF_LOG.hooks" 2>/dev/null || true
+  while read -r _h; do
+    [ -n "${_h:-}" ] || continue
+    _tgt=$(readlink -f "$_h" 2>/dev/null || echo "$_h")
+    if sudo -u "$_gu" test -x "$_h" 2>/dev/null; then
+      _seen=$((_seen + 1))
+      _hlog "  VISIBLE $_h -> $_tgt"
+    else
+      _blind=$((_blind + 1))
+      say "   INVISIBLE to $_gu: $_h"
+      say "              target: $_tgt"
+    fi
+  done < "$HANDOFF_LOG.hooks"
+  say "   $_seen visible, $_blind INVISIBLE (full list in the log)"
+  if [ "$_blind" -gt 0 ]; then
+    say "   ^ each of those is wired and does not exist from the greeter's"
+    say "     side: no log line, no alert, nothing reports it. That is the"
+    say "     finding this probe was written for."
+  fi
+elif [ -z "${_skip2:-}" ]; then
+  say "   no $MACHINE on this box, so the greeter has no machine hook set"
+fi
+
+# --- 3. AND WHAT ITS OWN vigilant REPORTS ----------------------------------
+# From the greeter's side rather than ours: `hooks` lists what it would run.
+say ""
+say "3. the greeter's own view of its wiring"
+if [ -x "$VIGILANT" ]; then
+  run sudo -u "$_gu" "$VIGILANT" hooks
+  run sudo -u "$_gu" "$VIGILANT" plan
+  say "   hooks and plan captured to the log, as $_gu"
+else
+  say "   no $VIGILANT; is vigilance published as a shared command here?"
+fi
+
+# --- 4. THE FORENSIC GAP, which is a group membership ----------------------
+# Both shipped audit sources are USER scope, so a greeter fault is journaled and
+# nothing else; and moving one to machine scope is not a one-line rewire because
+# _greetd is not in systemd-journal or adm, so it would run there and
+# legitimately see nothing.
+say ""
+say "4. can the greeter read a journal (its only forensic tier)"
+say "   groups: $(id -nG "$_gu" 2>/dev/null || echo '?')"
+case " $(id -nG "$_gu" 2>/dev/null || true) " in
+  *" systemd-journal "*|*" adm "*)
+    say "   it IS in a journal-reading group, so a machine-scope audit source" \
+        "could work" ;;
+  *)
+    say "   NOT in systemd-journal or adm: an audit source moved to machine" \
+        "scope would run as $_gu and see nothing, so that rewire needs a" \
+        "group change with it" ;;
+esac
+
+# --- 5. THE PANEL, read independently of any compositor -------------------
+# DRM sysfs answers whatever the session is: sway, wayfire, X or nothing. It is
+# the instrument, so it must not come from the hook being observed.
+_drm() {
+  for _c in /sys/class/drm/card*-*/dpms; do
+    [ -r "$_c" ] || continue
+    printf '%s=%s ' "$(basename "$(dirname "$_c")")" "$(cat "$_c" 2>/dev/null)"
+  done
+}
+say ""
+say "5. panel state from DRM sysfs: $(_drm)"
+
+if [ "$DRIVE" = 0 ]; then
+  say ""
+  say "READ-ONLY: the sleep edge was not crossed. Re-run with --drive on a box"
+  say "you are not using to observe the panel actually going dark."
+  handoff_done
+  exit 0
+fi
+
+# --- 6. DRIVE: cross the greeter's sleep edge, and watch the panel ---------
+# REFUSED IF YOU ARE LOGGED IN. Darkening the greeter's panel is harmless; doing
+# it to the session you are sitting in is not, and a probe that can do the
+# second by accident is worse than no probe.
+for _s in $(sudo loginctl list-sessions --no-legend | awk '{print $1}'); do
+  _c=$(sudo loginctl show-session "$_s" -p Class --value 2>/dev/null || true)
+  _t=$(sudo loginctl show-session "$_s" -p Type --value 2>/dev/null || true)
+  if [ "${_c:-}" = user ] && [ "${_t:-}" != tty ]; then
+    handoff_fail "session $_s is a live graphical USER session, so --drive
+would darken the screen you are using. Log out to the greeter first."
+  fi
+done
+
+say ""
+say "6. crossing the greeter's sleep edge as $_gu"
+_before=$(_drm)
+run sudo -u "$_gu" "$VIGILANT" go sleep
+sleep 3
+_after=$(_drm)
+say "   DRM before: $_before"
+say "   DRM after:  $_after"
+if [ "$_before" = "$_after" ]; then
+  say "   THE PANEL DID NOT CHANGE. Either nothing the greeter can see drives"
+  say "   it (see section 2) or the mechanism does not reach this hardware."
+else
+  say "   the panel CHANGED, which is the first real-hardware observation of"
+  say "   a greeter sleep edge this project has."
+fi
+run sudo -u "$_gu" "$VIGILANT" verify sleep
+say "   verify captured to the log; NOTHING CHECKED there is a finding"
+
+# ALWAYS BACK UP. A probe that leaves a dark panel on a headless box has turned
+# an observation into a walk to the machine.
+say ""
+say "restoring: go lock (lit)"
+run sudo -u "$_gu" "$VIGILANT" go lock
+sleep 2
+say "   DRM now: $(_drm)"
+handoff_done
