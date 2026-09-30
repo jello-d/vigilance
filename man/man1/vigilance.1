@@ -105,7 +105,7 @@ is the loop a timer runs: it asks
 whether an edge is overdue, asks the
 .I block
 tier whether something is legitimately preventing it, and then alerts. It acts
-only when an edge is DEMONSTRABLY overdue \(em never on a tie, so the primary
+only when an edge is DEMONSTRABLY overdue: never on a tie, so the primary
 mechanism wins the normal race and vigilant stays the backstop rather than a
 competitor.
 .PP
@@ -113,7 +113,7 @@ An IDLE-ANCHORED deadline is reported but never enforced. A
 .I due
 hook may print an anchor alongside its seconds, and
 .B idle
-means the clock starts at the last input \(em which vigilant cannot observe on
+means the clock starts at the last input, which vigilant cannot observe on
 this stack. Measured from rung entry instead, it called
 .B lock
 overdue on a machine being actively typed on.
@@ -155,7 +155,7 @@ user.
 A greeter session needs no configuration of its own: it simply has no user root,
 so it gets the machine hooks and nothing else. The machine scope is the LOWER
 layer, so it comes up first and goes down last, exactly as systemd orders units:
-descent runs user 10\(en90 then machine 10\(en90, and ascent reverses both.
+descent runs user 10-90 then machine 10-90, and ascent reverses both.
 .SS The idle clock, and the deadline nobody could measure
 The deadline that matters \- "the screen should have locked by now" \- is
 expressed in IDLE time, and vigilant could not read idle time. Its only clock
@@ -331,20 +331,20 @@ Every hook receives the edge and the rung being left, plus
 and two the runner states so no hook has to restate them:
 .TP
 .B VIGILANCE_INTENT
-.BR dark ", " lit " or " none
-\(em the darkness this edge implies. A hook honouring it cannot fall through a
+.BR dark ", " lit " or " none:
+the darkness this edge implies. A hook honouring it cannot fall through a
 stale case when the ladder grows a rung.
 .TP
 .B VIGILANCE_KIND
-.BR act ", " verify ", " report ", " due ", " block " or " audit
-\(em which question is being asked, so ONE plugin can serve several kinds.
+.BR act ", " verify ", " report ", " due ", " block " or " audit,
+which question is being asked, so ONE plugin can serve several kinds.
 .PP
 vigilance ships plugins under
 .I libexec/vigilance/
 but enables none: which ones run is the integrator's policy.
 .SS Hooks are time-bounded
 Hooks run in LEXICAL order, and the lock provider is not first, so a hook that
-hangs blocks every later hook on its edge \(em including the one that locks the
+hangs blocks every later hook on its edge: including the one that locks the
 screen. Under
 .I lock-on-sleep.service
 that removes the guarantee entirely: systemd kills the unit at its 25s timeout
@@ -362,7 +362,7 @@ and counts as a failure. The same bound applies to
 hooks, which are reached from a hook failure: a notifier that hangs would
 otherwise block the very edge whose failure raised it.
 .PP
-The default is generous because it bounds a HANG, not an SLA \(em a healthy
+The default is generous because it bounds a HANG, not an SLA: a healthy
 .BR ddcutil (1)
 pass over three displays takes seconds. It cannot reach a locker started with
 .BR systemd\-run (1),
@@ -378,9 +378,9 @@ The
 .I audit.d
 tier has its OWN, larger budget,
 .BR VIGILANCE_AUDIT_TIMEOUT " (60s)."
-An audit source reads an external event log \(em the shipped one runs
+An audit source reads an external event log: the shipped one runs
 .BR journalctl (1)
-over a day of records \(em and legitimately takes longer than anything on the
+over a day of records, and legitimately takes longer than anything on the
 lock path may. Sharing the edge bound would turn a healthy slow read into
 .B "audit BROKEN"
 and retire the forensic tier by crying wolf. Nothing waits on it, so latency is
@@ -502,7 +502,7 @@ Hardcoded until 2026\-09\-29, which made
 .B VIGILANCE_LOCKER
 a half promise: \fBi3lock\fR resolved, passed the existence check and was then
 handed a flag it does not have, so the unit failed and the screen did not
-lock \(em on the one edge where that matters. An X11 box is
+lock: on the one edge where that matters. An X11 box is
 .B "VIGILANCE_LOCKER=i3lock VIGILANCE_LOCKER_ARGV=\-n"
 with the type below.
 .IP
@@ -644,7 +644,7 @@ stands on its own. Until a second source existed, silence here meant
 AND ALMOST EVERY SOURCE HAS A CAP, which is worth saying because the second one
 looked like the exception and was not.
 .B x11\-idle
-asks the X server, so its answer is continuous rather than sampled \(em and
+asks the X server, so its answer is continuous rather than sampled, and
 XScreenSaverQueryInfo reports idle time WITHIN the current screensaver state, so
 the counter RESTARTS when the saver activates. Measured against a live server:
 306s, then 2s three seconds later. So it reports the server's own screensaver
@@ -748,14 +748,14 @@ a file standing in for /proc/<pid>/cmdline
 Ok, including a no-op.
 .TP
 .B 78
-NOT APPLICABLE \(em a hook saying "there is nothing here for me to do". Distinct
+NOT APPLICABLE: a hook saying "there is nothing here for me to do". Distinct
 from 0 on purpose: exit 0 means BOTH "I did the work" and "not applicable",
 so nothing downstream can tell a tier where every hook CONFIRMED from one where
 every hook DECLINED. Measured consequence: on a desktop whose monitor has no
 DPMS standby and which has no sysfs backlight, both screen verifiers quietly
 declined and
 .B "verify sleep"
-reported OK \(em the screen was checked by nothing while the tier that exists to
+reported OK: the screen was checked by nothing while the tier that exists to
 catch that reported green.
 .IP
 The runner counts these apart from success and failure.
@@ -832,9 +832,9 @@ right: a boot means the machine is at the top of the ladder.
 .IP
 When
 .B XDG_RUNTIME_DIR
-is unset \(em a non\-interactive ssh, cron,
-.BR su (1)
-\(em vigilant looks for
+is unset: a non\-interactive ssh, cron,
+.BR su (1):
+vigilant looks for
 .IR /run/user/ <uid>,
 which logind maintains for any session of that uid, so the real record is still
 found. Failing that it uses a PER\-UID directory under
