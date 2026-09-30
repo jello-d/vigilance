@@ -81,9 +81,14 @@ _cleanup() {
   # this boot a state it did not choose.
   swaymsg "output * dpms on" >/dev/null 2>&1 || true
   session_done
-  rm -rf "$T"
 }
-trap '_cleanup' EXIT INT TERM HUP
+# THE SCRATCH REMOVAL STAYS OUT OF THE FUNCTION, with the path baked in at ARM
+# time. `rm -rf` never runs with a variable expansion (_common.md, HARD rule),
+# and a cleanup reached from a trap defers that expansion to fire time on an
+# error path. harness_init validated T and left the quoted literal here, so
+# `trap` prints exactly what will run. Its siblings in this tier still call
+# `rm -rf "$T"` from inside their cleanup functions and want the same treatment.
+trap "_cleanup; rm -rf $_T_LITERAL" EXIT INT TERM HUP
 
 # --- 1. LOCATE THE WAYFIRE SESSION, and prove it is one ---------------------
 # Discovered rather than passed in: the guest exports nothing about vig to the

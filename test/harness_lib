@@ -8,8 +8,41 @@
 harness_init() {   # <name>
   TEST_NAME=$1
   HERE=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-  T=$(mktemp -d)
-  trap 'rm -rf "$T"' EXIT INT TERM
+  # CHECKED, THEN BAKED IN. `rm -rf` never runs with a variable expansion
+  # (_common.md, HARD rule), and a destructive `trap` is the sharpest case
+  # because it defers the expansion to FIRE TIME, on an error path, when
+  # whatever the name holds by then is what goes. So the value is validated
+  # while it can still be looked at, and the LITERAL is quoted into the trap at
+  # ARM time: `trap` then prints exactly what will run, and no later assignment
+  # can move the target.
+  #
+  # WHY THE RULE EXISTS, and it was not this repo: mux's own harness DELETED
+  # ~/src/mux, because `cd -- "$(mktemp -d)" && pwd -P` turns an empty mktemp
+  # answer into `cd ""` (which stays put) plus `pwd -P`, so T became the CURRENT
+  # DIRECTORY. This harness has always used the plain `$(mktemp -d)`, whose
+  # empty answer stays empty, so it never had that bug. It DID have the deferred
+  # trap, and an unchecked assignment, which is the half worth closing anyway:
+  # the general shape is that A TRANSFORMATION MAKING AN EMPTY VALUE MEANINGFUL
+  # is a different kind of change, and the cheapest defence is to refuse a value
+  # that is not an absolute path before anything destructive is armed with it.
+  T=$(mktemp -d) || { echo "harness: mktemp -d failed" >&2; exit 1; }
+  case $T in
+    /*) ;;
+    *) echo "harness: mktemp -d gave '$T', which is not an absolute path;
+refusing to arm a cleanup that would delete something else" >&2; exit 1 ;;
+  esac
+  # AND NO SINGLE QUOTE, which is a hazard the bake-in itself introduces and the
+  # prescribed form shares: the literal is wrapped in single quotes, so a path
+  # containing one (from an exotic TMPDIR) would end the quoting early and hand
+  # `rm -rf` something other than this directory. Refused rather than escaped,
+  # because the whole point of baking a literal in is that the command is
+  # inspectable, and an escaping scheme is one more layer to get wrong.
+  case $T in
+    *"'"*) echo "harness: mktemp -d gave a path containing a single quote;
+refusing, because the cleanup quotes that path literally" >&2; exit 1 ;;
+  esac
+  _T_LITERAL="'$T'"
+  trap "rm -rf $_T_LITERAL" EXIT INT TERM
 }
 pass() { printf 'ok   %s%s\n' "$TEST_NAME" "${1:+ ($1)}"; }
 fail() { printf 'FAIL %s: %s\n' "$TEST_NAME" "$1" >&2; exit 1; }

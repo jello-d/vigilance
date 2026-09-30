@@ -60,7 +60,19 @@ POLL=${VIGILANCE_REMOTE_POLL:-10}
 _die() { echo "remote: $*" >&2; exit 1; }
 
 TMP=$(mktemp -d) || _die "mktemp failed"
-trap 'rm -rf "$TMP"' EXIT INT TERM HUP
+# CHECKED, THEN BAKED IN: `rm -rf` never runs with a variable expansion
+# (_common.md, HARD rule), and a trap is the sharpest case because it defers the
+# expansion to fire time on an error path. `trap` now prints the exact command.
+case $TMP in
+  /*) ;;
+  *) _die "mktemp -d gave '$TMP', which is not an absolute path" ;;
+esac
+case $TMP in
+  *"'"*) _die "mktemp -d gave a path containing a single quote, which the
+literal below quotes and would therefore truncate" ;;
+esac
+_TMP_LITERAL="'$TMP'"
+trap "rm -rf $_TMP_LITERAL" EXIT INT TERM HUP
 
 # BatchMode so a missing credential FAILS rather than hanging on a prompt this
 # shell has no terminal to answer. Connection reuse because the follow loop
