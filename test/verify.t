@@ -24,6 +24,7 @@ case "$_out" in
 esac
 [ -n "$_out" ] || fail "empty verify said nothing at all"
 
+# conventions: allow -- the superseded rule, quoted verbatim
 # EXIT 78, AND THIS REVERSES A DELIBERATE EARLIER DECISION. The old rule was
 # "exit stays 0: a box with no verify hooks is not BROKEN, and a timer must not
 # alarm -- the honesty lives in the output, not the status." It was wrong for
