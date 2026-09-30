@@ -1,7 +1,19 @@
 # vigilance: from lock suite to edge framework
 
-Plan of record for the refactor agreed 2026-09-02. Supersedes the ad-hoc
-`panel-power` / `power-hooks` sketches.
+> **HISTORY, NOT CURRENT STATE.** This is the plan of record agreed
+> 2026-09-02, kept because the REASONING is why the package is shaped the way
+> it is: the charter in section 1 and the decisions in section 10 still govern.
+> The refactor LANDED. Everything the staging list in section 9 calls "NOT yet
+> done" is done, `panel-power` is retired, and `smart-lock` / `smart-trigger`
+> are gone as section 8 proposed.
+>
+> So read the present tense here as "as of 2026-09-02". For what is true now:
+> `README.md` for the hook contract and the exit codes, `THEORY.md` for the
+> invariants and which check enforces each, `man vigilance` for the knobs, and
+> `vigilant plan` on a live box for the wiring, which is the one answer no
+> document can hold.
+
+Supersedes the ad-hoc `panel-power` / `power-hooks` sketches.
 
 ## 1. Charter
 

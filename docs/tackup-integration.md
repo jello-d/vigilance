@@ -2,9 +2,30 @@
 
 vigilance ships MECHANISM; tackup decides POLICY. Nothing in this list can be
 done by vigilance without it deciding something that is not its to decide.
-Running list, kept current as stages land.
 
 Ordered so the box is never worse off between steps.
+
+> **HISTORY, NOT A RUNNING LIST.** It said "kept current as stages land" and
+> then was not: every stage landed and the text stayed at 2026-09-02. The
+> DIVISION it draws is still right, and is why the file is kept. Two specifics
+> have since been overtaken, and both matter enough to name here rather than
+> leave a reader to trust them:
+>
+> - **Section 2 prescribes `lock.d/50-swaylock`. Do not wire that.** The
+>   provider must sort FIRST on the lock edge, because only hooks ahead of it
+>   can delay the lock: at 50 the critical span measured 36s against
+>   lock-on-sleep's 25s budget, and the live wiring is `10-swaylock`. `report`
+>   computes the span and finds the provider by position, so it will say so.
+> - **Section 4 says drop the swaylock patch. Only half of it went.** The
+>   burn-in TIMER was correctly retired (swayidle already owned when), but the
+>   SIGNAL half is load-bearing and was restored: under ext-session-lock
+>   nothing outside the locker can repaint a locked screen, so
+>   `hooks/lock-blank` drives it with SIGUSR2 / SIGRTMIN and the patch in
+>   tackup is `swaylock-blank-signal.patch`.
+>
+> For what tackup wires today, read `vigilant plan` on the box: it prints every
+> scope, edge, tier and resolved target, and ends in a fingerprint that
+> compares equal across machines that agree.
 
 ## 1. Wire the peripheral hooks (stage 1)
 
