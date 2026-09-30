@@ -51,7 +51,7 @@ RELEASE=${VIGILANCE_VM_RELEASE:-resolute}
 # worth having, and it is a different question from whether the hooks work.
 PKGS='dash util-linux sway swaylock swayidle dbus-user-session wayfire git
 greetd xvfb x11-xserver-utils xprintidle i3lock imagemagick
-xserver-xorg-core xserver-xorg-video-dummy'
+xserver-xorg-core'
 IMG=$VM/$RELEASE-server-cloudimg-amd64.img
 URL=https://cloud-images.ubuntu.com/$RELEASE/current/${IMG##*/}
 CONSOLE=$VM/console.log
@@ -629,8 +629,8 @@ runcmd:
           printf '    Modes "1024x768"\n  EndSubSection\nEndSection\n'
           printf 'Section "ServerLayout"\n  Identifier "layout"\n'
           printf '  Screen "scr"\nEndSection\n'
-        } > /etc/X11/xorg-dummy.conf
-        Xorg :98 -config /etc/X11/xorg-dummy.conf -logfile /tmp/xorg98.log \
+        } > /etc/X11/xorg-kms.conf
+        Xorg :98 -config /etc/X11/xorg-kms.conf -logfile /tmp/xorg98.log \
           -noreset -nolisten tcp >/tmp/xorg98.out 2>&1 &
         _n=0
         while [ "$_n" -lt 30 ]; do
@@ -638,7 +638,7 @@ runcmd:
           sleep 0.5; sleep 0; _n=$((_n + 1))
         done
         if DISPLAY=:98 xset q >/dev/null 2>&1; then
-          echo "  Xorg dummy up on :98"
+          echo "  Xorg (modesetting) up on :98"
           _xd=$(DISPLAY=:98 xset q | sed -n 's/.*DPMS is //p' | head -1)
           echo "  :98 DPMS is ${_xd:-<no DPMS block>}"
           echo "  :98 xorg log on DPMS: $(grep -ci dpms /tmp/xorg98.log \
@@ -664,7 +664,7 @@ runcmd:
             echo "  :98 DPMS does not round-trip; x11dpms scenarios will SKIP"
           fi
         else
-          echo "  Xorg dummy did NOT come up; x11dpms scenarios will SKIP"
+          echo "  Xorg did NOT come up; x11dpms scenarios will SKIP"
           tail -5 /tmp/xorg98.log 2>/dev/null | sed 's/^/    /' || true
           tail -3 /tmp/xorg98.out 2>/dev/null | sed 's/^/    /' || true
         fi
