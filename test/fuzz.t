@@ -52,9 +52,11 @@ _rand() {   # <state> -> next state on stdout
 # exists for all involved something going wrong mid-sequence.
 _OPS='go-open go-lock go-sleep go-suspend
 atleast-lock atleast-sleep
+only-lock only-open
 force-open force-lock
 rescue verify enforce
-fault-fail fault-decline fault-clear'
+report plan audit due status
+fault-fail fault-decline fault-block fault-clear'
 _nops=$(printf '%s\n' $_OPS | grep -c .)
 
 # GENERATED ONCE, into a file, which is both the O(n) fix and the artefact a
@@ -97,6 +99,27 @@ _apply() {   # <op> -> rc in $RC
     rescue)        "$VIGILANT" rescue       >>"$T/out" 2>>"$T/err" || RC=$? ;;
     verify)        "$VIGILANT" verify       >>"$T/out" 2>>"$T/err" || RC=$? ;;
     enforce)       "$VIGILANT" enforce      >>"$T/out" 2>>"$T/err" || RC=$? ;;
+    only-lock)     "$VIGILANT" only lock    >>"$T/out" 2>>"$T/err" || RC=$? ;;
+    only-open)     "$VIGILANT" only open    >>"$T/out" 2>>"$T/err" || RC=$? ;;
+    # THE READ-ONLY VERBS, which are not here for coverage. `report` has twice
+    # read state it did not write and called it a finding: an idle clock's
+    # snapshot became "saved levels outstanding" and earned a permanent FAIL at
+    # every lit rung, then a throttle stamp nearly did it again. Random state is
+    # what finds that class. They must also leave the ladder ALONE, which the
+    # oracle checks.
+    # REPORT'S CODE IS DISCARDED, and that is not a workaround. It folds NINE
+    # sections, several of which read the real host, so branching on it asserts
+    # something partly about the machine running the suite: it passes for free
+    # wherever the host is already red and keeps passing with the check it
+    # claims to cover deleted. hermetic.t ratchets exactly this and caught this
+    # line, which is the fifth time this project has paid for that conflation
+    # and the first time a guard stopped it. The depth invariant below still
+    # applies.
+    report)        "$VIGILANT" report       >>"$T/out" 2>>"$T/err" || true ;;
+    plan)          "$VIGILANT" plan         >>"$T/out" 2>>"$T/err" || RC=$? ;;
+    audit)         "$VIGILANT" audit        >>"$T/out" 2>>"$T/err" || RC=$? ;;
+    due)           "$VIGILANT" due          >>"$T/out" 2>>"$T/err" || RC=$? ;;
+    status)        "$VIGILANT" status       >>"$T/out" 2>>"$T/err" || RC=$? ;;
     # THE FAULTS ARE REAL HOOKS, not a knob: a hook that exits 1 IS a failing
     # hook, and one that exits 78 IS a declining one. Nothing is pretended at.
     fault-fail)
@@ -109,9 +132,21 @@ _apply() {   # <op> -> rc in $RC
       printf '#!/bin/sh\nexit 78\n' \
         > "$VIGILANCE_HOOK_ROOT/sleep.verify.d/90-fuzz-na"
       chmod +x "$VIGILANCE_HOOK_ROOT/sleep.verify.d/90-fuzz-na" ;;
+    fault-block)
+      # ON EVERY EDGE, ascents included, which is the shape that once made the
+      # panic key refusable. exit 10 is the block vocabulary.
+      for _fb in lock sleep unlock wake; do
+        mkdir -p "$VIGILANCE_HOOK_ROOT/$_fb.block.d"
+        printf '#!/bin/sh\nexit 10\n' \
+          > "$VIGILANCE_HOOK_ROOT/$_fb.block.d/90-fuzz-block"
+        chmod +x "$VIGILANCE_HOOK_ROOT/$_fb.block.d/90-fuzz-block"
+      done ;;
     fault-clear)
       rm -f "$VIGILANCE_HOOK_ROOT/lock.d/90-fuzz-fail" \
-            "$VIGILANCE_HOOK_ROOT/sleep.verify.d/90-fuzz-na" ;;
+            "$VIGILANCE_HOOK_ROOT/sleep.verify.d/90-fuzz-na"
+      for _fb in lock sleep unlock wake; do
+        rm -f "$VIGILANCE_HOOK_ROOT/$_fb.block.d/90-fuzz-block"
+      done ;;
   esac
 }
 
@@ -171,6 +206,20 @@ _check() {   # <op> <depth before>
     atleast-*)
       if [ "$(_rank "$_c_now")" -lt "$(_rank "$_c_before")" ]; then
         VIOL="$_c_op RAISED the machine from $_c_before to $_c_now"
+        return 1
+      fi ;;
+  esac
+
+  # AN OFFLINE VERB LEAVES THE LADDER ALONE. `plan` polluting the record would
+  # be a bug in its own right: the audit tier reconciles that log, so a
+  # reporting command that writes a crossing into it manufactures history. Cheap
+  # to state and it makes the read-only verbs worth having in the alphabet at
+  # all.
+  case "$_c_op" in
+    report|plan|audit|due|status)
+      if [ "$_c_now" != "$_c_before" ]; then
+        VIOL="the offline verb '$_c_op' moved the machine from $_c_before to
+$_c_now"
         return 1
       fi ;;
   esac
