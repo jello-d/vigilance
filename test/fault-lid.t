@@ -82,9 +82,63 @@ if [ "$(_vlog_at)" = "$_p0" ]; then
   _p0=$(_vlog_at)
   _close_lid
 fi
+# THE EVIDENCE TRAVELS WITH THE VERDICT, because this precondition has now
+# failed on a real substrate difference (it passes in the lean guest and fails
+# in the xfce one, run concurrently against identical trees) and the bare
+# sentence below could not say WHERE the chain broke. There are three distinct
+# places, and only the journal tells them apart:
+#
+#   no "Lid closed"        udev or the injected device; logind never saw it
+#   no "Locking sessions"  logind saw it and had nothing lockable to reach
+#   both, but no log line  the trigger is not listening, which IS our bug
+#
+# Sessions are printed with it because a Class that cannot be locked is the
+# documented way the second of those happens.
+#
+# AND ONE OF THOSE CAUSES IS NOT A FAILURE, which the xfce flavour is what
+# taught us. A DISPLAY MANAGER TAKES A BLOCK INHIBITOR ON handle-lid-switch so
+# it can implement its own policy, and logind then logs "Lid closed." and does
+# nothing at all. Measured chain, in the xfce guest:
+#
+#   xfce4-session  Recommends  light-locker
+#   light-locker   Depends     lightdm
+#   lightdm        block-inhibits  handle-lid-switch (+ the power keys)
+#
+# So on that substrate there is no lid-to-logind-to-Lock chain to test, and no
+# arrangement of vigilance would make one. The scenario DECLINES, naming the
+# holder, rather than reporting a failure about a machine that is behaving
+# exactly as its desktop configured it.
+#
+# NARROW ON PURPOSE: the decline is reachable ONLY when the inhibitor is
+# demonstrated. A chain broken for any other reason still FAILS, because
+# "the substrate could not host it" is otherwise the excuse that swallows the
+# real bug this cell exists to catch.
+if [ "$(_vlog_at)" = "$_p0" ]; then
+  _bi=$(busctl get-property org.freedesktop.login1 /org/freedesktop/login1 \
+    org.freedesktop.login1.Manager BlockInhibited 2>/dev/null || true)
+  case $_bi in
+    *handle-lid-switch*)
+      skip_now uninhibited-lid-switch "handle-lid-switch is BLOCK-inhibited\
+ here, so logind logs the close and never emits Session.Lock: there is no lid\
+ chain to test. Held by: $(systemd-inhibit --list 2>/dev/null \
+  | awk '/handle-lid-switch/ {print $1}' | tr '\n' ' ')" ;;
+  esac
+fi
 [ "$(_vlog_at)" != "$_p0" ] || fail "two lid closes produced NOTHING in
 vigilance's log, so the chain from switch to ladder is not connected on this
-substrate and nothing below would be a test of vigilance"
+substrate and nothing below would be a test of vigilance.
+--- logind on the lid (last 12) ---
+$(journalctl -b --no-pager -n 400 2>/dev/null \
+  | grep -iE 'lid (closed|opened)|locking sessions|power-switch' \
+  | tail -12 || echo '(nothing about a lid in this boot)')
+--- sessions ---
+$(loginctl list-sessions --no-legend 2>&1 | head -8)
+--- lid policy ---
+HandleLidSwitch=$(busctl get-property org.freedesktop.login1 \
+  /org/freedesktop/login1 org.freedesktop.login1.Manager HandleLidSwitch \
+  2>&1 | head -1) BlockInhibited=$(busctl get-property \
+  org.freedesktop.login1 /org/freedesktop/login1 \
+  org.freedesktop.login1.Manager BlockInhibited 2>&1 | head -1)"
 
 # --- 1. FAULT lid-close-at-open: it must DESCEND to lock --------------------
 # The ordinary case, and the one the ladder should handle without drama: a lid

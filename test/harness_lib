@@ -63,6 +63,36 @@ require() {   # <capability>...
   done
 }
 
+# skip_now <reason>: the substrate cannot host this scenario, DISCOVERED at run
+# time rather than declared as a capability. Same output contract as `require`,
+# because test/run counts a leading "skip " and a second spelling of that would
+# drift.
+#
+# WHY IT IS NOT A CAPABILITY. A capability is probed once, before any scenario
+# runs, and some substrate facts are not settled by then: a display manager
+# takes its logind inhibitors seconds into the boot, so the guest's own probe
+# read BlockInhibited as empty and the inhibitor was there by the time the
+# scenario asked. A condition that appears late has to be asked about late.
+#
+# IT MUST STAY NARROW, and that is the whole risk of having it: a skip is a
+# green line, so it may only ever be reached when the specific blocking cause
+# has been DEMONSTRATED. Anything else must still fail, or "the substrate could
+# not host it" becomes the excuse that swallows a real defect.
+#
+# THE EVIDENCE GOES FIRST AND THE VERDICT LAST, which is the runner's contract
+# and not a style choice: test/run matches the LAST line of a test's output, so
+# a multi-line skip message left the verdict buried and the run reported
+# "NO VERDICT: exited 0 without reaching pass or skip". Measured, on the first
+# use of this helper. The token is one word for the same reason: the summary
+# collects the `(needs X)` values into a space-separated list of what the
+# substrate could not provide, so a sentence there would split into nonsense.
+skip_now() {   # <one-word-token> <reason>
+  [ -z "${2:-}" ] || printf '  %s\n' "$2"
+  printf 'skip %s (needs %s)\n' "$TEST_NAME" "$1"
+  SKIPPED=1
+  exit 0
+}
+
 
 # report's EXIT CODE folds in the `-- machinery --` section, which reads the
 # HOST's real systemd: whether vigilance's three units are enabled. That is
