@@ -44,7 +44,7 @@ wishes are visible.
      2  a block may refuse to take the machine DOWN, never to bring it UP
         block.t, rescue.t
      3  a lock request may deepen the machine, never raise it
-        atleast.t
+        atleast.t, and fuzz.t under random sequences
      4  "I could not look" is never "I looked and it is fine" (exit 78)
         not-applicable.t, verify.t, coverage.t
      5  every acting edge has a verifying edge
@@ -52,9 +52,10 @@ wishes are visible.
      6  no hook can hold an edge open indefinitely
         hook-bounds.t, budget.t
      7  the panic key always works
-        rescue.t, cross-lock.t section 4
+        rescue.t, cross-lock.t section 4, and fuzz.t after any sequence
      8  one crossing at a time
-        cross-lock.t, including section 6: nothing may bypass the lock
+        cross-lock.t, including section 6: nothing may bypass the lock;
+        fuzz.t for the leaked-lock half
      9  save once, assert every time
         level-rules.t (the table, x3 adapters), hook_lib.t, hooks.t
     10  a verdict is about a rung, and a rung can move while you measure it
@@ -95,7 +96,7 @@ wishes are visible.
     27  the runner's own cost per hook does not grow
         perf.t, which counts forks rather than milliseconds
     28  nothing accumulates per crossing, and one fault is one alert
-        soak.t, asserted as a slope so forty cycles can see a leak
+        soak.t as a slope over a uniform cycle; fuzz.t under a random one
     29  a tier that DEFERS is checked again once its interval elapses
         cadence.t case 6, through the real runner with the stamp backdated
     30  a hook that ACTS survives being run twice in sequence
@@ -158,6 +159,37 @@ guard: reintroducing that short-circuit in sway-dpms turned the scenario red on
 precisely the second-descent readback, while the other row still passed, so the
 failure was attributable. The stub tier's own sway-dpms.t stayed green in the
 same run, which is the argument for the scenario existing.
+
+### What the fuzzer buys, and what it does not
+
+`test/fuzz.t` builds a random sequence from the ladder's LEGAL operations, with
+FAULTS in the alphabet, and checks the invariants after every step. It exists
+because of one measured pattern: every defect the box found and the tests did
+not had the same shape, a MODEL incomplete exactly where an external actor
+touched the state. A scenario can only contain sequences somebody thought of;
+this needs no model.
+
+TWO PROPERTIES MAKE IT USABLE rather than alarming. The sequence is derived from
+a SEED by an LCG in shell arithmetic, not from $RANDOM or awk's srand, so it is
+identical on any box for ever; and a violation BISECTS to the shortest failing
+prefix and prints the two numbers that reproduce it. A fuzzer that cannot
+reproduce its own failure reports something unactionable and gets switched off.
+Default seed and length are FIXED, so the suite has a regression test rather
+than a slot machine.
+
+FIRST RESULTS, stated honestly: about 6200 operations across seven seeds, no
+product defect. It did find one real bug, in ITSELF: the liveness check read `go
+lock`'s exit code as "did the lock happen", and with a failing hook wired the
+runner correctly returns 1 while the depth reaches `lock`. That is the same
+conflation this suite has paid for before, committed in the file written to
+catch such things, and caught by running it.
+
+AND ONE VACUOUS CHECK, found the way they should be. The first oracle asked
+`status` whether the depth was a rung, which `_depth` GUARANTEES: it validates
+the record and falls back with a note. Planting a corrupt record changed
+nothing, so the check could never fire. It reads the RECORD ON DISK now, which
+is the falsifiable claim (the runner must never WRITE a bad one), and planting
+that same corruption is what finally exercised the bisect.
 
 ### Invariants with no enforcing check
 
