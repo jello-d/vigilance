@@ -16,7 +16,8 @@
 # It also means the systemd work needs no sudo on the host: the guest is root.
 #
 # Prereqs: qemu-system-x86_64, /dev/kvm writable (an ACL grant is enough),
-# xorriso, curl. No sudo. Usage: sh test/vm/run [--keep]
+# xorriso, curl. No sudo.
+# Usage: sh test/vm/run [--keep] [--flavour=<name>]
 set -eu
 
 HERE=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
@@ -36,26 +37,79 @@ RELEASE=${VIGILANCE_VM_RELEASE:-resolute}
 # THE MACHINE'S PACKAGES, declared here rather than in the run seed, because
 # they now belong to the PRESERVED image rather than to a run. Installing them
 # costs 93s of a 377s run, measured, and it is the same 93s every time.
-# X11 IS A SECOND PLATFORM, NOT A SECOND WINDOW MANAGER, and the package list is
-# where that shows. On Wayland, DPMS and idle time belong to the COMPOSITOR, so
-# sway-dpms has to speak swaymsg; on X11 both belong to the SERVER, so the hooks
-# are window-manager agnostic and a WM would add dependencies without covering a
-# line of them. Measured before choosing: the lean set is 4 new packages against
-# 19 for xfce4-session + xfwm4 + xfce4-settings.
 #
-# WHAT A DESKTOP SESSION WOULD BUY, for when that trade is worth taking: xfce
-# runs its OWN screensaver and DPMS policy, which is a COMPETING ACTUATOR on the
-# device vigilance drives, and "two things driving one device" is a fault
-# class this suite has already paid for (mute-leds against mute-on-lock, twelve
-# hours of drift alerts about a fight that cannot be won). That is a scenario
-# worth having, and it is a different question from whether the hooks work.
+# X11 IS A SECOND PLATFORM, NOT A SECOND WINDOW MANAGER, which is why this set
+# has no desktop in it. On Wayland, DPMS and idle time belong to the COMPOSITOR,
+# so sway-dpms has to speak swaymsg; on X11 both belong to the SERVER, so those
+# hooks are window-manager agnostic and a WM covers not one line of them.
+#
+# SO THIS IS THE SET EVERY FLAVOUR SHARES, and a desktop is a FLAVOUR rather
+# than an addition here (see the block below). An earlier version of this
+# comment argued against desktops on package count, which was the wrong axis:
+# disk is cheap and a repavable guest saves more time than it costs. What a
+# desktop actually buys is a COMPETING ACTUATOR, and that is a question about
+# coexistence rather than about whether the hooks work.
 PKGS='dash util-linux sway swaylock swayidle dbus-user-session wayfire git
 greetd xvfb x11-xserver-utils xprintidle i3lock imagemagick
 xserver-xorg-core'
+
+# --- FLAVOURS ---------------------------------------------------------------
+# A FLAVOUR IS A DESKTOP ENVIRONMENT, and it exists because the interesting
+# question is no longer "do the hooks work" but "do they work beside somebody
+# else's power management". xfce runs its own screensaver and DPMS policy, KDE
+# has powerdevil, GNOME has gsd-power: each is a COMPETING ACTUATOR on the very
+# device vigilance drives, and two things driving one device is a fault class
+# this suite has already paid twelve hours of drift alerts for.
+#
+# EACH FLAVOUR GETS ITS OWN PRESERVED IMAGE, which is the whole point of doing
+# it this way. The image is keyed on the release and the package list, so
+# without this a `--flavour=xfce` run would invalidate the lean image, the next
+# lean run would rebuild it, and alternating between two flavours would rebuild
+# every single time. Per-flavour keys mean four environments cost four builds
+# TOTAL rather than one per switch.
+#
+# THE BASE CLOUD IMAGE STAYS SHARED, deliberately: it is release-keyed and
+# ~600MB, and nothing a flavour does can change it. Only the built image and
+# the per-run artifacts are per-flavour.
+#
+# AN UNKNOWN NAME IS REFUSED rather than falling back to lean. A typo that
+# silently gave the default would report a full pass for a flavour that was
+# never installed, which is precisely the false green this suite exists to
+# refuse.
+FLAVOUR=${VIGILANCE_VM_FLAVOUR:-lean}
+KEEP=
+for _a in "$@"; do
+  case $_a in
+    --keep) KEEP=--keep ;;
+    --flavour=*) FLAVOUR=${_a#*=} ;;
+    *) echo "vm: unknown argument '$_a'" >&2
+       echo "vm: usage: sh test/vm/run [--keep] [--flavour=<name>]" >&2
+       exit 1 ;;
+  esac
+done
+
+case $FLAVOUR in
+  lean)
+    # The default, and it is not a stripped-down anything: it carries both
+    # platforms (Wayland via sway and wayfire, X11 via Xorg on real DRM) and
+    # every hook has a substrate here. What it lacks is a desktop session, and
+    # therefore a competing actuator.
+    PKGS_FLAVOUR='' ;;
+  *)
+    echo "vm: unknown flavour '$FLAVOUR'" >&2
+    echo "vm: known flavours: lean" >&2
+    exit 1 ;;
+esac
+[ -z "$PKGS_FLAVOUR" ] || PKGS="$PKGS $PKGS_FLAVOUR"
+
 IMG=$VM/$RELEASE-server-cloudimg-amd64.img
 URL=https://cloud-images.ubuntu.com/$RELEASE/current/${IMG##*/}
-CONSOLE=$VM/console.log
-KEEP=${1:-}
+# PER-FLAVOUR WORKING DIR, so two flavours can be built and run without either
+# silently overwriting the other's overlay, seed or console log. A collision
+# there would present as a guest that behaved like the wrong environment, which
+# is a diagnosis nobody would reach quickly.
+VMF=$VM/$FLAVOUR
+CONSOLE=$VMF/console.log
 
 # Capabilities this substrate can honestly provide. Anything not listed here
 # still skips, even in the VM.
@@ -72,7 +126,7 @@ for _c in qemu-system-x86_64 xorriso curl; do
 done
 [ -w /dev/kvm ] || _die "/dev/kvm not writable (an ACL grant is enough)"
 
-mkdir -p "$VM"
+mkdir -p "$VM" "$VMF"
 
 # --- base image -------------------------------------------------------------
 # Say it when the substrate and the subject have drifted apart. Not fatal: a
@@ -95,7 +149,7 @@ fi
 # mutate.
 echo "vm: packing the repo"
 xorriso -as mkisofs -R -J -V VIGILANCE -quiet \
-  -o "$VM/repo.iso" "$HERE" 2>/dev/null || _die "repo.iso failed"
+  -o "$VMF/repo.iso" "$HERE" 2>/dev/null || _die "repo.iso failed"
 
 # THE INTEGRATOR, so the guest can be wired by the thing that actually wires a
 # real box. The session tier otherwise invents a "representative" wiring, which
@@ -109,11 +163,11 @@ _tackup_drive=
 if [ -d "$TACKUP_SRC" ]; then
   echo "vm: packing the integrator ($TACKUP_SRC)"
   xorriso -as mkisofs -R -J -V TACKUP -quiet -m .git \
-    -o "$VM/tackup.iso" "$TACKUP_SRC" 2>/dev/null || _die "tackup.iso failed"
-  _tackup_drive="-drive file=$VM/tackup.iso,if=virtio,media=cdrom"
+    -o "$VMF/tackup.iso" "$TACKUP_SRC" 2>/dev/null || _die "tackup.iso failed"
+  _tackup_drive="-drive file=$VMF/tackup.iso,if=virtio,media=cdrom"
 else
   echo "vm: no tackup checkout at $TACKUP_SRC; its scenarios will SKIP"
-  rm -f "$VM/tackup.iso"
+  rm -f "$VMF/tackup.iso"
 fi
 
 # --- cloud-init seed --------------------------------------------------------
@@ -136,7 +190,7 @@ fi
 # except a live desktop. That gap is why the lock provider's race branch had to
 # be exercised through a file fixture, and why a fixture that could not express
 # ACTIVATING shipped a bug to a real box.
-_seed=$VM/seed
+_seed=$VMF/seed
 rm -rf "$_seed"; mkdir -p "$_seed"
 cat > "$_seed/meta-data" <<EOF
 instance-id: vigilance-$$
@@ -682,6 +736,11 @@ runcmd:
       SCENARIO_CAPS_EXTRA="$SCENARIO_CAPS_EXTRA $_tackup $_uinput $_x11"
       SCENARIO_CAPS_EXTRA="$SCENARIO_CAPS_EXTRA $_x11dpms"
       echo "  capabilities: $SCENARIO_CAPS_EXTRA"
+      # SAY WHICH ENVIRONMENT THIS IS. Four flavours produce four console logs
+      # that are otherwise near-identical, and a verdict filed against the wrong
+      # one is worse than no verdict: it reports a desktop as covered that was
+      # never installed.
+      echo "  flavour: @FLAVOUR@"
 
       echo "=== scenarios (VM substrate) ==="
       SCENARIO_CAPS="@CAPS@ ${SCENARIO_CAPS_EXTRA:-}"; export SCENARIO_CAPS
@@ -722,6 +781,7 @@ sed -i "s|@CAPS@|$CAPS|" "$_seed/user-data"
 # NARROWING THE RUN IS WHAT MAKES FAULT WORK ITERABLE. The suite is most
 # of the wall clock, and a fault loop wants ONE scenario, not 53.
 sed -i "s|@FILTER@|${VIGILANCE_VM_ONLY:-}|" "$_seed/user-data"
+sed -i "s|@FLAVOUR@|$FLAVOUR|" "$_seed/user-data"
 
 # PARSE THE GUEST SCRIPT BEFORE BOOTING IT. `dash -n` on this file checks the
 # HOST script; the runcmd above is a STRING to it, so a syntax error in the
@@ -730,13 +790,13 @@ sed -i "s|@FILTER@|${VIGILANCE_VM_ONLY:-}|" "$_seed/user-data"
 # eating a character on the way in: an unquoted heredoc running a backtick on
 # the host, and an editor swallowing a closing quote. The guest script is
 # shipped code and gets the same cheapest-possible check as everything else.
-_gs=$VM/guest-script
+_gs=$VMF/guest-script
 awk '/^  - \|$/ { f = 1; next } f' "$_seed/user-data" | sed 's/^    //' > "$_gs"
 [ -s "$_gs" ] || _die "could not extract the guest script from the seed"
 dash -n "$_gs" || _die "the guest runcmd does not parse; see $_gs"
 
 xorriso -as mkisofs -R -J -V CIDATA -quiet \
-  -o "$VM/seed.iso" "$_seed" 2>/dev/null || _die "seed.iso failed"
+  -o "$VMF/seed.iso" "$_seed" 2>/dev/null || _die "seed.iso failed"
 
 # --- the PRESERVED machine image --------------------------------------------
 # Two stages, and the split is what keeps the snapshot honest:
@@ -749,14 +809,21 @@ xorriso -as mkisofs -R -J -V CIDATA -quiet \
 # IF VIGILANCE'S OWN CODE WERE BAKED IN, every commit would invalidate the
 # image SILENTLY, the staleness class this project keeps paying for (a
 # shadowed binary, a pinned argv, a checkout a commit behind). Keyed on the
-# release and the package list ONLY, so the key is small and stable while the
-# code under test is always current.
-BUILT=$VM/built.qcow2
-_bkey=$(printf '%s|%s' "$RELEASE" "$PKGS" | cksum | tr -d ' ')
-_bhave=$(cat "$VM/built.key" 2>/dev/null || true)
+# release, the flavour and the package list ONLY, so the key is small and
+# stable while the code under test is always current.
+#
+# THE FLAVOUR IS IN THE KEY even though each one already has its own directory,
+# because the package list is not the only thing a flavour may eventually
+# change about THE MACHINE. Leaving it out would mean a flavour that differs
+# only in guest-side build steps silently inherited another's image, which is
+# the staleness this whole split exists to prevent.
+BUILT=$VMF/built.qcow2
+_bkey=$(printf '%s|%s|%s' "$RELEASE" "$FLAVOUR" "$PKGS" | cksum | tr -d ' ')
+_bhave=$(cat "$VMF/built.key" 2>/dev/null || true)
 if [ ! -f "$BUILT" ] || [ "$_bhave" != "$_bkey" ]; then
-  echo "vm: building the preserved machine image (once per release/packages)"
-  _bseed=$VM/bseed
+  echo "vm: building the preserved '$FLAVOUR' image (once per package set)"
+  _bseed=$VMF/bseed
+  _bcon=$VMF/build-console.log
   rm -rf "$_bseed"; mkdir -p "$_bseed"
   printf 'instance-id: vigilance-build-%s\nlocal-hostname: vigilance-vm\n' \
     "$$" > "$_bseed/meta-data"
@@ -773,15 +840,15 @@ if [ ! -f "$BUILT" ] || [ "$_bhave" != "$_bkey" ]; then
     echo "  - poweroff"
   } > "$_bseed/user-data"
   xorriso -as mkisofs -R -J -V CIDATA -quiet \
-    -o "$VM/bseed.iso" "$_bseed" 2>/dev/null || _die "build seed failed"
+    -o "$VMF/bseed.iso" "$_bseed" 2>/dev/null || _die "build seed failed"
   rm -f "$BUILT.part"
   qemu-img create -q -f qcow2 -F qcow2 -b "$IMG" "$BUILT.part" 8G \
     || _die "build overlay failed"
   qemu-system-x86_64 -enable-kvm -machine q35 -m 2048 -smp 2 \
     -drive file="$BUILT.part",if=virtio \
-    -drive file="$VM/bseed.iso",if=virtio,media=cdrom \
+    -drive file="$VMF/bseed.iso",if=virtio,media=cdrom \
     -netdev user,id=n0 -device virtio-net-pci,netdev=n0 \
-    -display none -serial "file:$VM/build-console.log" -monitor none \
+    -display none -serial "file:$_bcon" -monitor none \
     -no-reboot >/dev/null 2>&1 &
   _bpid=$!
   _bw=0
@@ -794,21 +861,21 @@ if [ ! -f "$BUILT" ] || [ "$_bhave" != "$_bkey" ]; then
   # THE MARKER IS THE PROOF. A guest that died early still leaves a qcow2, and
   # keeping it would preserve a half-built machine as "known good", the
   # false-green shape, baked into an image and reused for weeks.
-  if ! grep -q "Reached target.*[Pp]ower" "$VM/build-console.log" 2>/dev/null \
-     && ! grep -q "reboot: Power down" "$VM/build-console.log" 2>/dev/null; then
+  if ! grep -q "Reached target.*[Pp]ower" "$_bcon" 2>/dev/null \
+     && ! grep -q "reboot: Power down" "$_bcon" 2>/dev/null; then
     rm -f "$BUILT.part"
-    _die "the build guest never powered down; see $VM/build-console.log"
+    _die "the build guest never powered down; see $_bcon"
   fi
   mv "$BUILT.part" "$BUILT"
-  printf '%s\n' "$_bkey" > "$VM/built.key"
+  printf '%s\n' "$_bkey" > "$VMF/built.key"
   echo "vm: preserved image built"
 fi
 
 # --- a fresh overlay per run ------------------------------------------------
 # cloud-init runs once per instance-id, so a reused overlay would silently
 # skip the whole test and look like a pass.
-rm -f "$VM/boot.qcow2"
-qemu-img create -q -f qcow2 -F qcow2 -b "$BUILT" "$VM/boot.qcow2" 8G \
+rm -f "$VMF/boot.qcow2"
+qemu-img create -q -f qcow2 -F qcow2 -b "$BUILT" "$VMF/boot.qcow2" 8G \
   || _die "overlay failed"
 
 : > "$CONSOLE"
@@ -825,10 +892,10 @@ echo "vm: booting (console: $CONSOLE)"
 # scenario would be untestable here too.
 qemu-system-x86_64 -enable-kvm -machine q35 -m 2048 -smp 2 \
   -global ICH9-LPC.disable_s3=0 \
-  -drive file="$VM/boot.qcow2",if=virtio \
-  -drive file="$VM/seed.iso",if=virtio,media=cdrom \
+  -drive file="$VMF/boot.qcow2",if=virtio \
+  -drive file="$VMF/seed.iso",if=virtio,media=cdrom \
   ${_tackup_drive} \
-  -drive file="$VM/repo.iso",if=virtio,media=cdrom \
+  -drive file="$VMF/repo.iso",if=virtio,media=cdrom \
   -netdev user,id=n0 -device virtio-net-pci,netdev=n0 \
   -display none -serial "file:$CONSOLE" -monitor none -no-reboot \
   >/dev/null 2>&1 &
@@ -851,7 +918,7 @@ echo "vm: ---- guest output ----"
 sed -n '/=== from-scratch install ===/,$p' "$CONSOLE" || true
 echo "vm: ---- end ----"
 
-if [ "$KEEP" != --keep ]; then rm -f "$VM/boot.qcow2"; fi
+if [ "$KEEP" != --keep ]; then rm -f "$VMF/boot.qcow2"; fi
 
 if grep -q 'VIGILANCE_VM_EXIT=0' "$CONSOLE" 2>/dev/null; then
   echo "vm: PASS"

@@ -43,7 +43,16 @@ set -eu
 
 HERE=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 VM=${VIGILANCE_VM_DIR:-/var/tmp/vigilancevm}
-BUILT=$VM/built.qcow2
+# THE SAME FLAVOUR DEFAULT test/vm/run uses, and the same per-flavour layout,
+# because the preserved image moved under a flavour directory when desktops
+# became testable. This tier has no opinion about the desktop (it is about
+# whether the LOG survives a hard kill), so it follows whichever flavour was
+# built rather than declaring one of its own. Read from the same variable so
+# the two cannot disagree about where the image is: a stale path here would
+# report "run test/vm/run first" about an image that exists.
+FLAVOUR=${VIGILANCE_VM_FLAVOUR:-lean}
+VMF=$VM/$FLAVOUR
+BUILT=$VMF/built.qcow2
 TRIALS=${VIGILANCE_CRASH_TRIALS:-3}
 BOOT1_MAX=${VIGILANCE_CRASH_BOOT1_MAX:-300}
 BOOT2_MAX=${VIGILANCE_CRASH_BOOT2_MAX:-240}
@@ -72,7 +81,7 @@ dash -n "$HERE/test/vm/crash-verify" \
 
 echo "crash: packing the repo"
 xorriso -as mkisofs -R -J -V VIGILANCE -quiet \
-  -o "$VM/repo.iso" "$HERE" 2>/dev/null || _die "repo.iso failed"
+  -o "$VMF/repo.iso" "$HERE" 2>/dev/null || _die "repo.iso failed"
 
 # --- the arming boot's script ------------------------------------------------
 # QUOTED HEREDOC, and the one host value substituted afterwards. Twice a
@@ -163,7 +172,7 @@ SEED
 # until a three-minute boot ends in silence. That has happened twice, both times
 # from a quoting layer eating a character on the way in.
 _parsecheck() {   # <seed-dir>
-  _gs=$VM/crash-guest-script
+  _gs=$VMF/crash-guest-script
   awk '/^  - \|$/ { f = 1; next } f' "$1/user-data" | sed 's/^    //' > "$_gs"
   [ -s "$_gs" ] || _die "could not extract the guest script"
   dash -n "$_gs" || _die "the guest runcmd does not parse; see $_gs"
@@ -174,7 +183,7 @@ _boot() {   # <overlay> <seed-iso> <console> <marker> <timeout> -> sets _qpid
   qemu-system-x86_64 -enable-kvm -machine q35 -m 2048 -smp 2 \
     -drive file="$1",if=virtio \
     -drive file="$2",if=virtio,media=cdrom \
-    -drive file="$VM/repo.iso",if=virtio,media=cdrom \
+    -drive file="$VMF/repo.iso",if=virtio,media=cdrom \
     -netdev user,id=n0 -device virtio-net-pci,netdev=n0 \
     -display none -serial "file:$3" -monitor none -no-reboot \
     >/dev/null 2>&1 &
@@ -194,10 +203,10 @@ _fail=0
 _trial=0
 while [ "$_trial" -lt "$TRIALS" ]; do
   _trial=$((_trial + 1))
-  _ov=$VM/crash.qcow2
-  _sd=$VM/crash-seed
-  _c1=$VM/crash-$_trial-boot1.log
-  _c2=$VM/crash-$_trial-boot2.log
+  _ov=$VMF/crash.qcow2
+  _sd=$VMF/crash-seed
+  _c1=$VMF/crash-$_trial-boot1.log
+  _c2=$VMF/crash-$_trial-boot2.log
 
   # A FRESH OVERLAY PER TRIAL, because cloud-init runs once per instance-id: a
   # reused one would skip the arming entirely and the trial would look like a
@@ -205,11 +214,11 @@ while [ "$_trial" -lt "$TRIALS" ]; do
   rm -f "$_ov"
   qemu-img create -q -f qcow2 -F qcow2 -b "$BUILT" "$_ov" 8G \
     || _die "overlay failed"
-  _mkseed "$_sd" "$VM/crash-seed.iso" vigilance-crash-1
+  _mkseed "$_sd" "$VMF/crash-seed.iso" vigilance-crash-1
   _parsecheck "$_sd"
 
   printf 'crash: trial %s/%s: arming\n' "$_trial" "$TRIALS"
-  if ! _boot "$_ov" "$VM/crash-seed.iso" "$_c1" 'CRASH_MIDCROSS' "$BOOT1_MAX"
+  if ! _boot "$_ov" "$VMF/crash-seed.iso" "$_c1" 'CRASH_MIDCROSS' "$BOOT1_MAX"
   then
     kill -9 "$_qpid" 2>/dev/null || true; wait "$_qpid" 2>/dev/null || true
     echo "crash: trial $_trial: the guest never reached a crossing."
@@ -231,7 +240,7 @@ while [ "$_trial" -lt "$TRIALS" ]; do
     "$_trial" "${_base:-?}" "${_wrote:-?}"
 
   # --- the verdict boot, on the SAME disk ------------------------------------
-  if ! _boot "$_ov" "$VM/crash-seed.iso" "$_c2" 'CRASH_EXIT=' "$BOOT2_MAX"
+  if ! _boot "$_ov" "$VMF/crash-seed.iso" "$_c2" 'CRASH_EXIT=' "$BOOT2_MAX"
   then
     kill -9 "$_qpid" 2>/dev/null || true; wait "$_qpid" 2>/dev/null || true
     echo "crash: trial $_trial: the machine did not come back, or the verdict"
@@ -267,7 +276,7 @@ done
 # KEEP THE DISK ON REQUEST. A crash artifact cannot be reproduced on demand, so
 # throwing the overlay away by default is right for a loop and wrong the one
 # time the verdict surprises you.
-[ "${1:-}" = --keep ] || rm -f "$VM/crash.qcow2"
+[ "${1:-}" = --keep ] || rm -f "$VMF/crash.qcow2"
 printf '\ncrash: %s passed, %s failed, of %s trials\n' "$_pass" "$_fail" \
   "$TRIALS"
 [ "$_fail" = 0 ] || exit 1
