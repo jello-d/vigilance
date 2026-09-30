@@ -293,6 +293,7 @@ m the ladder
 f N lock/unlock cycles, and the SLOPE between two counts (default 40)
 e ACT: state flat, no leaked lock, one dedup key, the log still complete
 t soak
+
 # TWO ACTUATORS, ONE DEVICE, which is the class that cost twelve hours once:
 # mute-leds darkened an LED at `sleep` while the audio driver relit it, and
 # vigilance raised 278 drift alerts about a fight it could not win. The rival
