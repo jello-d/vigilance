@@ -535,10 +535,10 @@ not a logic error, and each one survived a green stub run.
     sh test/mutate           break each guard on purpose (~70s)
     sh test/mutate <name>    just one
 
-`test/mutants` is a corpus: each record removes one guard and names the tests
-that must notice. A guard nothing can kill is decorative, and decorative guards
-are how "everything is green" and "nothing is checked" became the same sentence
-here more than once.
+`test/mutants.rec` is a corpus: each record removes one guard and names the
+tests that must notice. A guard nothing can kill is decorative, and decorative
+guards are how "everything is green" and "nothing is checked" became the same
+sentence here more than once.
 
 It is paranoid about **itself**, because every failure of this discipline has
 been in the instrument rather than the subject: a pattern that matched nothing

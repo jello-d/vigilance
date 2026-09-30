@@ -1,12 +1,12 @@
-# test/faults - the declared FAULT SPACE, and what each one must produce.
+# test/faults.rec - the declared FAULT SPACE, and what each one must produce.
 #
 # A fault suite with no denominator is a pile of anecdotes: you poke at the
 # machine, nothing catches fire, and "it did not crash" quietly becomes the
 # bar. This file is the denominator. Every fault the VM can inject is declared
 # here WITH ITS EXPECTED RESPONSE, whether or not anything exercises it yet, so
 # the gap between "faults we know about" and "faults we check" is visible
-# instead of imagined. Same move as test/mutants for guards and THEORY.md for
-# invariants.
+# instead of imagined. Same move as test/mutants.rec for guards, and
+# THEORY.md for invariants.
 #
 # THE EXPECTED RESPONSE IS THE POINT. "It survived" is not a result; a fault
 # that produces NO response is a FINDING, because every one of these is

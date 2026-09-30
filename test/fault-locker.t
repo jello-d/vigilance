@@ -1,7 +1,7 @@
 #!/bin/sh
 # test/fault-locker.t - the locker is KILLED, and the ladder must notice.
 #
-# FAULT: locker-killed-while-locked. The first cell of test/faults, and the
+# FAULT: locker-killed-while-locked. The first cell of test/faults.rec, and the
 # shape every other one should follow: inject a REAL fault into a REAL
 # component, then assert the response the declaration promises. Not "it
 # survived": a fault that produces no response is the finding.
@@ -71,8 +71,8 @@ locker; the recovery left the provider unable to work"
 # THE LOCKER IS REAL, not a stub of one. VIGILANCE_LOCKER is a shipped knob
 # precisely because the locker is the integrator's choice, so supplying one that
 # exits non-zero is a real locker behaving badly rather than a fixture standing
-# in for a machine. That is the line test/faults draws: a device, a process, a
-# filesystem or a clock may not be faked, and this fakes none of them.
+# in for a machine. That is the line test/faults.rec draws: a device, a
+# process, a filesystem or a clock may not be faked, and this fakes none.
 session_reset
 wire lock ''      swaylock
 wire lock .verify locker-up

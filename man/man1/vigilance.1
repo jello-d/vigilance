@@ -449,7 +449,7 @@ lies, and a lying stub is how a green test coexists with a broken box.
 .PP
 .B sh test/mutate
 is the third tier and asks whether the guards BITE. Each record in
-.I test/mutants
+.I test/mutants.rec
 removes one guard and names the tests that must notice; a guard nothing kills
 is decorative. The driver asserts the mutation LANDED, that the result still
 PARSES, and that the named tests were green beforehand, because every failure

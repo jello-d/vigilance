@@ -23,7 +23,7 @@
 set -eu
 
 HERE=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-CORPUS=$HERE/test/mutants
+CORPUS=$HERE/test/mutants.rec
 # Generous against the slowest single test (a few seconds here, and the VM
 # substrate is slower), because this bound exists to catch a HANG rather than to
 # police duration: a mutation that removes a bound can block the test that was

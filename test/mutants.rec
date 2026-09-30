@@ -1,4 +1,4 @@
-# test/mutants - the corpus: each record breaks ONE guard on purpose, and
+# test/mutants.rec - the corpus: each record breaks ONE guard on purpose, and
 # names the test(s) that must notice.
 #
 # WHY THIS IS A FILE AND NOT A HABIT. Every defect this project has found was
