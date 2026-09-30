@@ -341,7 +341,7 @@ keybind, so the exit status is the only thing that carries this"
 
 VIGILANCE_STATE_DIR=$T/state; export VIGILANCE_STATE_DIR
 
-# --- 11. THE BRIGHTNESS FALLBACK: darkening a panel with no shallow standby --
+# --- 11. THE BRIGHTNESS FALLBACK: darkening a panel with no shallow standby ---
 # The gap this closes was found on a live box, by the screen simply not going
 # dark. manifestor's Dell advertises no D6=02, so the standby-only policy
 # correctly declines to power it down, and `panel-backlight` is n/a because

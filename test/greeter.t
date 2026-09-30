@@ -150,7 +150,7 @@ FAIL, and failing on every greeter edge is exactly why it must not be wired
 here" || :
 rm -f "$VIGILANCE_MACHINE_HOOKS/lock.verify.d/50-locker-up"
 
-# --- 6. the greeter's own initial depth is not inherited by a real session --
+# --- 6. the greeter's own initial depth is not inherited by a real session ---
 # VIGILANCE_INITIAL_DEPTH only applies when there is NO record. Once a depth
 # exists it must win, or a stale environment variable would silently rewrite
 # where the machine believes it is.

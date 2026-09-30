@@ -191,7 +191,7 @@ a box without that device is not a broken box"
 exist"
 BC_FAIL_GET=
 
-# --- a STALE save for a device that is GONE is dropped, not failed forever --
+# --- a STALE save for a device that is GONE is dropped, not failed forever ---
 # The mirror of the absent-device case above, on the ascent. hook_dark treats an
 # unreadable device as n/a; hook_lit used to treat it as a failed restore, so a
 # save file left over from a machine that has since changed failed EVERY ascent
