@@ -37,7 +37,7 @@ _self=$(readlink -f "$0")
 . "$(dirname "$_self")/../hook_lib"
 
 # 78, NOT 0. Without brightnessctl this hook drives nothing, and exit 0
-# would count it as a tier that CHECKED -- the conflation the n/a
+# would count it as a tier that CHECKED: the conflation the n/a
 # contract exists to break, in the tier where it was first measured.
 if ! hook_have_brightnessctl; then
   echo "panel-backlight: brightnessctl is not installed; nothing to drive" >&2
@@ -54,7 +54,7 @@ if [ "$_intent" = none ]; then exit 0; fi
 # the file keeps the device discovery in one place.
 # SCOPED TO THE BACKLIGHT CLASS, and that is load-bearing rather than tidy.
 #
-# With no selector, brightnessctl picks its own default -- and on a machine with
+# With no selector, brightnessctl picks its own default, and on a machine with
 # no panel backlight at all (any desktop) it falls back to the `leds` class and
 # lands on whatever comes first, which on manifestor is a keyboard kana LED. So
 # a hook named panel-backlight silently drove an unrelated LED, could not write
@@ -63,7 +63,7 @@ if [ "$_intent" = none ]; then exit 0; fi
 # does.
 #
 # Scoped, `get` fails on such a box ("Failed to read any devices of class
-# 'backlight'"), which hook_lib already treats as n/a -- a desktop without a
+# 'backlight'"), which hook_lib already treats as n/a: a desktop without a
 # panel backlight is not a broken desktop. kbd-backlight has always passed
 # --class=leds --device=...; this was the one hook trusting the default.
 BL="--class=backlight"
@@ -72,12 +72,12 @@ if [ "${VIGILANCE_KIND:-act}" = verify ]; then
   # NOT DUE? A peripheral check earns an hour, not a minute. The standing
   # recheck forces a FULL verify on the first pass after the rung changes, which
   # is when drift is actually introduced, so this cadence is a backstop rather
-  # than the primary mechanism -- and in the whole log history these verifiers
+  # than the primary mechanism, and in the whole log history these verifiers
   # have reported drift exactly never. Only the recheck offers the skip; an
   # explicit `vigilant verify` is always real.
   hook_throttle "${VIGILANCE_PERIPHERAL_EVERY:-3600}" && exit 75
   # NOT APPLICABLE, SAID OUT LOUD. A desktop has no panel backlight, so this
-  # verifier checks nothing -- and exiting 0 for that made a tier where every
+  # verifier checks nothing, and exiting 0 for that made a tier where every
   # screen checker had declined read exactly like one where every check passed.
   # 78 lets the runner count it apart from a real confirmation.
   if ! brightnessctl $BL get >/dev/null 2>&1; then

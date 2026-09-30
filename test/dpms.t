@@ -132,7 +132,7 @@ done
 # 78, NOT 0. Degrading gracefully is still the requirement; what changed is
 # that "graceful" now has a word of its own. Exit 0 said "I did the work" and
 # "the tool is not installed" in the same breath, so a box with no wlopm
-# reported an edge where every hook CONFIRMED -- the conflation the n/a
+# reported an edge where every hook CONFIRMED: the conflation the n/a
 # contract was added to break, still living in the older plugins.
 _rc=0
 VIGILANCE_EDGE=wake VIGILANCE_KIND=act VIGILANCE_INTENT=lit \

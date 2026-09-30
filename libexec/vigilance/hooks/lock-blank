@@ -7,7 +7,7 @@
 # locked screen. The only things that can change what a locked display emits
 # are the locker itself, gamma control, and the monitor's own hardware. On a
 # panel with no DPMS standby (an OLED that advertises no D6=02) the hardware
-# path can only DIM -- measured on an AW2725Q: brightness 0 is dim, not black.
+# path can only DIM, measured on an AW2725Q: brightness 0 is dim, not black.
 #
 # So the locker has to repaint, and swaylock is patched with a two-signal
 # control interface for exactly that:
@@ -58,7 +58,7 @@ MARK=${VIGILANCE_STATE_DIR:-/tmp}/blanked
 # to drop to 0, and a monitor advertising no DPMS standby, leaving the locker's
 # own pixels as the only thing that can stop the display emitting. On a box
 # that HAS a backlight, panel-backlight already takes the panel genuinely dark
-# and this buys nothing -- while costing the lock wallpaper.
+# and this buys nothing, while costing the lock wallpaper.
 #
 # And not merely nothing. On an ASCENT the machine scope unwinds first, so
 # 20-panel-backlight restores the brightness BEFORE this user-scope hook
@@ -70,7 +70,7 @@ MARK=${VIGILANCE_STATE_DIR:-/tmp}/blanked
 # honest one is "can every output be darkened some other way", which needs the
 # output list and a ddcutil round trip on the lock path. This errs toward
 # leaving the wallpaper alone, and VIGILANCE_LOCK_BLANK=always is the escape
-# hatch for a mixed setup -- an internal panel with a backlight plus an
+# hatch for a mixed setup: an internal panel with a backlight plus an
 # external monitor without one, where the cheap test answers wrong.
 _has_backlight() {
   for _lb in "${VIGILANCE_SYS_BACKLIGHT:-/sys/class/backlight}"/*; do
@@ -88,8 +88,8 @@ case "${VIGILANCE_LOCK_BLANK:-auto}" in
   *)      if _has_backlight; then _gated=1; fi ;;
 esac
 # A RESTORE IS NEVER GATED. If a marker is outstanding we blanked this surface
-# before the policy said not to -- on a deploy, a config change, or a mixed
-# setup -- and declining now would leave the wallpaper black with nothing able
+# before the policy said not to: on a deploy, a config change, or a mixed
+# setup, and declining now would leave the wallpaper black with nothing able
 # to bring it back. A short-circuit on state that cannot clear the state is the
 # exact shape that left a stale save file failing every ascent for four days.
 if [ "$_gated" = 1 ] && { [ "$_intent" = dark ] || [ ! -f "$MARK" ]; }; then
@@ -99,13 +99,13 @@ if [ "$_gated" = 1 ] && { [ "$_intent" = dark ] || [ ! -f "$MARK" ]; }; then
 fi
 
 # VERIFY BY LOOKING AT THE PIXELS. swaylock exposes no way to ask what it is
-# painting -- but it is not the only thing that can see the surface. The
+# painting, but it is not the only thing that can see the surface. The
 # compositor can, through wlr-screencopy, and grim plus ImageMagick turn that
 # into a number. This is a measurement of what the display is ACTUALLY
 # EMITTING, not a proxy for it, which makes it the strongest verifier here.
 #
 # MEASURE WITH THE ALPHA CHANNEL OFF. `%[fx:mean]` averages ALL channels
-# including alpha, so an opaque all-black frame reads 0.25 rather than 0 -- the
+# including alpha, so an opaque all-black frame reads 0.25 rather than 0, the
 # alpha is 1.0 and gets averaged in. The first version of this check called a
 # genuinely pitch-black screen "not black" for exactly that reason, and
 # disagreed with a human looking straight at it. A measurement that contradicts

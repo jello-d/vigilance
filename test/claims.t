@@ -5,7 +5,7 @@
 # prose that describes behaviour the code does not have. Every one of these was
 # real, and every one survived because nothing compared the two:
 #
-#   "vigilant check -- wiring audit"   three documents said it; the code was a
+#   "vigilant check: wiring audit"   three documents said it; the code was a
 #                                      stub aliased to `status`
 #   "SIX HOOK KINDS"                   stayed six for a whole refactor after
 #                                      audit.d made it seven
@@ -58,7 +58,7 @@ grep -q "^$_word kinds" "$M" \
 # FROM THE TABLE, which is where the rungs are declared now. `LADDER` is
 # derived from it at runtime, so grepping that line reads an awk expression
 # instead of a list of rungs. The range ends at the line that CLOSES the quote,
-# not at one that starts with it -- the closing quote is at the end of the last
+# not at one that starts with it: the closing quote is at the end of the last
 # row, so anchoring at the start swept up every comment that followed.
 _rungs=$(sed -n "/^LADDER_TABLE=/,/'\$/p" "$V" \
          | sed "s/^LADDER_TABLE='//; s/'\$//" | awk 'NF { print $1 }')
@@ -133,7 +133,7 @@ done
 #
 # THE MAN PAGE WAS ALREADY FORCED and the README never was. Every KNOB had to
 # appear in one or the other (below), and the exit codes in the man page and the
-# header -- so the front door of a public repo was the one surface nothing
+# header, so the front door of a public repo was the one surface nothing
 # checked. Both are required here because they answer different readers: the man
 # page is the reference, the README is what someone reads before writing a hook.
 #
@@ -161,7 +161,7 @@ done
 # An audit counted 41 VIGILANCE_* knobs and found 29 of them documented
 # nowhere. The extension points existed and were not discoverable, which for a
 # package claiming "ship the 80 percent, dial in the rest" is the gap that
-# matters most -- a dial nobody can find is not a dial.
+# matters most: a dial nobody can find is not a dial.
 #
 # A ratchet rather than a one-time sweep, because the doc was never wrong on
 # purpose: knobs arrive one at a time with the feature that needs them, and

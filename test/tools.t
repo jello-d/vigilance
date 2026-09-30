@@ -44,7 +44,7 @@ done
 # hypothetical: a refactor split hook_lit into an adapter over a shared
 # implementation and left the old body further down the file, so for two days
 # the adapter was never called. Every test passed, because the shadowing copy
-# behaved the same -- which is exactly why nothing noticed, and why a later fix
+# behaved the same, which is exactly why nothing noticed, and why a later fix
 # to the adapter did nothing at all on a live box.
 #
 # `dash -n` cannot see this: two definitions are perfectly valid shell.
@@ -59,7 +59,7 @@ done
 [ -z "$_dupes" ] || fail "function(s) defined twice in one file:$_dupes
 
 The later definition wins and the earlier is dead code. A refactor that leaves
-the old body behind passes every test -- the shadowing copy behaves the same --
+the old body behind passes every test (the shadowing copy behaves the same)
 right up until someone fixes the copy that is never called."
 
 pass "$(ls "$HERE"/bin | wc -l | tr -d ' ') tools + $(ls \

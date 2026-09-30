@@ -6,7 +6,7 @@
 # because of one specific rot: A MUTATION WHOSE TARGET LINE NO LONGER EXISTS
 # LEAVES THE FILE UNTOUCHED. The tests then pass, and "the guard does not bite"
 # is what that looks like from outside. That exact mistake has been made three
-# times here -- a pattern that never matched, a sed delimiter that clashed with
+# times here: a pattern that never matched, a sed delimiter that clashed with
 # `||`, and a search string that had been reworded since.
 #
 # So the moment someone edits a guarded line, this fails and names the record
@@ -35,7 +35,7 @@ to kill it cannot report anything: the corpus would grow while proving less"
 naming a deleted test can never kill anything and will report SURVIVED forever"
   done
   # THE LOAD-BEARING ONE. -F is a fixed string and -x is whole-line, so this
-  # matches exactly what the driver's awk will match -- no regex, nothing to
+  # matches exactly what the driver's awk will match: no regex, nothing to
   # clash with the `||`, `*` and `$` these lines are full of.
   grep -Fxq -- "$M_O" "$HERE/$M_F" || fail "record '$M_N' wants to remove a
 line that is no longer in $M_F:
@@ -51,7 +51,7 @@ Update the record to the line as it reads now."
 # MALFORMED PREFIXES FIRST, because they fail SILENTLY in the worst direction.
 # The format is a two-character prefix, and a code line starting at column 0
 # invites writing "-if [ ... ]" instead of "- if [ ... ]". The driver then sees
-# no old line at all -- or worse, no NEW line, which turns an intended replace
+# no old line at all, or worse, no NEW line, which turns an intended replace
 # into a DELETE: a different mutation than the one written down, possibly still
 # valid shell, possibly still killing a test, and wrong about what it proved.
 # Four records in this file were written that way.

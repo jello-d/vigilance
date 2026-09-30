@@ -35,8 +35,8 @@ _restore_machine() { :; }   # replaced once the stash exists; the trap needs it
 session_init fault-clock
 
 OFFSET=${VIGILANCE_CLOCK_OFFSET:-3600}
-# THE NET OFFSET, not a flag. This scenario steps the clock TWICE -- back, and
-# then forward past real time -- and a restore that assumed one direction would
+# THE NET OFFSET, not a flag. This scenario steps the clock TWICE: back, and
+# then forward past real time, and a restore that assumed one direction would
 # leave the guest an hour out for every scenario after it in the same boot,
 # looking like their bug.
 CLOCK_NET=0
@@ -70,7 +70,7 @@ wire lock .verify locker-up
 # SCOPES, because the dedup key is the alert TEXT and the alert carries the
 # whole verify output. Every other wired verifier contributes a note to that
 # text, and a PERIPHERAL one that DEFERS (they check hourly now) drops its note
-# from the next pass -- so the armed finding and the later one differ and the
+# from the next pass, so the armed finding and the later one differ and the
 # cooldown comparison is never exercised. Observed exactly that way:
 # `ddc-monitor: ddcutil is not installed` in the armed message and gone an
 # instant later.
@@ -125,7 +125,7 @@ scenario is about were never written by a real crossing"
 # crosses `unlock`, so the stamp belonged to a drift at 'open' while case 3
 # raises one at 'lock'. The key is a cksum over kind+message, so those are
 # different findings and there was never anything suppressible. MEASURED, which
-# is how it was found -- a mutation removing the guard in `_alert_repeat`
+# is how it was found: a mutation removing the guard in `_alert_repeat`
 # SURVIVED, and printing both lines said why:
 #
 #   armed:  drift|... at 'open' ... verify unlock: NOTHING CHECKED ...
@@ -138,7 +138,7 @@ _armed=$(head -1 "$T/alerts" 2>/dev/null || true)
 stamp exists and the suppression case below would prove nothing"
 # AND IT IS THE PLANTED FINDING, not whatever the substrate happened to raise.
 # This guest has no brightnessctl, ddcutil or wlopm, so its verify tiers produce
-# findings of their own -- one of which is exactly what armed the wrong key.
+# findings of their own, one of which is exactly what armed the wrong key.
 case "$_armed" in
   *"a fixed finding"*) ;;
   *) fail "fixture: the armed alert is not the deterministic finding this
@@ -230,7 +230,7 @@ clock. Every dedup stamp is ahead of the clock, so each alert reads as a repeat
 and the whole notification path goes silent while the log fills"
 # AND IT IS THE FINDING WHOSE STAMP IS PRE-STEP. Without this the case passes
 # on any alert at all, including one whose key was never stamped and so could
-# not be suppressed by any clock -- which is how it passed with the guard
+# not be suppressed by any clock, which is how it passed with the guard
 # removed. An assertion about suppression has to name what should have been
 # suppressed.
 grep -Fq "$_armed" "$T/alerts" || fail "an alert got through, but NOT the one
@@ -263,13 +263,13 @@ into a permanent one"
 # FAULT: clock-jumped-forward. Same machine, opposite direction, and the two are
 # not symmetric: backward made `now - then` NEGATIVE and disabled three
 # mechanisms, while forward makes every record look OLD. That expires things
-# early rather than never -- a dedup cooldown, a phantom cooldown -- so the
+# early rather than never: a dedup cooldown, a phantom cooldown, so the
 # failure mode is a burst, not a silence, and the matrix asks for DEGRADE.
 #
 # WHAT IS NOT ASSERTED HERE, deliberately: the idle clock's ceiling. A forward
 # jump looks exactly like a long gap between samples, which
 # input-counters.t already holds down ("A GAP IN SAMPLING IS NOT A QUIET SEAT")
-# against pinned counter files -- and this guest has no countable input device
+# against pinned counter files, and this guest has no countable input device
 # at scenario time anyway, so the source declines and the assertion would be
 # vacuous. A cell that restates another test's claim about a fixture it does not
 # have is the coverage-shaped nothing this matrix exists to avoid.
@@ -288,7 +288,7 @@ have stepped it back, in which case nothing below is a measurement"
 "$VIGILANT" status > "$T/fwd-status.out" 2>&1 || true
 grep -q 'skew' "$T/fwd-status.out" && fail "status claimed a clock SKEW after a
 FORWARD jump. Skew means a record is ahead of the clock; here every record is
-behind it, which is an ordinary old machine -- and a diagnosis that fires in
+behind it, which is an ordinary old machine, and a diagnosis that fires in
 both directions tells a reader nothing about either:
 $(grep -i skew "$T/fwd-status.out" | head -2)" || :
 _fwd_after=$("$VIGILANT" report 2>&1 | grep -c '^\[FAIL\]' || true)
@@ -300,7 +300,7 @@ _fwd_bad )) FAIL(s) purely from the clock moving FORWARD an hour"
 # What must not happen is that it keeps happening.
 #
 # SO THE CLAIM IS ABOUT THE LATER PASSES, not a ceiling on the total. My first
-# version guessed "at most 2" and the guest said 3 -- and the guess was the
+# version guessed "at most 2" and the guest said 3, and the guess was the
 # wrong shape rather than the wrong number: this tier raises TWO kinds for one
 # fault (hook-failed from the planted verifier, drift from the recheck's own
 # verdict), so the entitled round is two or three notifications and a ceiling
@@ -318,7 +318,7 @@ _fwd_after=$(wc -l < "$T/alerts" | tr -d ' ')
 notified $(( _fwd_after - _fwd_round )) more times about an unchanging finding,
 after the round the clock jump legitimately entitled it to. That is a storm
 arriving by way of the clock, and it is the documented reason a live box had its
-supervision timer stopped BY HAND -- after which every report was green because
+supervision timer stopped BY HAND, after which every report was green because
 nothing was running.
 alerts seen:
 $(cat "$T/alerts")"

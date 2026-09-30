@@ -7,7 +7,7 @@ way, and both have already cost this project a live failure:
   a LID CLOSE. Answering logind's Session.Lock from the `sleep` rung once lit
   the panel and left it lit for thirty minutes. Every test of that path so far
   has approximated it with `loginctl lock-session`, which is the SIGNAL rather
-  than the CAUSE -- and the whole bug was about what a lid does, not what a
+  than the CAUSE, and the whole bug was about what a lid does, not what a
   signal does.
 
   INPUT ITSELF. The idle clock counts kernel input events, so on a machine with
@@ -96,7 +96,7 @@ def key(taps, hold, delay=0.0):
   # evdev probe reads "did anything arrive since I opened this device", so
   # taps that happen before the open are invisible BY DESIGN. Its first run
   # tapped at 14:25:26 and opened the device at 14:25:27, and reported that
-  # evdev cannot see input at all -- an instrument bug wearing the costume of
+  # evdev cannot see input at all: an instrument bug wearing the costume of
   # a finding, in the phase whose entire job is to prove the instrument works.
   if delay > 0:
     time.sleep(delay)

@@ -8,7 +8,7 @@
 #   Dell AW2725Q VCP D6: 01 04 05          <-- no 02
 #
 # The hook hardcoded `dark) _d6=02`. MCCS defines 02 as standby, and a monitor
-# advertises which codes it actually implements -- but writing one it does not
+# advertises which codes it actually implements, but writing one it does not
 # is NOT an error it reports back. `setvcp --noverify` sends the byte and
 # returns 0, so the OLED stayed lit while the edge recorded a clean crossing and
 # every tier agreed everything was fine.
@@ -28,7 +28,7 @@ HOOK=$HERE/libexec/vigilance/hooks/ddc-monitor
 mkdir -p "$T/bin" "$T/state"
 
 # Each bus declares its own D6 values through DDC_CAPS_<bus>, so one fixture
-# models a machine with genuinely different monitors -- which is the case the
+# models a machine with genuinely different monitors, which is the case the
 # hardcoded constant could never get right.
 cat > "$T/bin/ddcutil" <<'EOF'
 #!/bin/sh
@@ -57,7 +57,7 @@ case "$*" in
   *getvcp*)
     # DDC_SILENT models a monitor whose scaler is down: it answers nothing.
     # Expressed as a SWITCH on the one stub rather than by swapping in a second
-    # one -- a replacement fixture silently loses whatever the original could
+    # one: a replacement fixture silently loses whatever the original could
     # observe, which has now cost two debugging rounds in this file alone.
     if [ -n "${DDC_SILENT:-}" ]; then exit 1; fi
     case "$*" in
@@ -113,7 +113,7 @@ wakes fastest"
 # and needed a power cycle. The absence of 02 IS the signal.
 [ -z "$(_wrote 5)" ] || fail "bus 5 offers no DPMS standby (02) and was written
 '$(_wrote 5)' anyway. Deeper D6 codes carry no guaranteed DDC wake channel, and
-this is the panel that proved it -- it stopped answering DDC entirely and needed
+this is the panel that proved it: it stopped answering DDC entirely and needed
 a power cycle at the monitor. Nothing may be put into a dark state unless its
 way back is armed"
 
@@ -150,7 +150,7 @@ _act wake || fail "the hook failed bringing the monitors back"
 # --- 3. VERIFY expects what was WRITTEN, not a constant --------------------
 # The two tiers must agree by construction. If verify kept its own idea of the
 # dark value it would report drift on bus 5 forever, on a monitor that did
-# exactly as it was told -- and a verifier that cries wolf is one you stop
+# exactly as it was told, and a verifier that cries wolf is one you stop
 # reading.
 export DDC_STATE_4=02 DDC_STATE_5=01
 _verify sleep || fail "verify reported drift on monitors sitting in precisely
@@ -190,7 +190,7 @@ monitor"
 [ "$(_wrote 6)" = 05 ] || fail "with the opt-in set, a monitor offering only 01
 and 05 was written '$(_wrote 6)'; 05 is the only off code it has"
 # 78 IS THE RIGHT ANSWER HERE, not 0. A write-only code cannot be read back by
-# definition, so this verify checked NOTHING -- and under the n/a contract that
+# definition, so this verify checked NOTHING, and under the n/a contract that
 # is reported as n/a rather than as a confirmed panel. Returning 0 would put it
 # back to reading exactly like a monitor that was checked and found correct,
 # which is the conflation the contract exists to end.
@@ -198,7 +198,7 @@ _vrc=0
 VIGILANCE_DDC_DEEP_OFF=1 _verify sleep || _vrc=$?
 [ "$_vrc" = 78 ] || fail "a verify that could check nothing (write-only D6=05)
 returned $_vrc, not 78. 0 would read as a confirmed panel; anything else would
-read as drift. Neither is true -- there was no verdict to give"
+read as drift. Neither is true: there was no verdict to give"
 
 # --- 5. a monitor with NO off value is LEFT ALONE -------------------------
 # Guessing a code at a panel that advertises none is how the original bug
@@ -222,8 +222,8 @@ one on the same edge had nothing to write"
 # --- 7. THE LIVE FAILURE: a monitor driven dark that DROPS OFF DDC ----------
 # Observed on manifestor. The Dell was commanded into a power state it does not
 # implement, stopped answering DDC, and `ddcutil detect` reclassified it from
-# "Display N" to "Invalid display". The map EXCLUDES invalid displays -- that
-# exclusion exists so a non-DDC eDP panel is not driven -- so the dark monitor
+# "Display N" to "Invalid display". The map EXCLUDES invalid displays: that
+# exclusion exists so a non-DDC eDP panel is not driven, so the dark monitor
 # DROPPED OUT OF THE MAP entirely.
 #
 # Everything downstream then agreed the machine was healthy: the ascent never
@@ -235,7 +235,7 @@ one on the same edge had nothing to write"
 # A vanished monitor is indistinguishable from one that was never there, UNLESS
 # we wrote down that we put it to sleep. So the dark intent records it.
 # Bus 5 advertises 02 HERE, so it is actually driven. A panel that offers no
-# standby is now left alone entirely and could never reach this state -- which
+# standby is now left alone entirely and could never reach this state, which
 # is the point of the policy above. The risk that remains is a monitor that DOES
 # offer standby and still drops off DDC, and that is what this covers.
 rm -f "$T/state/dark-buses"
@@ -248,11 +248,11 @@ it drove dark. Without that record a monitor that later vanishes cannot be told
 from one that was never present"
 
 # The Dell stops answering, so detect files it under "Invalid display" and the
-# map no longer contains it -- exactly what happened live.
+# map no longer contains it, exactly what happened live.
 export DDC_BUSES="4"
 _act wake && fail "a monitor driven DARK vanished from the map and the ascent
 reported SUCCESS. That is one panel dark with nothing to bring it back, and
-every tier green -- the failure this whole project exists to prevent" || :
+every tier green: the failure this whole project exists to prevent" || :
 
 # ...and it must say which bus, and that DDC cannot fix it. A reader who is
 # told only "something failed" still has to find the dark monitor themselves.
@@ -287,7 +287,7 @@ DDC_SILENT=1; export DDC_SILENT
 # n/a (78), NOT a pass. Silence at a dark rung was always INFERRED compliance,
 # never an observation: a monitor whose scaler is down looks identical to one
 # that is unplugged or wedged. Under the n/a contract that inference stops
-# being laundered into a confirmed dark screen -- and it is still not drift,
+# being laundered into a confirmed dark screen, and it is still not drift,
 # because failing on it would cry wolf about a panel doing as it was told.
 _vrc=0
 _verify sleep || _vrc=$?
@@ -307,7 +307,7 @@ DDC_SILENT=; export DDC_SILENT
 # and the edge simply looked like it had not worked.
 #
 # That is the bug _set_depth in bin/vigilant carries a comment about, one layer
-# out -- a failure to WRITE A FILE must never suppress the thing the edge exists
+# out: a failure to WRITE A FILE must never suppress the thing the edge exists
 # to do. A wrong record is a reporting problem; a monitor that never got its
 # command is the job not happening.
 export DDC_BUSES="4"
@@ -330,7 +330,7 @@ record is a reporting problem, a monitor that never got its command is the edge
 not happening"
 
 # ...and the blind watchdog is REPORTED, not swallowed. Without the record, a
-# monitor that goes dark and drops off DDC cannot be noticed on the way back --
+# monitor that goes dark and drops off DDC cannot be noticed on the way back,
 # the check silently gone, which is this project's signature failure.
 grep -q "cannot write" "$T/err" || fail "the hook could not keep its dark
 record and said nothing. The vanished-monitor check is then blind, and nothing
@@ -344,7 +344,7 @@ VIGILANCE_STATE_DIR=$T/state; export VIGILANCE_STATE_DIR
 # --- 11. THE BRIGHTNESS FALLBACK: darkening a panel with no shallow standby --
 # The gap this closes was found on a live box, by the screen simply not going
 # dark. manifestor's Dell advertises no D6=02, so the standby-only policy
-# correctly declines to power it down -- and `panel-backlight` is n/a because
+# correctly declines to power it down, and `panel-backlight` is n/a because
 # an external monitor has no sysfs backlight device. Both hooks reported
 # themselves not-applicable, the edge returned 0, report stayed green, and a
 # static wallpaper sat on a QD-OLED indefinitely. A thing that cannot act
@@ -352,7 +352,7 @@ VIGILANCE_STATE_DIR=$T/state; export VIGILANCE_STATE_DIR
 #
 # VCP 10 (Luminance) is NOT a power state. Driving it to 0 dims the panel
 # without any DPM transition, so it triggers no OLED pixel-refresh and cannot
-# wedge the scaler -- which is exactly why it is safe where D6 is not.
+# wedge the scaler, which is exactly why it is safe where D6 is not.
 #
 # IN THIS HOOK, NOT A SECOND ONE: two hooks on the same bus would each run their
 # own detect, split the save/restore record, and give `verify` two answers to
@@ -430,7 +430,7 @@ _verify sleep && fail "verify passed a panel at full brightness as DARK" || :
 printf '60\n' > "$T/state/bright-5"
 export DDC_BRIGHT_5=0
 _verify wake && fail "verify passed a lit rung while a saved brightness was
-still outstanding -- the panel is dim and the level it should return to is
+still outstanding: the panel is dim and the level it should return to is
 sitting in a file" || :
 rm -f "$T/state/bright-5"
 

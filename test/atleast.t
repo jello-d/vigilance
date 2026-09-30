@@ -38,8 +38,8 @@ hook wake  10-rec
 # fixed) and downgrading it to a single step (the `only` semantics, which would
 # leave `sleep` recorded with the lock edge never crossed).
 #
-# A one-edge target could not tell those apart -- open -> lock is one step
-# either way -- and the first draft of this file used one. The mutation that
+# A one-edge target could not tell those apart: open -> lock is one step
+# either way, and the first draft of this file used one. The mutation that
 # leaked `only` through survived it.
 _atleast sleep
 expect_rc 0
@@ -66,8 +66,8 @@ grep -q "deeper than" "$T/vigilant.log" \
 'deeper than' it, which is a claim about nothing"
 
 # --- 3. FROM BELOW IT DECLINES, AND SAYS SO --------------------------------
-# The whole finding. At `sleep` the session is already locked -- every route
-# there crosses the lock edge on the way -- so raising achieves nothing and
+# The whole finding. At `sleep` the session is already locked: every route
+# there crosses the lock edge on the way, so raising achieves nothing and
 # costs the screen.
 true > "$RECORD"
 # A CLEAN LOG, so the audit case below can only be satisfied by the DECLINE.
@@ -91,7 +91,7 @@ machine is already deeper than the request"
 # THE FALSE-MISS CLASS, which this project has already shipped twice. An audit
 # assertion names an EDGE but is really about the RUNG, and a decline means the
 # rung was already at least that deep. Left unreconciled, every lid-close on a
-# sleeping box would be reported as a MISS -- and a forensic tier whose output
+# sleeping box would be reported as a MISS, and a forensic tier whose output
 # is mostly noise is one a human stops reading, which is how the original bug
 # survived a refactor.
 mkdir -p "$VIGILANCE_MACHINE_HOOKS/audit.d"
@@ -121,7 +121,7 @@ expect_record "wake sleep 10-rec"
 
 # --- 6. A MISSPELT MODE IS LOUD --------------------------------------------
 # `go` used to drop every argument after the state, so a caller asking for a
-# mode it did not have would silently get the DEFAULT -- and the default is the
+# mode it did not have would silently get the DEFAULT, and the default is the
 # one that raises. A safety qualifier that can be typed wrong into nothing is
 # not a safety qualifier. Same class as the `blank-after` key that sat in a
 # shipped config for three days meaning nothing at all.

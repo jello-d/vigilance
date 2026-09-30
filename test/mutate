@@ -44,7 +44,7 @@ PASS=0; FAIL=0; ERR=0
 
 _parses() {   # file -> 0 if it still parses under ITS OWN shell
   # NOT EVERY TARGET IS SHELL. A systemd unit is declarative, and running
-  # `dash -n` over it fails on the first `[Unit]` -- which the driver then
+  # `dash -n` over it fails on the first `[Unit]`, which the driver then
   # reported as "invalid code kills every test", a corpus ERROR about a
   # perfectly good mutation. Config and unit files carry guards worth mutating
   # (a pinned verify edge, an ExecStart argument), so exempt them by extension
@@ -62,8 +62,8 @@ _parses() {   # file -> 0 if it still parses under ITS OWN shell
 # pattern syntax to clash with. `||`, `*`, `/` and `$` are all just characters.
 #
 # THROUGH THE ENVIRONMENT, NOT `-v`. awk EXPANDS BACKSLASH ESCAPES in a -v
-# assignment, so a target line containing `\n` -- any printf format string,
-# which is most of this codebase -- arrived with a real newline in it and could
+# assignment, so a target line containing `\n` (any printf format string,
+# which is most of this codebase) arrived with a real newline in it and could
 # never match. ENVIRON does no such processing. Found by the driver erroring on
 # its own corpus, which is the paranoia paying for itself; and note that
 # mutants.t uses `grep -Fxq`, which never expanded anything, so the static
@@ -76,7 +76,7 @@ _edit() {   # file old new -> 0 if a line was changed
     { print }
     END { exit(done ? 0 : 1) }' "$1" > "$1.mut" || return 1
   # PRESERVE THE MODE. A redirect creates a 644 file, so `mv` left every
-  # mutated executable UNRUNNABLE -- and a test that invokes it then dies with
+  # mutated executable UNRUNNABLE, and a test that invokes it then dies with
   # "permission denied", which this driver scored as KILLED. Every mutation of
   # an executable was passing for that reason instead of its own, in the very
   # tool built to prove guards are real. The check below is the ratchet: a
@@ -133,7 +133,7 @@ _run_one() {   # name file tests old new
     # crossing lock wait forever left cross-lock.t blocked in `wait` on four
     # background requests, and the driver sat on it for ten minutes with no
     # output. A fault-injection tool its own fault can wedge is the shape this
-    # project keeps recording -- a hanging scenario is worse than an empty cell,
+    # project keeps recording: a hanging scenario is worse than an empty cell,
     # because the empty cell is visible.
     #
     # A HANG IS ITS OWN OUTCOME, neither killed nor survived. The mutation did
@@ -199,14 +199,14 @@ echo ""
 printf '%d killed, %d SURVIVED, %d corpus errors\n' \
   "$PASS" "$FAIL" "$ERR"
 if [ "$FAIL" != 0 ] || [ "$ERR" != 0 ]; then
-  echo "mutate: FAILED -- a guard nothing kills is not a guard"
+  echo "mutate: FAILED, a guard nothing kills is not a guard"
   exit 1
 fi
 if [ "$PASS" = 0 ]; then
   # The verdict rule the suite already applies to itself: a run that reached no
   # conclusion is a failure, not a pass. Otherwise an empty corpus or a filter
   # that matched nothing reports success.
-  echo "mutate: FAILED -- no mutations ran at all"
+  echo "mutate: FAILED, no mutations ran at all"
   exit 1
 fi
 echo "mutate: ok"

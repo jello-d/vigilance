@@ -23,7 +23,7 @@
 #
 # BUT A CEILING IS NOT A SOURCE. "Time since the last ascent" is an upper bound
 # on idle, not a measurement of it, so it must never manufacture a number where
-# no clock answered -- that would make `report` call a deadline measurable while
+# no clock answered: that would make `report` call a deadline measurable while
 # nothing measures it, which is this project's signature false green.
 set -eu
 . "$(dirname "$0")/harness_lib"
@@ -38,7 +38,7 @@ _source() {   # <seconds> | none | declines
     # WIRED BUT UNABLE TO ANSWER: 78 is "I could not look", which on a box with
     # no countable input device is the honest and permanent answer. This is the
     # case the ceiling must not paper over, and it is NOT the same as having no
-    # source at all -- with no hooks the aggregator returns before the ceiling
+    # source at all: with no hooks the aggregator returns before the ceiling
     # is ever reached, so a test using that path leaves the guard uncovered.
     # The mutation removing it survived exactly that way.
     declines) printf '#!/bin/sh\nexit 78\n' ;;
@@ -94,7 +94,7 @@ nothing can measure gets certified as covered" ;;
   esac
   # AND IT MUST NOT GET THERE BY ACCIDENT. Comparing a number against an empty
   # string happens to fail, so dropping the "did anything answer?" guard gives
-  # the right answer for the wrong reason -- while spraying `[: Illegal number`
+  # the right answer for the wrong reason, while spraying `[: Illegal number`
   # at stderr on every pass of a minutely timer. A tool that emits raw shell
   # diagnostics is broken even when its output is correct, and this is the only
   # place the difference is observable.

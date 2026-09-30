@@ -8,8 +8,8 @@
 #
 # WHAT THIS CANNOT CHECK, said plainly: whether a named scenario actually
 # injects the fault it is claimed against. No grep can know that. So this
-# asserts the cheap, mechanical things -- the shape of every record, that every
-# named test exists, that the space has not quietly shrunk -- and REPORTS the
+# asserts the cheap, mechanical things: the shape of every record, that every
+# named test exists, that the space has not quietly shrunk, and REPORTS the
 # coverage rather than asserting a number, because a coverage ratchet would
 # reward adding tests over adding faults, and the faults nobody has thought of
 # are the ones worth knowing about.
@@ -33,7 +33,7 @@ _check() {
   case "$_t" in
     -) ;;
     # A NAME WITH A SLASH IS A HOST-SIDE DRIVER, not a scenario file. One fault
-    # -- a power cut -- cannot be a `.t` by construction: the guest is the thing
+    # (a power cut) cannot be a `.t` by construction: the guest is the thing
     # being killed, so nothing inside it survives to report and the driver has
     # to live on the host. Demanding a `.t` would force that cell to read `-`
     # and understate the coverage this file exists to measure.

@@ -1,5 +1,5 @@
 #!/bin/sh
-# test/hook_lib.t - the save/restore discipline every peripheral hook depends on.
+# test/hook_lib.t - the save/restore discipline peripheral hooks depend on.
 #
 # hook_lib is the smallest and most load-bearing file in the package: five hooks
 # source it, and it owns the rule that decides whether a screen comes back on.
@@ -67,7 +67,7 @@ SF=$T/save
 _lvl() { cat "$BC_LEVEL" 2>/dev/null || echo MISSING; }
 # EXPORTED, because the stub is a separate process. Without the export the
 # switches were invisible to it and every "failure" case silently exercised the
-# HAPPY path -- the test would have passed against the broken hook_lib.
+# HAPPY path: the test would have passed against the broken hook_lib.
 export BC_FAIL_GET= BC_FAIL_SET=
 _reset() {
   echo "${1:-80}" > "$BC_LEVEL"; rm -f "$SF"
@@ -100,7 +100,7 @@ hook_lit "$SF" -d x
 # --- ...BUT ASSERT EVERY TIME ----------------------------------------------
 # Saving once is NOT the same as trusting the save. hook_dark used to `return
 # 0` outright when the file existed, reading it as "already saved, therefore
-# already dark" -- an inference, not an observation. When it was wrong the
+# already dark", an inference, not an observation. When it was wrong the
 # descent became a SILENT NO-OP THAT REPORTED SUCCESS, and since crossings do
 # not run the verify tier, nothing caught it at the edge.
 #
@@ -146,7 +146,7 @@ hook_dark "$SF" -d x
 BC_FAIL_SET=1; export BC_FAIL_SET
 if hook_lit "$SF" -d x 2>>"$T/stderr"; then
   fail "hook_lit returned SUCCESS while the restore failed. The screen is still
-dark, the runner logs a clean crossing, and no alert is raised -- which is how a
+dark, the runner logs a clean crossing, and no alert is raised, which is how a
 denied brightnessctl left two machines dark for weeks with a green record"
 fi
 
@@ -195,7 +195,7 @@ BC_FAIL_GET=
 # The mirror of the absent-device case above, on the ascent. hook_dark treats an
 # unreadable device as n/a; hook_lit used to treat it as a failed restore, so a
 # save file left over from a machine that has since changed failed EVERY ascent
-# and alerted each time -- while report cried drift about hardware that is not
+# and alerted each time, while report cried drift about hardware that is not
 # there.
 #
 # It cannot self-heal either, and that is what makes it permanent: hook_dark
@@ -209,7 +209,7 @@ BC_FAIL_GET=1; export BC_FAIL_GET
 hook_lit "$SF" -d x 2>>"$T/stderr" \
   || fail "hook_lit reported a FAILED restore for a device that cannot even be
 READ. There is nothing to restore to, so this fails every ascent forever and
-alerts each time -- and hook_dark short-circuits on the save file, so the
+alerts each time, and hook_dark short-circuits on the save file, so the
 descent never clears it"
 [ ! -f "$SF" ] || fail "hook_lit kept a save file for a device that is gone. It
 is a leftover from a machine that has changed; keeping it makes report report
@@ -272,9 +272,9 @@ hook_verify_level "$SF" lit -d x 2>/dev/null \
   || fail "hook_intent refused to let VERIFY assert the lit rung at lock"
 
 # --- THE DISCIPLINE WITHOUT brightnessctl ----------------------------------
-# hook_dark/hook_lit took brightnessctl SELECTORS, so the rules they encode --
+# hook_dark/hook_lit took brightnessctl SELECTORS, so the rules they encode (
 # save once, assert every time, keep the save when a write is refused, drop it
-# when the device cannot be read -- were available only to what brightnessctl
+# when the device cannot be read) were available only to what brightnessctl
 # drives. ddc-monitor needed the same rules for a VCP write and re-implemented
 # all of them by hand: two copies of rules that were each learned the hard way.
 #
@@ -295,7 +295,7 @@ non-brightnessctl device"
 [ "$(cat "$FAKE")" = 0 ] || fail "generic dark did not drive the device to 0"
 [ "$(cat "$FSAVE")" = 64 ] || fail "generic dark saved '$(cat "$FSAVE")'"
 
-# SAVE ONCE, ASSERT EVERY TIME -- the same pair the brightnessctl path gets.
+# SAVE ONCE, ASSERT EVERY TIME: the same pair the brightnessctl path gets.
 printf '40\n' > "$FAKE"
 hook_level_dark "$FSAVE" || fail "a re-assert failed"
 [ "$(cat "$FAKE")" = 0 ] || fail "the generic path trusted its save file and
@@ -355,8 +355,8 @@ _vr=0
 hook_verify_level "$SF" dark -d x 2>>"$T/stderr" || _vr=$?
 [ "$_vr" = 78 ] || fail "the second pass reported rc=$_vr instead of declining"
 
-# A LIT EDGE RE-OPENS THE QUESTION. Whatever drove the device may have stopped
-# -- the mute LED goes out when audio is unmuted -- so tomorrow's dark edge
+# A LIT EDGE RE-OPENS THE QUESTION. Whatever drove the device may have stopped:
+# the mute LED goes out when audio is unmuted, so tomorrow's dark edge
 # must test it again rather than inherit today's verdict.
 hook_lit "$SF" -d x 2>>"$T/stderr" || true
 [ -f "$SF.notours" ] && fail "a lit edge left the not-ours marker in place; a
@@ -406,7 +406,7 @@ printf '%s\n' "$(( $(date +%s) - 4000 ))" > "$_thr_dir/.last-checked"
 _thr 1 3600 && fail "a check last made 4000s ago was skipped under a 3600s
 cadence, so the backstop never fires"
 
-# NO VIGILANCE_RECHECK: always real. This is the load-bearing case -- the verify
+# NO VIGILANCE_RECHECK: always real. This is the load-bearing case: the verify
 # that lock-on-sleep runs before a suspend goes through here, and "I looked an
 # hour ago" is not an answer to "is the session secured right now".
 printf '%s\n' "$(date +%s)" > "$_thr_dir/.last-checked"

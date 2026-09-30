@@ -38,7 +38,7 @@
 # "vigilance says this machine is open; is the screen actually on?" is exactly
 # the black-screen-no-recovery condition that twice needed a hard reboot.
 # TWO QUESTIONS, deliberately not merged. The runner exports VIGILANCE_INTENT,
-# the darkness the rung implies -- a fact about the LADDER. This adds the ACT
+# the darkness the rung implies: a fact about the LADDER. This adds the ACT
 # policy on top: whether a hook should drive the hardware toward it. They differ
 # only at lock/unlock, and merging them would put back the bug where unlocking
 # re-asserted a brightness the user had set by hand.
@@ -50,7 +50,7 @@
 # hook_throttle <seconds>: true when this check may be SKIPPED as not due.
 #
 # WHY A CADENCE AT ALL. The standing recheck runs the whole verify tier every
-# minute, and that was measured on a live box at 2.0s a pass -- 48 minutes of
+# minute, and that was measured on a live box at 2.0s a pass: 48 minutes of
 # work a day on an idle machine, of which ONE SECOND is a ddcutil probe. Against
 # that: in the entire log history, the peripheral verifiers have reported drift
 # exactly never. Every drift the recheck ever caught came from a bug of ours,
@@ -63,13 +63,13 @@
 #
 # THE EVENT IS THE TRANSITION, and it is what makes a slow cadence safe: the
 # recheck forces a FULL verify on the first pass after the rung changes, which
-# is when drift is actually introduced -- the keyboard-backlight drift appeared
+# is when drift is actually introduced: the keyboard-backlight drift appeared
 # 14 seconds after a crossing. The hourly pass is a backstop for the case nobody
 # thought of, not the primary mechanism.
 #
 # ONLY THE STANDING RECHECK MAY THROTTLE. VIGILANCE_RECHECK is set only there,
-# so an explicit `vigilant verify` -- including the one lock-on-sleep runs
-# before a suspend -- is always real. "I looked an hour ago" is not an answer to
+# so an explicit `vigilant verify` (including the one lock-on-sleep runs
+# before a suspend) is always real. "I looked an hour ago" is not an answer to
 # "is the session secured right now".
 #
 #   hook_throttle "${VIGILANCE_PERIPHERAL_EVERY:-3600}" && exit 75
@@ -79,14 +79,14 @@ hook_throttle() {   # seconds
   [ "$_ht_every" -gt 0 ] || return 1
   # A LEADING DOT MARKS BOOKKEEPING, not a level to restore. `report` scans hook
   # state dirs for outstanding saves and reads a number as one, so a bare
-  # `last-checked` holding an epoch reads as an unrestored device -- a permanent
+  # `last-checked` holding an epoch reads as an unrestored device: a permanent
   # FAIL at every lit rung. That exact bug shipped once already for an idle
   # counter snapshot; session-ladder.t caught this one before it left the tree.
   _ht_f=${VIGILANCE_STATE_DIR:-/tmp}/.last-checked
   _ht_now=$(date +%s)
   _ht_at=$(cat "$_ht_f" 2>/dev/null || true)
   case "${_ht_at:-}" in ''|*[!0-9]*) _ht_at= ;; esac
-  # A CHECK THAT RUNS RESETS THE CLOCK, whatever made it run -- a transition, an
+  # A CHECK THAT RUNS RESETS THE CLOCK, whatever made it run: a transition, an
   # explicit `vigilant verify`, or the hour elapsing. The first cut returned
   # early when throttling was not on offer and so stamped nothing, which meant
   # the pass after every transition ran the check a second time for no reason.
@@ -97,7 +97,7 @@ hook_throttle() {   # seconds
   fi
   # A STAMP FROM THE FUTURE IS NOT A RECENT CHECK. A wall clock is not
   # monotonic, and a skew that reads as "checked 3600s in the future" would
-  # silence a verifier for as long as the skew lasted -- the same family as
+  # silence a verifier for as long as the skew lasted, the same family as
   # every other elapsed-time guard in this package.
   if [ -n "$_ht_at" ] && [ "$_ht_at" -le "$_ht_now" ] \
      && [ "$(( _ht_now - _ht_at ))" -lt "$_ht_every" ]; then
@@ -141,7 +141,7 @@ hook_intent() {   # edge -> dark | lit | none
 # backlight buys a keylogging capability, and every consumer of this framework
 # would have paid that price.
 #
-# It was also never CHECKED, only documented -- so on a box where the user held
+# It was also never CHECKED, only documented, so on a box where the user held
 # none of those groups, brightnessctl was denied on every call while hook_dark
 # and hook_lit swallowed the failure (`|| true`) and vigilant logged clean
 # crossings over hardware that never moved. `vigilant report` now probes the
@@ -160,15 +160,15 @@ hook_have_brightnessctl() {
 # WHAT THE SCREEN IS ACTUALLY EMITTING, independent of every mechanism.
 #
 # This is the only OUTCOME measurement in the suite. Every other verifier asks
-# about its own device -- "did my I2C bus take the command", "is my sysfs
-# backlight at 0" -- and when no device is applicable they all decline and the
+# about its own device: "did my I2C bus take the command", "is my sysfs
+# backlight at 0", and when no device is applicable they all decline and the
 # rung's actual claim goes unexamined. That is how a lit screen survived four
 # separate green verdicts: an unimplemented D6 code, a monitor that vanished
 # from its own map, a user session with no darkening mechanism, and a greeter
 # with none either. Each hook was individually satisfied or n/a every time.
 #
 # A grab answers the question the RUNG is about rather than the question a
-# device is about, so it holds however the darkening was supposed to happen --
+# device is about, so it holds however the darkening was supposed to happen,
 # or was not wired at all.
 #
 # ALPHA OFF, and it is not optional: %[fx:mean] averages ALL channels, and a
@@ -179,7 +179,7 @@ hook_have_brightnessctl() {
 # THE WHOLE SURFACE, not a crop: a 160x160 corner reads near zero on a dark
 # wallpaper, so a corner-sampling check passes on a lit screen.
 #
-# OVERRIDABLE, or a test of any caller measures the DEVELOPER'S own screen --
+# OVERRIDABLE, or a test of any caller measures the DEVELOPER'S own screen,
 # the mistake behind seven past defects here.
 hook_screen_luma() {   # -> mean luminance 0..1, or empty if unmeasurable
   if [ -n "${VIGILANCE_SCREEN_LUMA:-}" ]; then
@@ -195,14 +195,14 @@ hook_screen_luma() {   # -> mean luminance 0..1, or empty if unmeasurable
   # produced the pixels.
   #
   # ORDER: Wayland first, because a Wayland session running Xwayland has BOTH
-  # tools and `import` there would capture Xwayland's root window -- a window
+  # tools and `import` there would capture Xwayland's root window, a window
   # with none of the session's real content in it, which would read as black and
   # certify a blank that never happened. The Wayland grabber is the one that
   # sees the actual output, so it wins wherever it can run.
   #
   # WAYLAND_DISPLAY BREAKS A TIE; IT IS NOT A REQUIREMENT. `grim` with the
   # variable unset still connects to `wayland-0`, so demanding it would switch
-  # off the capture on any box whose socket happens to be that -- a decline
+  # off the capture on any box whose socket happens to be that: a decline
   # dressed as a measurement, which is the failure this whole hook exists to
   # prevent. So grim is used whenever it is the only plausible grabber, and the
   # variable only decides WHICH when a DISPLAY is also present.
@@ -213,7 +213,7 @@ hook_screen_luma() {   # -> mean luminance 0..1, or empty if unmeasurable
   elif command -v import >/dev/null 2>&1 && [ -n "${DISPLAY:-}" ]; then
     # -window root is the whole screen, which is the same claim `grim -s 0.05`
     # makes: a blank is about the WHOLE surface, and a corner reads 0.0156 on an
-    # ordinary desktop -- indistinguishable from black. -resize keeps the
+    # ordinary desktop, indistinguishable from black. -resize keeps the
     # pipeline's cost comparable (1.3s at full resolution was measured as the
     # reason for the downscale).
     _slg="timeout 25 import -silent -window root -resize 5% png:-"
@@ -222,7 +222,7 @@ hook_screen_luma() {   # -> mean luminance 0..1, or empty if unmeasurable
   fi
   # ALWAYS RETURNS 0. A caller writes `_l=$(hook_screen_luma)` under `set -e`,
   # and an assignment from a command substitution that FAILS aborts the caller
-  # outright -- so a grab that could not run would kill the hook before it ever
+  # outright, so a grab that could not run would kill the hook before it ever
   # reached its own "nothing to measure" branch. Observed exactly that: the
   # unmeasurable case exited 1 instead of declining with 78, which would have
   # read as drift on every headless box.
@@ -240,7 +240,7 @@ hook_screen_luma() {   # -> mean luminance 0..1, or empty if unmeasurable
 hook_luma_is_dark() {   # <luma>
   # NUMERIC, AND THAT IS THE WHOLE POINT. This was a string match on
   # `0|0.00*`, which cannot read the SCIENTIFIC NOTATION ImageMagick emits for
-  # very small means -- and a very small mean is precisely the success case.
+  # very small means, and a very small mean is precisely the success case.
   #
   # Measured on manifestor, 275 times: a genuinely black lock surface reported
   # `mean luminance 3.64999e-05` (0.0000365, blacker than the other box ever
@@ -264,8 +264,8 @@ hook_luma_is_dark() {   # <luma>
 # --- the save/restore DISCIPLINE, separated from the actuator ---------------
 #
 # WHY THIS SPLIT EXISTS. hook_dark and hook_lit took brightnessctl SELECTORS,
-# so the discipline they encode -- save once, assert every time, keep the save
-# when a restore is refused, drop it when the device cannot be read -- was
+# so the discipline they encode (save once, assert every time, keep the save
+# when a restore is refused, drop it when the device cannot be read) was
 # available only to things brightnessctl can drive. ddc-monitor needed the same
 # rules for a VCP brightness write and had to RE-IMPLEMENT all of them by hand,
 # which is two copies of a set of rules that were each learned the hard way.
@@ -276,7 +276,7 @@ hook_luma_is_dark() {   # <luma>
 # CONTRACT: define two functions before calling, then pass only a save file.
 #
 #   level_get        print the current level; NON-ZERO if the device cannot be
-#                    read at all (absent, denied) -- that is n/a, not failure
+#                    read at all (absent, denied): that is n/a, not failure
 #   level_set LEVEL  apply it; non-zero if the device refused the write
 #
 # The distinction between "cannot read" and "refused the write" is the whole
@@ -287,7 +287,7 @@ hook_luma_is_dark() {   # <luma>
 # HOOK_LEVEL_TAG NAMES THE DEVICE, and it is what makes one implementation
 # usable by a hook that drives SEVERAL. ddc-monitor loops over monitors, and its
 # own notes are emphatic that "could not dim" without saying which bus is a
-# worse diagnosis than none -- that requirement is exactly why it kept a
+# worse diagnosis than none: that requirement is exactly why it kept a
 # hand-written copy of these rules, and why the copy then missed a fix the
 # original got. So the caller supplies the label and the rules stay in one
 # place.
@@ -345,7 +345,7 @@ hook_level_lit() {   # <save-file>
   _sf=$1
   _hl_t=${HOOK_LEVEL_TAG:-hook_lib}
   # A LIT EDGE RE-OPENS THE QUESTION. Whatever was driving the device may have
-  # stopped -- the mute LED goes out when audio is unmuted -- so the next dark
+  # stopped: the mute LED goes out when audio is unmuted, so the next dark
   # edge should test it again rather than inherit a verdict from yesterday.
   rm -f "$_sf.notours" 2>/dev/null || true
   if [ ! -f "$_sf" ]; then return 0; fi        # nobody dimmed it; leave it
@@ -390,7 +390,7 @@ hook_lit() {   # <save-file> [brightnessctl-selector...]
 # hook_verify_level <save-file> <intent> [brightnessctl-selector...]
 # Assert the device MATCHES the intent, and say what it found when it does not.
 # "dark" is not exactly 0 on every device (some clamp to a floor), so compare
-# against a tenth of max rather than demanding zero -- a panel at 1/400 is off
+# against a tenth of max rather than demanding zero: a panel at 1/400 is off
 # for every practical purpose, and demanding 0 would cry wolf.
 hook_verify_level() {
   _sf=$1; _want=$2; shift 2
@@ -399,7 +399,7 @@ hook_verify_level() {
   case "$_cur$_max" in *[!0-9]*|'') return 0 ;; esac
   [ "$_max" -gt 0 ] || return 0
   if [ "$_want" = dark ]; then
-    # NOBODY DIMMED IT, SO THERE IS NOTHING TO ASSERT -- the same rule the lit
+    # NOBODY DIMMED IT, SO THERE IS NOTHING TO ASSERT, the same rule the lit
     # direction below already applies. A device we declined to darken (because
     # something else owns it) leaves no save, and reporting drift about it once
     # a minute is a complaint rather than a finding. screen-dark still asserts
@@ -417,7 +417,7 @@ hook_verify_level() {
       # where it shows: the descent set 0 and something put the value back.
       #
       # Detected here rather than at the crossing because the reassertion takes
-      # SECONDS -- measured at about two on a ThinkPad mute LED -- so a
+      # SECONDS, measured at about two on a ThinkPad mute LED, so a
       # read-back in the act tier fires before the device can bounce and would
       # cost a brightnessctl call on the lock path to learn nothing.
       #

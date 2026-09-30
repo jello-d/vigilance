@@ -9,7 +9,7 @@
 #   that look identical to a session that had one.
 #
 #   ORDER. It reverses on an ascent, so one listed order is wrong for half the
-#   edges -- and a restore that runs in descent order addresses devices that
+#   edges, and a restore that runs in descent order addresses devices that
 #   are still powered off.
 #
 #   REACHABILITY. _hooks_in lists a hook only `if [ -x ]`, and that test is
@@ -23,7 +23,7 @@ set -eu
 . "$(dirname "$0")/scenario_lib"
 scenario_init plan
 
-# EVERY COMPONENT of the path is walked, and mktemp gives 0700 -- so without
+# EVERY COMPONENT of the path is walked, and mktemp gives 0700, so without
 # this the entire fixture is unreachable and every case below passes or fails
 # for a reason that has nothing to do with the code under test.
 chmod 755 "$T"
@@ -106,8 +106,8 @@ _out=$("$VIGILANT" plan sleep 2>/dev/null) && PLAN_RC=0 || PLAN_RC=$?
 
 [ "$PLAN_RC" != 0 ] || fail "a machine-scope hook the greeter cannot reach was
 reported with a clean exit. This is the one fault in the suite that is silent
-by construction -- [ -x ] is false for a uid that cannot traverse, so the hook
-does not fail, it does not exist -- and a verb that prints it without failing
+by construction: [ -x ] is false for a uid that cannot traverse, so the hook
+does not fail, it does not exist, and a verb that prints it without failing
 leaves an integrator exactly as unwarned as before"
 
 case "$_out" in
@@ -122,13 +122,13 @@ case "$_out" in
 esac
 # THE PRECONDITION, asserted: it must be blocked at $T/private, not at some
 # ancestor. If the fixture were unreachable higher up, this case would pass
-# while proving nothing about per-component walking -- and case 4 would fail.
+# while proving nothing about per-component walking, and case 4 would fail.
 case "$_out" in
   *"blocked at $T/private"*) ;;
   *) printf '%s\n' "$_out" >&2
      fail "the report did not name $T/private as the blocking component. It
 must name the DIRECTORY that denies traversal, because that is what has to be
-changed -- naming only the hook sends the reader to fix a symlink that is
+changed: naming only the hook sends the reader to fix a symlink that is
 already correct" ;;
 esac
 
@@ -168,7 +168,7 @@ if command -v setfacl >/dev/null 2>&1 \
   case "$_out" in
     *"30-unreachable!"*) fail "a path opened to the greeter by ACL was still
 reported unreachable. Reading the mode bits alone calls a correct, deliberate
-grant a fault -- and the fix it implies (loosen the mode) is worse than what
+grant a fault, and the fix it implies (loosen the mode) is worse than what
 the operator already did" ;;
   esac
   setfacl -b "$T/private" 2>/dev/null || true
@@ -202,8 +202,8 @@ esac
 _s=$(printf '%s\n' "$_out" | sed -n '/^sleep /,/^cross-cutting/p')
 case "$_s" in
   *10-source*) fail "an audit.d hook was listed under the sleep edge. audit is
-cross-cutting -- the hook names its own edge in its output, which is why it is
-not keyed by one -- and showing it under an edge teaches the model that put a
+cross-cutting: the hook names its own edge in its output, which is why it is
+not keyed by one, and showing it under an edge teaches the model that put a
 hook in <edge>.audit.d where nothing would ever run it" ;;
 esac
 
@@ -213,7 +213,7 @@ esac
 go lock
 # The DEPTH and the LOG, not the whole of `status`: that carries a "since Ns
 # ago" field which ticks on its own, so comparing it whole fails for a reason
-# that has nothing to do with the claim -- and a test that fails on a clock is
+# that has nothing to do with the claim, and a test that fails on a clock is
 # one that gets deleted rather than read.
 _before=$("$VIGILANT" status 2>/dev/null | grep '^depth:' || true)
 _lbefore=$(wc -l < "$VIGILANCE_LOG" 2>/dev/null | tr -d ' ')
@@ -224,7 +224,7 @@ _lafter=$(wc -l < "$VIGILANCE_LOG" 2>/dev/null | tr -d ' ')
 (before: $_before / after: $_after). It is offline by contract"
 [ "$_lbefore" = "$_lafter" ] || fail "plan wrote $(( _lafter - _lbefore ))
 log records. It runs no hook and crosses no edge, so it must leave the forensic
-record untouched -- an offline verb that logs pollutes the audit tier that
+record untouched: an offline verb that logs pollutes the audit tier that
 reads it"
 
 # --- 9. THE WIRING FINGERPRINT ---------------------------------------------
@@ -248,7 +248,7 @@ fingerprint. It would report two differently-wired boxes as identical"
 
 # THE SHARPEST CASE: same hook NAME, different TARGET. Two boxes agreeing on
 # the name of a hook that points at different code is exactly the drift worth
-# catching, and it is the shape the shadowed /usr/local binaries took -- the
+# catching, and it is the shape the shadowed /usr/local binaries took, the
 # name was right on both and one resolved to a stale copy.
 ln -sf "$T/open/real-hook" "$MACH/sleep.d/90-extra"
 _c=$(_fp)

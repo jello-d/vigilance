@@ -18,7 +18,7 @@
 # unlocked and the only trace was history.
 #
 # It had been doing that on EVERY sleep for the whole refactor, while the unit
-# reported `enabled` and `canonical` -- both true of a unit naming a binary that
+# reported `enabled` and `canonical`, both true of a unit naming a binary that
 # does not exist.
 #
 # THE EDGE A SLEEP IMPLIES IS `lock`, IN BOTH DIRECTIONS, and it is not
@@ -32,7 +32,7 @@
 # left over from when that unit ran `go sleep` (changed in a5355c0: coming back
 # to `sleep` left the machine dark with nothing armed to ascend). Asserting an
 # edge no unit crosses any more would have reported a MISS on every correctly
-# handled resume -- the forensic tier crying wolf, which is precisely the
+# handled resume: the forensic tier crying wolf, which is precisely the
 # failure the `due` anchor bug already cost once.
 #
 # A HEALTHY RESUME CROSSES NOTHING AT ALL, and that is why vigilant counts
@@ -61,7 +61,7 @@ journalctl --since "$SINCE" -o short-unix --no-pager 2>/dev/null | awk '
     printf "%d lock went to sleep\n", $1
   }
   # Coming back: the session must still be locked. Same edge, because the resume
-  # unit runs the same command -- see the header on why a no-op counts.
+  # unit runs the same command; see the header on why a no-op counts.
   /System returned from sleep operation/ {
     printf "%d lock resumed from sleep\n", $1
   }

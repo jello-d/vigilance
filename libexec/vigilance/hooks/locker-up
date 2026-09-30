@@ -3,14 +3,14 @@
 #
 # THE ACTUATOR THAT NOTHING VERIFIED. The framework's own rule is "for every
 # hook that acts, a paired hook asserting it took effect", and the single
-# most important actuator in the suite -- the one that brings the LOCKER up --
+# most important actuator in the suite (the one that brings the LOCKER up)
 # had no partner. On a real box the `lock` edge was verified by three hooks
 # (dpms, ddc-monitor, panel-backlight) and every one of them checks a
 # PERIPHERAL. They assert the screen is lit. None of them asks whether the
 # session is secured, which is the entire point of the edge.
 #
 # WHY THAT MATTERS AT SUSPEND. lock-on-sleep.service is ordered
-# Before=sleep.target, so systemd genuinely waits for it -- but a unit that
+# Before=sleep.target, so systemd genuinely waits for it, but a unit that
 # SUCCEEDS while no locker came up means the box sleeps unlocked and reports
 # success doing it. The provider returns non-zero if `systemd-run` fails, which
 # covers most of it; what it cannot cover is the locker starting and then dying
@@ -26,7 +26,7 @@
 # that a failure becomes LOUD and RECORDED instead of a green light.
 #
 # VERIFY-ONLY, deliberately: it never acts. Wired into `lock.d` it would do
-# nothing at all, by design -- bringing a locker up is the provider's job and
+# nothing at all, by design: bringing a locker up is the provider's job and
 # this must not become a second implementation of it.
 #
 # WIRE IT IN THE USER SCOPE, NEVER THE MACHINE SCOPE. A GREETER IS THE LOCKED
@@ -36,7 +36,7 @@
 # peripherals, which behave the same with nobody logged in; a locker does not.
 #
 # NO hook_lib. It is sourced by a path relative to this file's own location, and
-# this hook needs nothing from it -- no intent table, no dark/lit actuation,
+# this hook needs nothing from it: no intent table, no dark/lit actuation,
 # because it only ever READS. Carrying the dependency anyway would buy nothing
 # and would break the moment someone COPIED this hook into a hooks dir instead
 # of symlinking it (the shipped wiring symlinks, so `readlink -f` finds the
@@ -80,7 +80,7 @@ esac
 # up is a yes; this asks "is the session SECURED", where a locker that has not
 # committed its session lock yet is emphatically not. Loosening this to match
 # would turn a verifier into one that passes before the thing it verifies has
-# happened -- the exact false green the tier exists to prevent.
+# happened: the exact false green the tier exists to prevent.
 _up() {
   if [ -n "${VIGILANCE_LOCKER_UP+x}" ]; then
     [ "$VIGILANCE_LOCKER_UP" = 1 ]

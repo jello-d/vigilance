@@ -24,7 +24,7 @@ VM=${VIGILANCE_VM_DIR:-/var/tmp/vigilancevm}
 
 # THE GUEST SHOULD BE THE RELEASE THE FLEET RUNS. It was pinned to `noble`
 # while both boxes moved to 26.04, so every VM verdict was about an Ubuntu a
-# full release behind the one in production -- a fidelity gap hiding inside the
+# full release behind the one in production: a fidelity gap hiding inside the
 # tier that exists to close fidelity gaps, and one nothing would have reported.
 #
 # PINNED rather than derived from the host, because a run has to mean the same
@@ -45,7 +45,7 @@ RELEASE=${VIGILANCE_VM_RELEASE:-resolute}
 #
 # WHAT A DESKTOP SESSION WOULD BUY, for when that trade is worth taking: xfce
 # runs its OWN screensaver and DPMS policy, which is a COMPETING ACTUATOR on the
-# device vigilance drives -- and "two things driving one device" is a fault
+# device vigilance drives, and "two things driving one device" is a fault
 # class this suite has already paid for (mute-leds against mute-on-lock, twelve
 # hours of drift alerts about a fight that cannot be won). That is a scenario
 # worth having, and it is a different question from whether the hooks work.
@@ -79,7 +79,7 @@ mkdir -p "$VM"
 # stop would make the tier unusable exactly when someone needs it most.
 _host=$(. /etc/os-release 2>/dev/null && printf '%s' "${VERSION_CODENAME:-}")
 if [ -n "$_host" ] && [ "$_host" != "$RELEASE" ]; then
-  echo "vm: NOTE host runs '$_host', guest is '$RELEASE' -- the VM is testing"
+  echo "vm: NOTE host runs '$_host', guest is '$RELEASE': the VM is testing"
   echo "vm:      a different release than this machine does."
 fi
 if [ ! -f "$IMG" ]; then
@@ -98,7 +98,7 @@ xorriso -as mkisofs -R -J -V VIGILANCE -quiet \
 
 # THE INTEGRATOR, so the guest can be wired by the thing that actually wires a
 # real box. The session tier otherwise invents a "representative" wiring, which
-# is explicitly NOT tackup's -- so the code that decides where every hook goes
+# is explicitly NOT tackup's, so the code that decides where every hook goes
 # on a live machine was tested nowhere.
 #
 # OPTIONAL. Someone with this repo and not that one must still be able to run
@@ -122,7 +122,7 @@ fi
 # All output goes to a FILE and is dumped to the serial at the very end.
 # Writing to /dev/ttyS0 live interleaves with boot spam and gets lost.
 # NOTHING EXPLANATORY GOES INSIDE THE HEREDOC BELOW. It is unquoted, so the
-# HOST shell expands it -- and a backtick in a YAML *comment* there ran
+# HOST shell expands it, and a backtick in a YAML *comment* there ran
 # `systemctl --user` on the developer's box and spliced its unit list into the
 # guest's cloud-config, which then failed to parse and the guest never
 # reported. Same family as awk -v expanding escapes: text crossing a layer
@@ -171,7 +171,7 @@ runcmd:
       echo "=== logind lid policy: LOCK, never suspend ==="
       # THE HARNESS WAS TELLING THE GUEST TO SUSPEND ITSELF. The uinput probe
       # below closes a real SW_LID switch, and Ubuntu defaults to
-      # HandleLidSwitch=suspend -- so logind suspended the machine that was
+      # HandleLidSwitch=suspend, so logind suspended the machine that was
       # running cloud-final, which presents as "guest never reported" with no
       # output at all, because the guest script buffers to a file and cats it at
       # the end. Seen three times, always intermittent, because whether logind
@@ -179,7 +179,7 @@ runcmd:
       #
       # It is very likely the same unexplained hang the fault-lid scenario hit,
       # which was set aside as "cause unknown and NOT attributable to
-      # vigilance". It was attributable -- to the harness.
+      # vigilance". It was attributable, to the harness.
       #
       # `lock` RATHER THAN `ignore`, because Session.Lock on lid close is the
       # exact behaviour under test: it is what manifold does
@@ -286,7 +286,7 @@ runcmd:
       echo "=== a real user session (wayfire needs one) ==="
       # WAYFIRE REFUSES TO RUN AS ROOT ("Unable to drop root"), and the guest
       # was root-only. So the compositor production actually runs is only
-      # testable here behind a real unprivileged user -- which is the honest
+      # testable here behind a real unprivileged user, which is the honest
       # shape for a session test anyway, and what provisioning properly would
       # have given us regardless.
       useradd -m -s /bin/bash vig 2>/dev/null || true
@@ -294,7 +294,7 @@ runcmd:
       chmod 440 /etc/sudoers.d/vig
       # AFTER useradd, and OWNED BY vig. Creating these earlier made root
       # the owner of /home/vig, so `useradd -m` found the home already
-      # there and left it that way -- and every user-mode install then
+      # there and left it that way, and every user-mode install then
       # died on `mkdir -p /home/vig/.local/bin: Permission denied`, which
       # reads as a packaging fault and is an ordering one.
       chown vig:vig /home/vig
@@ -308,7 +308,7 @@ runcmd:
       chown vig:vig /home/vig/.config/wayfire.ini
       # `-H env`, not a bare `sudo -u`. Without -H the CALLER's HOME survives,
       # so a user-mode install run as vig tried to write into /root and died
-      # "mkdir: Permission denied" -- a harness fault wearing the costume of a
+      # "mkdir: Permission denied", a harness fault wearing the costume of a
       # packaging one. `env` because sudo rejects VAR=val assignments unless
       # sudoers grants it.
       _asvig="sudo -u vig -H env XDG_RUNTIME_DIR=$_vrun"
@@ -317,13 +317,13 @@ runcmd:
 
       # THROUGH greetd, NOT `su`. A user is not a SESSION: an account driven
       # by sudo has none of its own, and logind then answers
-      # "SetLockedHint true failed for session 2" -- which took the whole lock
+      # "SetLockedHint true failed for session 2", which took the whole lock
       # edge with it and could not be told apart from a compositor fault.
       # greetd's initial_session IS autologin, which is what production uses,
       # so the guest gets a real seat, a real session and a real session type
       # rather than three approximations of them.
       # NO HEREDOC INSIDE THIS BLOCK. cloud-init's runcmd is a YAML literal
-      # scalar, so every line must stay indented -- and a heredoc delimiter
+      # scalar, so every line must stay indented, and a heredoc delimiter
       # cannot be. A `[terminal]` at column 0 ended the block, the runcmd was
       # truncated, and the guest never reported. printf keeps everything
       # indented and needs no delimiter at all.
@@ -365,7 +365,7 @@ runcmd:
       chmod +x /usr/local/bin/vig-session
       # RESTART, NOT `enable --now`. greetd is installed from the package list
       # and therefore ENABLED IN THE PRESERVED IMAGE, so it is already running
-      # by the time cloud-final writes this config -- and `--now` does nothing
+      # by the time cloud-final writes this config, and `--now` does nothing
       # to a unit that is already active. The freshly written config.toml was
       # never read on any boot after the image was built, so greetd kept serving
       # the GREETER from whatever the image left behind and initial_session
@@ -398,7 +398,7 @@ runcmd:
         echo "  wayfire up as vig: $(basename $_wfsock)"
         # THE SESSION WITH A SEAT, not merely one owned by vig. logind gives
         # the user a "manager" session too, and picking the first match
-        # reported that one -- so the field that matters is the seat, which is
+        # reported that one, so the field that matters is the seat, which is
         # what makes a session a real one rather than a bookkeeping entry.
         _vsess=
         for _s in $(loginctl list-sessions --no-legend | awk '{print $1}'); do
@@ -416,13 +416,13 @@ runcmd:
           if $_asvig loginctl lock-session "$_vsess" >/dev/null 2>&1; then
             echo "  lock-session: accepted"
           else
-            echo "  lock-session: REFUSED -- the lock path cannot work here"
+            echo "  lock-session: REFUSED, the lock path cannot work here"
           fi
           _lh=$(loginctl show-session "$_vsess" -p LockedHint --value)
           echo "  LockedHint after lock-session: $_lh"
           $_asvig loginctl unlock-session "$_vsess" >/dev/null 2>&1 || true
         else
-          echo "  NO seated logind session for vig -- the lock path needs one"
+          echo "  NO seated logind session for vig: the lock path needs one"
         fi
         _wayfire=wayfire
         # The session's own job, and the lock provider cannot work without it:
@@ -450,14 +450,14 @@ runcmd:
         chown -R vig:vig /home/vig/tackup
         # THE PIN POINTS AT THIS REPO, not GitHub. A clone takes COMMITS, so
         # the guest tests what is committed HERE without anything being pushed
-        # -- which is the whole point, and it is why the repo ISO carries .git.
+        #, which is the whole point, and it is why the repo ISO carries .git.
         # The guest's COPY of the integrator is edited, never the real one.
         sed -i 's#^pkg vigilance .*#pkg vigilance file:///mnt/repo head#' \
           /home/vig/tackup/install/deps/lock
         echo "  pin: $(cat /home/vig/tackup/install/deps/lock | tail -1)"
         # SATISFY THE ONE DEPENDENCY THE WAY THE PKG INSTALL ENDS UP. `tackup
-        # install` harvests EVERY active domain's deps -- docker, fonts, the
-        # lot -- which is not what this guest is for. modules/lock's dep is a
+        # install` harvests EVERY active domain's deps: docker, fonts, the
+        # lot, which is not what this guest is for. modules/lock's dep is a
         # single vigilance pkg whose install phase finishes by placing the tree
         # under ~/.local, and vigilance's own setup.sh does exactly that in
         # user mode. STATED rather than hidden: the pkg CLONE mechanics are not
@@ -465,12 +465,12 @@ runcmd:
         # that was tested nowhere.
         # FROM A WRITABLE COPY. /mnt/repo is a read-only ISO mount, and an
         # install that creates anything relative to its own tree died there
-        # with a bare "mkdir: Permission denied" -- which reads like a
+        # with a bare "mkdir: Permission denied", which reads like a
         # packaging fault and is a harness one. A real pkg clone is writable.
         # WHAT tackup's OWN pkg install DOES, in the same two steps:
         # clone the pin, then run the package's installer from the CLONE.
         # modules/lock reads the units out of that clone (pkg_dir), so a
-        # copy somewhere else is not a substitute -- it said so itself:
+        # copy somewhere else is not a substitute; it said so itself:
         # "vigilance clone missing; the pkg install must run first".
         _pkgd=/home/vig/.cache/tackup/pkgs/vigilance
         _clone="git clone -q file:///mnt/repo $_pkgd"
@@ -494,7 +494,7 @@ runcmd:
 
       echo "=== uinput (synthetic lid + key events) ==="
       # A LID IS A STATE, NOT A SIGNAL, and every test of the lid path so far
-      # has approximated it with `loginctl lock-session` -- which is the signal
+      # has approximated it with `loginctl lock-session`, which is the signal
       # rather than the cause, while the whole bug was about what a lid does.
       # Whether logind picks up a SYNTHETIC switch is the open question: it
       # finds lid devices through udev tags, and a uinput device has to be
@@ -507,7 +507,7 @@ runcmd:
         _lidsw=$(grep -c "uinject-lid" /proc/bus/input/devices 2>/dev/null \
           || echo 0)
         echo "  device seen by the kernel: $_lidsw"
-        # THE DECISIVE EVIDENCE is logind's OWN journal line -- the same
+        # THE DECISIVE EVIDENCE is logind's OWN journal line, the same
         # "Lid closed." that appeared on manifold when the real bug fired.
         # Anything less is inference: the kernel seeing a switch says nothing
         # about whether logind found it through udev and acted on it.
@@ -575,7 +575,7 @@ runcmd:
 
       # ASSEMBLED AFTER EVERY PROBE, which is the only place it can be. It
       # used to sit beside the compositor probe, so the capabilities discovered
-      # LATER -- the integrator and uinput -- were empty when the list was
+      # LATER (the integrator and uinput) were empty when the list was
       # built, and their scenarios skipped while the guest could in fact provide
       # them. A capability that is available and not claimed is as bad as the
       # reverse: both make a scenario report something that is not true.
@@ -589,7 +589,7 @@ runcmd:
       # BOUNDED, so a hung scenario still reports what it managed. Everything in
       # this block goes to a FILE that is dumped to the serial at the very end,
       # so a suite that never returns never reaches the `cat` and produces NO
-      # output at all -- not a partial log, nothing. Two cells were set aside as
+      # output at all, not a partial log, nothing. Two cells were set aside as
       # "cause unknown" on exactly that evidence.
       #
       # GENEROUS ON PURPOSE, against a MEASURED full run: 302s of guest
@@ -611,7 +611,7 @@ runcmd:
     poweroff -f
 EOF
 # THE ONE HOST VALUE, substituted AFTER the fact. The heredoc above is now
-# QUOTED, so NOTHING in it expands on this box -- the only way to make prose
+# QUOTED, so NOTHING in it expands on this box: the only way to make prose
 # inside it safe. Twice a BACKTICK in a COMMENT there ran here: once
 # `systemctl --user`, splicing its unit list into the guest config, and once
 # `env`, splicing the developer's whole environment. Both times the rule
@@ -627,7 +627,7 @@ sed -i "s|@FILTER@|${VIGILANCE_VM_ONLY:-}|" "$_seed/user-data"
 # HOST script; the runcmd above is a STRING to it, so a syntax error in the
 # guest is invisible until a three-minute boot ends in "guest never reported".
 # That has now happened twice in one sitting, both times from a quoting layer
-# eating a character on the way in -- an unquoted heredoc running a backtick on
+# eating a character on the way in: an unquoted heredoc running a backtick on
 # the host, and an editor swallowing a closing quote. The guest script is
 # shipped code and gets the same cheapest-possible check as everything else.
 _gs=$VM/guest-script
@@ -647,7 +647,7 @@ xorriso -as mkisofs -R -J -V CIDATA -quiet \
 #                 the scenarios. Cheap, fresh every time.
 #
 # IF VIGILANCE'S OWN CODE WERE BAKED IN, every commit would invalidate the
-# image SILENTLY -- the staleness class this project keeps paying for (a
+# image SILENTLY, the staleness class this project keeps paying for (a
 # shadowed binary, a pinned argv, a checkout a commit behind). Keyed on the
 # release and the package list ONLY, so the key is small and stable while the
 # code under test is always current.
@@ -692,7 +692,7 @@ if [ ! -f "$BUILT" ] || [ "$_bhave" != "$_bkey" ]; then
   kill "$_bpid" 2>/dev/null || true
   wait "$_bpid" 2>/dev/null || true
   # THE MARKER IS THE PROOF. A guest that died early still leaves a qcow2, and
-  # keeping it would preserve a half-built machine as "known good" -- the
+  # keeping it would preserve a half-built machine as "known good", the
   # false-green shape, baked into an image and reused for weeks.
   if ! grep -q "Reached target.*[Pp]ower" "$VM/build-console.log" 2>/dev/null \
      && ! grep -q "reboot: Power down" "$VM/build-console.log" 2>/dev/null; then

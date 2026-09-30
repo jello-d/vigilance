@@ -3,7 +3,7 @@
 #
 # THE MECHANISM THIS PACKAGE IS ABOUT, and until now it was tested nowhere. The
 # founding failure is "swayidle WEDGES on this Wayfire build: it resumed a
-# suspend UNLOCKED and silently dropped a Session.Lock that fired" -- and no
+# suspend UNLOCKED and silently dropped a Session.Lock that fired", and no
 # tier has ever started a swayidle, let alone watched it drive the ladder. Every
 # assertion about idle locking has been about a recorder hook or a stubbed argv.
 #
@@ -56,7 +56,7 @@ accused a healthy timer three separate times for exactly this reason"
 
 # UPTIME PINNED BEFORE THE RUN, not after. The watchdog declines when the box
 # has not been up longer than its quiet window, and a fresh VM has been up for
-# seconds -- so an unpinned reading makes this case decline and prove nothing.
+# seconds, so an unpinned reading makes this case decline and prove nothing.
 # The first draft wrote the file AFTER using it, which is the same mistake with
 # no excuse.
 printf '%s\n' "999999" > "$T/uptime"
@@ -67,7 +67,7 @@ VIGILANCE_KIND=watchdog VIGILANCE_UPTIME_FILE=$T/uptime \
 two edges WEDGED: $(head -1 "$T/wd.out")"
 
 # --- 3. RESTARTING THE TIMER MUST NOT MANUFACTURE AN OVERDUE ---------------
-# swayidle RUNS ALL PENDING RESUME COMMANDS ON SIGTERM -- documented, and there
+# swayidle RUNS ALL PENDING RESUME COMMANDS ON SIGTERM: documented, and there
 # so a killed timer does not leave a dimmed screen. So stopping it from the
 # `sleep` rung ascends the ladder, while the input counters have not moved: our
 # clock keeps counting from the last keystroke and reports the machine as long
@@ -81,7 +81,7 @@ resume, so this case did not reach the state it exists to test"
 [ "$(crossed wake)" -gt "$_before_wake" ] || fail "no wake edge was crossed"
 
 # THE CEILING: the ascent bounds the idle estimate. Only assertable where the
-# clock can answer at all -- a substrate with no countable input device
+# clock can answer at all: a substrate with no countable input device
 # correctly declines, and demanding a number there would be a verdict about the
 # VM rather than about the code.
 _idle=$("$VIGILANT" report 2>/dev/null \
@@ -149,7 +149,7 @@ timer of emitting nothing. True, useless, and it is report's finding:
 saying it twice in different words teaches a reader to discount both" || :
 
 # REPORT'S HALF OF THIS CELL IS IN report.t, deliberately. Here `_r_session`
-# finds no graphical session -- root has none -- so report correctly answers
+# finds no graphical session: root has none, so report correctly answers
 # "n/a (no session to idle in)" rather than FAIL, and that guard exists because
 # it once declared FAIL over a greeter-only box doing exactly the right thing.
 # Demanding a FAIL on this substrate would be a verdict about the VM.

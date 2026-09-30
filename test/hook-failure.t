@@ -51,12 +51,12 @@ expect_verify lock fail
 # MEASURED before the timeout existed: a hook in lock.d running `sleep` blocked
 # the traversal indefinitely, and `50-provider` NEVER RAN. Hooks run in lexical
 # order and the lock provider is not first, so one hung plugin ordered ahead of
-# it means the screen is simply never locked -- with nothing in the log, no
+# it means the screen is simply never locked, with nothing in the log, no
 # alert, and no bound on the wait.
 #
 # Under lock-on-sleep.service that is the entire guarantee gone: the unit is a
 # system oneshot with TimeoutStartSec=25, systemd kills it at 25s, and nothing
-# can veto a suspend -- so logind proceeds and the box sleeps UNLOCKED.
+# can veto a suspend, so logind proceeds and the box sleeps UNLOCKED.
 #
 # The timeout is set SHORT here rather than waiting out the default, and the
 # hook sleeps far longer than the bound so the assertion cannot pass by the
@@ -88,11 +88,11 @@ _el=$(( $(date +%s) - _t0 ))
 [ "$_el" -lt 15 ] || fail "the edge took ${_el}s with a 2s hook timeout; the
 bound is not being applied and a hung hook still blocks the traversal"
 
-# THE ASSERTION THAT MATTERS. Not that the hook was killed -- that the LOCK
+# THE ASSERTION THAT MATTERS. Not that the hook was killed, but that the LOCK
 # still happened. Everything else here is mechanism.
 [ -e "$T/provider-ran" ] || fail "the lock provider never ran because an earlier
 hook hung. Hooks run in lexical order, so any plugin sorting before the provider
-can stop the screen locking at all -- and under lock-on-sleep the box then
+can stop the screen locking at all, and under lock-on-sleep the box then
 suspends UNLOCKED"
 
 # ...and it is LOUD, in terms that name the consequence. A bound that fires
@@ -108,7 +108,7 @@ grep -q "20-hangs" "$VIGILANCE_LOG" \
 hanging. A caller cannot distinguish that from every hook completing"
 
 # --- A HOOK THAT IGNORES SIGTERM still dies, or the bound is advisory -------
-# timeout(1) sends TERM, which a shell script can trap and ignore -- and a hook
+# timeout(1) sends TERM, which a shell script can trap and ignore, and a hook
 # wedged in an uninterruptible retry loop is exactly the kind that hangs in the
 # first place. Without `-k` the bound would be a polite request, and the edge
 # would block forever anyway while the log claimed a timeout had been applied.

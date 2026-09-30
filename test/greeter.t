@@ -10,8 +10,8 @@
 # it simply has no user scope, so it gets the machine hooks and nothing else.
 # Every assertion here is really about that absence behaving correctly.
 #
-# AND IT BEGINS AT `lock`, NOT `open`. A greeter IS the locked state -- there is
-# no user session to protect -- so it is INITIALISED at that rung rather than
+# AND IT BEGINS AT `lock`, NOT `open`. A greeter IS the locked state: there is
+# no user session to protect, so it is INITIALISED at that rung rather than
 # traversing to it. Without that, `go sleep` would traverse open -> lock ->
 # sleep and fire lock.d, whose provider would try to start a lock screen on top
 # of a session that already is one.
@@ -20,7 +20,7 @@ set -eu
 . "$(dirname "$0")/scenario_lib"
 scenario_init greeter
 
-# NO USER TREE AT ALL. Not an empty one -- absent, which is the greeter's actual
+# NO USER TREE AT ALL. Not an empty one: absent, which is the greeter's actual
 # situation and a different code path from "present but empty".
 export VIGILANCE_HOOK_ROOT="$T/no-such-user-tree"
 
@@ -41,7 +41,7 @@ _mhook sleep.d 10-peripherals
 _mhook wake.d  10-peripherals
 # The lock-crossing sentinel goes in the REPORT tier, not the act tier, and the
 # distinction is faithful rather than convenient. A real greeter's machine scope
-# has NO lock.d at all -- the provider is user-scope only -- and `report` uses
+# has NO lock.d at all: the provider is user-scope only, and `report` uses
 # exactly that emptiness to decide a locker is not expected here. A sentinel in
 # lock.d would masquerade as a provider and make this fixture unlike the thing
 # it models. The report tier still fires on a lock crossing, so it detects the
@@ -94,12 +94,12 @@ case "$_rc" in
   0|78) ;;
   *) fail "'verify' failed with rc=$_rc and no user hook tree. A greeter has no
 user scope by definition, so an ERROR there would be noise on every login
-screen -- 78 says nothing was checked without claiming something broke" ;;
+screen: 78 says nothing was checked without claiming something broke" ;;
 esac
 
 # AND THE OTHER HALF: give the greeter's MACHINE scope a verifier and it must
 # produce a real verdict. Without this, "78 is acceptable" would pass with the
-# greeter's verify tier permanently inert -- which is the greeter outage this
+# greeter's verify tier permanently inert, which is the greeter outage this
 # whole file exists to prevent, re-created inside its own test.
 _mhook lock.verify.d 10-confirm
 go lock
@@ -109,8 +109,8 @@ produce a verdict. Machine scope is ALL a greeter has, so if it cannot verify
 through it, it cannot verify at all"
 
 # `report` is asserted DIFFERENTLY, and the difference is not a loophole. Its
-# exit code folds in the machinery section, which reads the HOST's real systemd
-# -- are vigilance's units enabled -- and that legitimately differs between the
+# exit code folds in the machinery section, which reads the HOST's real systemd:
+# are vigilance's units enabled, and that legitimately differs between the
 # stub substrate and the VM. Demanding rc=0 asserts the host is healthy, not
 # that a greeter can run report; it was red in the VM on units this file never
 # meant to test.

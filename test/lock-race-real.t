@@ -2,8 +2,8 @@
 # test/lock-race-real.t - the locker race, against a REAL user systemd.
 #
 # THE GAP THIS CLOSES, and it is the reason the bug it covers reached a live
-# box twice. Everything vigilance builds on `--user` units -- the locker's
-# transient unit, the idle supervisor, the logind trigger -- was testable
+# box twice. Everything vigilance builds on `--user` units (the locker's
+# transient unit, the idle supervisor, the logind trigger) was testable
 # NOWHERE:
 #
 #   the stub tier   must not create transient units on the developer's systemd
@@ -32,8 +32,8 @@ trap _cleanup EXIT INT TERM HUP
 
 # A LOCKER THAT TAKES ITS TIME COMING UP. This is the whole point: the unit is
 # `activating` for about two seconds, which is the window the losing request
-# lands in. swaylock behaves this way for real -- it forks, and the parent exits
-# only once the compositor has confirmed the session lock -- so a locker that
+# lands in. swaylock behaves this way for real: it forks, and the parent exits
+# only once the compositor has confirmed the session lock, so a locker that
 # comes up instantly would model a machine that does not exist.
 mkdir -p "$T/bin"
 PATH=$T/bin:$PATH; export PATH
@@ -54,7 +54,7 @@ _provider() {   # <tag>
 }
 
 # --- 1. TWO CONCURRENT STARTS, BOTH SUCCEED --------------------------------
-# One wins, one is refused by systemd with "unit already exists" -- against the
+# One wins, one is refused by systemd with "unit already exists", against the
 # real thing, not a stub that returns 1 because a fixture said so. The loser
 # must then WAIT for the winner's locker to finish coming up, because at the
 # moment it looks the unit is ACTIVATING and `is-active` is false.
@@ -65,8 +65,8 @@ if [ "$_ra" != 0 ] || [ "$_rb" != 0 ]; then
   cat "$T/a.err" "$T/b.err" 2>/dev/null >&2
   fail "two concurrent starts against a REAL user systemd returned $_ra and
 $_rb. Losing the race is not failing: the locker came up, so the postcondition
-this hook exists for holds. The loser sampling too early -- while the winner's
-unit was still activating -- is precisely what alerted on a live box"
+this hook exists for holds. The loser sampling too early, while the winner's
+unit was still activating, is precisely what alerted on a live box"
 fi
 
 # ...and exactly one unit is running, which is what makes it a race and not

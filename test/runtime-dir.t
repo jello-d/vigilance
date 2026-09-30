@@ -3,7 +3,7 @@
 # whether every other answer is about this machine or about nothing.
 #
 # The depth file IS the state. Resolve its directory wrongly and vigilant does
-# not fail -- it answers confidently about a record nobody writes.
+# not fail: it answers confidently about a record nobody writes.
 #
 # WHAT THIS FOUND. RUN_DIR was
 #
@@ -11,7 +11,7 @@
 #
 # and XDG_RUNTIME_DIR is UNSET in a non-interactive ssh, in cron, and under
 # `su`. Measured: `vigilant status` there read an empty /tmp/vigilance and
-# reported `depth: open, since: unknown` -- the same answer whether the machine
+# reported `depth: open, since: unknown`, the same answer whether the machine
 # was open, locked or dark. The tell was `since: unknown`, because the real
 # record has a timestamp and this one had no record at all.
 #
@@ -20,7 +20,7 @@
 # not the session's.
 #
 # Two things were wrong and they need separate fixes:
-#   1. it gave up too early -- logind creates /run/user/<uid> for ANY session of
+#   1. it gave up too early: logind creates /run/user/<uid> for ANY session of
 #      that uid, the ssh one included, so the real record is still findable; and
 #   2. the last resort was a SHARED NAME in a sticky world-writable directory.
 set -eu
@@ -32,7 +32,7 @@ VIG=$HERE/bin/vigilant
 UID_=$(id -u)
 
 # Everything below must resolve RUN_DIR for itself, so the sandbox's own
-# VIGILANCE_RUN_DIR has to be out of the way -- it deliberately outranks every
+# VIGILANCE_RUN_DIR has to be out of the way: it deliberately outranks every
 # other source. The fallbacks are then redirected INTO the sandbox with
 # VIGILANCE_RUNTIME_BASE and TMPDIR, so no case reaches a real path.
 _run() {   # <runtime-base> <tmpdir> <args...>
@@ -58,7 +58,7 @@ case "$_out" in
   *) printf '%s\n' "$_out" >&2
      fail "with XDG_RUNTIME_DIR unset, status did not read the record in the
 runtime dir that logind maintains for this uid. Over ssh or from cron it
-reports 'open' whatever the machine is actually doing -- and 'open' is the one
+reports 'open' whatever the machine is actually doing, and 'open' is the one
 answer that means nothing needs attention" ;;
 esac
 
@@ -216,7 +216,7 @@ _corrupt '../../etc/passwd 1'     'path-shaped'
 # AN EMPTY RECORD COUNTS, and it is the likeliest of the three: ext4 journals a
 # file's size while never writing its data, so a power cut leaves exactly this.
 # It has no timestamp either, so a check placed in the has-a-timestamp branch
-# would miss it -- which the first version of this did.
+# would miss it, which the first version of this did.
 _corrupt ''                       'empty'
 
 # ...and a VALID record is still read, or the fix is "never trust the file",

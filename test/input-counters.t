@@ -12,7 +12,7 @@
 # incapable of seeing what was typed rather than merely unwilling.
 #
 # BOTH SOURCES ARE PINNED HERE. Left to read the host, every case below would
-# depend on whether the developer happened to touch the trackpoint mid-run --
+# depend on whether the developer happened to touch the trackpoint mid-run,
 # and this suite has now shipped that mistake three times (uptime, backlight,
 # luminance). A clock test that reads the real clock is not a test.
 set -eu
@@ -23,7 +23,7 @@ HOOK=$HERE/libexec/vigilance/hooks/input-counters
 # NO `device` ENTRY UP FRONT. Creating it as a DIRECTORY means a later
 # `ln -sfn` drops the symlink INSIDE it instead of replacing it, so the USB
 # parent is never reached and the urbnum case passes on the i8042 counter
-# alone -- testing nothing it claims to. Caught by the case failing.
+# alone, testing nothing it claims to. Caught by the case failing.
 mkdir -p "$T/state" "$T/sys/input/input0" "$T/sys/input/input1"
 
 _irq() {   # <count> -> a /proc/interrupts with that i8042 total
@@ -50,7 +50,7 @@ _run() {
 }
 # TOLERANT BY ONE SECOND, because _age and the hook each call `date`
 # separately and a second can tick between them. An exact match made this file
-# fail about once a run -- a flaky test is one people re-run until it is green,
+# fail about once a run: a flaky test is one people re-run until it is green,
 # which is worse than no test.
 _about() {   # expected actual what
   [ "$2" -ge "$1" ] && [ "$2" -le $(( $1 + 2 )) ] && return 0
@@ -95,7 +95,7 @@ _about 42 "$IDLE" "after a reset the clock restarted at the wrong point"
 
 # --- 4. A QUIET PASS MUST NOT RESET THE CLOCK -------------------------------
 # The subtle one. If a sample with no change rewrote the timestamp, every pass
-# would measure only the gap since the previous pass and report ~60s forever --
+# would measure only the gap since the previous pass and report ~60s forever,
 # a clock that looks alive and can never reach a 480s deadline.
 _age 500
 _run; _about 500 "$IDLE" "setup for the quiet-pass case"
@@ -115,7 +115,7 @@ That is a device replug or a reboot, not time passing"
 
 # --- 6. USB urbnum COUNTS, AND A SHARED PARENT IS COUNTED ONCE --------------
 # A keyboard exposes several input nodes that all resolve to ONE usb device.
-# Summing per node would weight it several times -- harmless for equality, but
+# Summing per node would weight it several times, harmless for equality, but
 # it would make the signature jump when a node appears, reading as input.
 _irq 5
 _usb 700
@@ -155,7 +155,7 @@ anyway is the false green this whole suite exists to prevent"
 #
 # NO QUIET SAMPLE between the backdate and the change, deliberately. The quiet
 # path ALSO raises the ceiling, so a sequence that passes through it leaves the
-# activity path untested -- a mutation deleting that update survived exactly
+# activity path untested: a mutation deleting that update survived exactly
 # this file until the case was tightened.
 rm -rf "$T/state"; mkdir -p "$T/state"
 _irq 1000; _run          # first sample
@@ -197,7 +197,7 @@ somebody is sitting at overdue for a lock"
 
 # --- A GAP IN SAMPLING IS NOT A QUIET SEAT ---------------------------------
 # THE DEFECT THIS CATCHES WAS FOUND ON A LIVE BOX, and it disarmed the one
-# signal that makes this clock honest. The ceiling read 241310s -- 67 HOURS --
+# signal that makes this clock honest. The ceiling read 241310s (67 HOURS)
 # while the counter was in fact moving every 25 seconds, because the interval is
 # wall time between SAMPLES and the sampler had not run for most of it. A
 # high-water mark never comes down, so one gap certifies the clock for ever.
@@ -226,7 +226,7 @@ for ever; dropping it is what makes this self-healing on an existing box."
 # stored ceiling was a literal 0 while the ANSWER printed the variable, so a
 # mutation defeating the reset left the state correct and handed report the
 # stale 67-hour value for a pass. Report reads the ANSWER, so that is what has
-# to be asserted -- the state file is not the consumer.
+# to be asserted: the state file is not the consumer.
 case "$DEMO" in
   *"ceiling=0 "*|*"ceiling=0") ;;
   *) fail "after a gap the clock still REPORTED a ceiling it cannot vouch for,
@@ -263,19 +263,19 @@ esac
 # --- IT NAMES THE DEVICE THAT MOVED ----------------------------------------
 # WHY A NAME AT ALL: report used to conclude "something talks to an input device
 # on its own" by elimination, which is true, unactionable and unable to say
-# which -- and the operator's only remedy is AT the device. The counters already
+# which, and the operator's only remedy is AT the device. The counters already
 # know per device; only the attribution was missing.
 #
 # CONTENT-FREE, so this needs no privilege and nothing to opt into. A count
 # carries no scancode, button or coordinate. The alternative considered was an
 # evdev source and it cannot work: a hook observes only during its own bounded
 # window, and sampled observation cannot prove absence BETWEEN samples, so it
-# would over-report idle -- the one unsafe direction for a clock gating an
+# would over-report idle: the one unsafe direction for a clock gating an
 # alert.
 rm -f "$T/state/input-counters" "$T/state/input-counters.devices"
 _irq 500; _usb 100
 # AFTER _usb, which is what creates the directory. Writing it first failed
-# silently behind a `|| true` and the label fell back to the basename -- the
+# silently behind a `|| true` and the label fell back to the basename, the
 # tolerant-write habit hiding a fixture bug, which is why the assertion names
 # the expected label rather than just checking that SOMETHING was named.
 printf 'Test_Keyboard\n' > "$T/sys/usbdev/product"
@@ -297,7 +297,7 @@ esac
 # AND THE OTHER WAY ROUND, or "always name the USB one" passes the case above. A
 # REAL GAP FIRST: both devices moved within the same second above, so both read
 # "0 seconds ago" and which one is named is a coin toss on file order. That is
-# fine behaviour -- either is the binding device -- but it is not a test, so the
+# fine behaviour, either is the binding device, but it is not a test, so the
 # case makes the ages actually differ.
 sleep 2
 _irq 511                            # only i8042 moves now
@@ -351,7 +351,7 @@ answering a question vigilance asked it."
 
 # AND THE ATTRIBUTION TOO, which the first version of this fix left fooled: it
 # skipped the settle pass entirely, so the stored counts stayed at their
-# pre-pass values and the NEXT pass read our own traffic as a device moving --
+# pre-pass values and the NEXT pass read our own traffic as a device moving,
 # naming the very keyboard we had talked to. ASSERTED AGAINST THE CLOCK, not
 # against a magic number. The first version looked for `recent=i8042:0` and a
 # mutation removing the settle guard SURVIVED it: stamping during the settle
@@ -364,7 +364,7 @@ _rage=$(printf '%s' "$DEMO" | sed -n 's/.*recent=[^:]*:\([0-9][0-9]*\).*/\1/p')
 [ "$_rage" -ge "$(( IDLE - 1 ))" ] || fail "the named device is younger than the
 clock's own idle time (device ${_rage}s, idle ${IDLE}s): '$DEMO'. Both are
 measured from the last genuine change, so a device stamped during OUR pass reads
-as having moved more recently than anything actually did -- and report NAMES the
+as having moved more recently than anything actually did, and report NAMES the
 device from this field, so it would still point at the one we queried"
 
 # ...AND A REAL CHANGE BETWEEN PASSES STILL RESETS IT, or the fix is "ignore

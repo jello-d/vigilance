@@ -43,13 +43,13 @@ scenario_init() {   # <name>
   # Sandbox the SYSFS roots `report` reads. Otherwise a scenario asserts on
   # whatever the developer's laptop is doing: report at rung `sleep` read the
   # real backlight, found it lit, and failed a correct test. Same family as the
-  # brightnessctl leak -- a test must not depend on the running system's
+  # brightnessctl leak: a test must not depend on the running system's
   # hardware, let alone touch it.
   export VIGILANCE_SYS_BACKLIGHT="$T/sys/backlight"
   export VIGILANCE_SYS_DRM="$T/sys/drm"
   export VIGILANCE_SYS_LEDS="$T/sys/leds"
   # And the LOCKER probe. Without this a scenario's verdict depends on whether
-  # the DEVELOPER's screen is locked while the suite runs -- which failed here
+  # the DEVELOPER's screen is locked while the suite runs, which failed here
   # exactly that way, reading a real swaylock from inside a sandbox. Default to
   # "no locker"; a scenario that cares sets it per call.
   export VIGILANCE_LOCKER_UP=0
@@ -70,13 +70,13 @@ scenario_init() {   # <name>
   # alert within a cooldown, so a notifier does not fire every minute about an
   # unchanged fact. That is time-dependent behaviour, and a test asserting "this
   # raised an alert" would pass or fail depending on what an EARLIER case in the
-  # same file happened to raise -- a test whose verdict depends on its
+  # same file happened to raise: a test whose verdict depends on its
   # neighbours is not a test. Scenarios see every alert; test/standing-recheck.t
   # turns the cooldown back on where the dedup itself is the subject.
   export VIGILANCE_ALERT_COOLDOWN=0
   # And the SLEEP UNIT'S BUDGET, which the edge-budget check compares the hook
   # count against. Unset, it asks the real systemd what lock-on-sleep's
-  # TimeoutStartSec is -- a host read, and one that is absent entirely on a box
+  # TimeoutStartSec is: a host read, and one that is absent entirely on a box
   # where the unit was never installed, so the check would silently do nothing
   # in the stub tier and something else again in the VM. Pinned to the value the
   # shipped unit carries, so the arithmetic is the thing under test.
@@ -187,7 +187,7 @@ expect_stderr() {   # <substring>
 # predicate.
 # STDOUT goes to the capture file too, not the terminal. `verify` prints its own
 # verdict ("verify lock: FAIL"), and an EXPECTED failure printed to the screen
-# made a green run look like it had two failures in it -- a suite whose passing
+# made a green run look like it had two failures in it: a suite whose passing
 # output contains the word FAIL trains you not to read it.
 expect_verify() {   # <edge> <ok|fail>
   _vrc=0

@@ -8,8 +8,8 @@
 # brief dark-then-lit is the point: the peripherals are put in a known state
 # before being brought back.
 #
-# IT USED TO SAY `go sleep`, AND THAT WAS WRONG. The premise -- "after S3 you
-# are at rung `sleep` until input" -- assumes nobody is there. When a human
+# IT USED TO SAY `go sleep`, AND THAT WAS WRONG. The premise ("after S3 you
+# are at rung `sleep` until input") assumes nobody is there. When a human
 # woke the machine, or when the suspend was spurious, it darkened the screen on
 # an ACTIVE user. Observed: a 2-second s2idle entry/exit, after which this unit
 # re-asserted dark and the screen stayed off for 32 seconds.

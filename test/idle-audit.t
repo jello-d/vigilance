@@ -5,7 +5,7 @@
 # lock that never happened (a machine that never locked sits correctly at
 # `open`), and `due` cannot enforce it (the deadline is anchored to the last
 # INPUT, which vigilant has no way to observe). That left forensics, and there
-# was no audit source for it -- so due/enforce said "audit covers it" while
+# was no audit source for it, so due/enforce said "audit covers it" while
 # nothing did.
 #
 # It then failed for real, which is why both halves below exist:
@@ -69,7 +69,7 @@ _fired "$((NOW - 8 * 24 * 3600))"
 
 # --- only a real FIRING counts, not any line mentioning idle-lock ----------
 # Matched as a field rather than anywhere in the line, so `start`/`stop`/
-# `detached` entries -- and any future message that merely says the words --
+# `detached` entries, and any future message that merely says the words,
 # cannot be mistaken for the timer going off.
 : > "$EVENTS"
 printf '%s.0 start foreground=0\n' "$(date '+%Y-%m-%dT%H:%M:%S')" >> "$EVENTS"

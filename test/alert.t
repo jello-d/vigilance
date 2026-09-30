@@ -93,7 +93,7 @@ chmod +x "$VIGILANCE_HOOK_ROOT/alert.d/10-hangs"
 # CROSSES `sleep`, NOT `lock`, and the difference is the whole test. The failing
 # hook wired above is on the SLEEP edge; nothing fails on `lock`, so a lock
 # crossing raises no alert and the hanging hook never runs. Written that way
-# first, this passed with the bound removed -- a timing assertion on a path the
+# first, this passed with the bound removed: a timing assertion on a path the
 # alert tier is never reached from.
 go open
 : > "$T/alerts"
@@ -108,7 +108,7 @@ alert hook never ran and the timing assertion below proves nothing"
 
 [ "$_el" -lt 15 ] || fail "the sleep edge took ${_el}s because an ALERT hook
 hung. The alert tier is reached from a hook failure, so an unbounded notifier
-lets a broken toast stop the edge -- the tier that exists to report trouble
+lets a broken toast stop the edge: the tier that exists to report trouble
 becoming the trouble"
 
 pass

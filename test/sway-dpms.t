@@ -4,7 +4,7 @@
 # THE GAP. A greeter's `sleep` edge runs machine-scope hooks only. On a panel
 # that advertises no DPMS standby, ddc-monitor can only DIM (measured on an
 # AW2725Q: VCP 10 = 0 is dim, not black), panel-backlight is n/a on an external
-# monitor, and lock-blank cannot help twice over -- it is user scope, and it
+# monitor, and lock-blank cannot help twice over: it is user scope, and it
 # signals a locker a greeter does not have. So the keyboard went dark and the
 # screen stayed lit, on the one session nobody is present to notice.
 #
@@ -17,7 +17,7 @@
 # SELF-LIMITING BY CONSTRUCTION, which is the design point. The gate IS the
 # tool: swaymsg can only talk to sway, so in a Wayfire session the hook simply
 # cannot act and declines. That is what makes it safe to wire in MACHINE scope,
-# where the greeter and the user session are offered the same hooks -- the one
+# where the greeter and the user session are offered the same hooks: the one
 # it must not act in cannot answer it. No host list to keep in sync.
 set -eu
 . "$(dirname "$0")/harness_lib"
@@ -77,7 +77,7 @@ esac
 
 # --- 3. NOT SWAY: decline, and say so with 78 -------------------------------
 # The load-bearing case. This hook is wired in MACHINE scope, so it is offered
-# to the Wayfire user session too -- where powering an output off destroys
+# to the Wayfire user session too, where powering an output off destroys
 # views. It must be incapable of acting there, and it must not report success
 # either, or an edge where nothing could blank reads like one where it did.
 SWAY_UNREACHABLE=1; export SWAY_UNREACHABLE
@@ -133,7 +133,7 @@ printf '[{"name":"DP-1","dpms":true},{"name":"DP-2","dpms":true}]\n' \
 [ "$(_run wake verify)" = 0 ] || fail "verify called genuinely-on outputs drift
 at a lit rung"
 [ "$(_run sleep verify)" != 0 ] || fail "verify passed outputs still ON at a
-dark rung -- the exact symptom that started this: keyboard dark, screen lit"
+dark rung, the exact symptom that started this: keyboard dark, screen lit"
 
 # --- 6. EVERY output is checked, not just the last one ----------------------
 # swaymsg pretty-prints by default but not in every version. A compact one-line

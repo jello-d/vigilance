@@ -11,14 +11,14 @@
 # WHY THE GREETER NEEDS IT. A greeter has no locker, so `lock-blank` has nothing
 # to signal, and on a panel that advertises no DPMS standby `ddc-monitor` can
 # only DIM (measured: VCP 10 = 0 is dim, not black). So the greeter's sleep edge
-# darkened the keyboard and left the screen lit -- the same "nothing here can
+# darkened the keyboard and left the screen lit, the same "nothing here can
 # blank it" gap the user session had, one layer over, on the session nobody is
 # present to notice.
 #
 # SELF-LIMITING BY CONSTRUCTION. The gate is the tool: `swaymsg` can only talk
 # to sway, so in a Wayfire session it simply fails and this declines. That is
 # what makes the hook safe to wire in MACHINE scope, where it is offered to the
-# greeter and the user session alike -- the one it must not act in cannot answer
+# greeter and the user session alike: the one it must not act in cannot answer
 # it. There is no host list to keep in sync and no way to get the answer wrong.
 #
 # DPMS IS A COMPOSITOR-SIDE BLANK, not a monitor power state: it stops scanout
@@ -53,15 +53,15 @@ if [ "${VIGILANCE_KIND:-act}" = verify ]; then
   # NOT DUE? A peripheral check earns an hour, not a minute. The standing
   # recheck forces a FULL verify on the first pass after the rung changes, which
   # is when drift is actually introduced, so this cadence is a backstop rather
-  # than the primary mechanism -- and in the whole log history these verifiers
+  # than the primary mechanism, and in the whole log history these verifiers
   # have reported drift exactly never. Only the recheck offers the skip; an
   # explicit `vigilant verify` is always real.
   hook_throttle "${VIGILANCE_PERIPHERAL_EVERY:-3600}" && exit 75
   # sway reports each output's dpms state, so this is a real readback rather
-  # than a proxy -- the same standard ddc-monitor's verify is held to.
+  # than a proxy, the same standard ddc-monitor's verify is held to.
   # SPLIT ON COMMAS FIRST. swaymsg pretty-prints by default but not in every
   # version, and a compact one-line object would put every field on one awk
-  # record -- the last "dpms" would win and the check would silently examine
+  # record: the last "dpms" would win and the check would silently examine
   # one output instead of all of them. Splitting makes it format-independent.
   _bad=$(swaymsg -t get_outputs 2>/dev/null | tr ',' '\n' \
     | awk -v want="$_want" '

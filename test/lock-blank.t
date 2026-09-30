@@ -10,7 +10,7 @@
 #     SIGUSR2   blank    solid colour instead of the image
 #     SIGRTMIN  restore  the image again
 #
-# THE PATCH CARRIES NO POLICY -- no timer, no options. WHEN to blank is this
+# THE PATCH CARRIES NO POLICY: no timer, no options. WHEN to blank is this
 # hook's business, driven by the ladder. That split is the whole point: the
 # 2026-09-04 retirement was right that a timer inside the locker duplicated
 # swayidle, and wrong that the PAINT was replaceable from outside.
@@ -84,12 +84,12 @@ esac
 LOCKER_UP=; export LOCKER_UP
 _run sleep || fail "the hook FAILED with no locker running. That is an
 unlocked session crossing sleep, which is routine, and a greeter's permanent
-state -- it would alert on every such edge"
+state: it would alert on every such edge"
 [ -z "$(_sent)" ] || fail "a signal was sent with no locker running"
 LOCKER_UP=1; export LOCKER_UP
 
 # --- 4. VERIFY MEASURES THE PIXELS ------------------------------------------
-# swaylock exposes no way to ask what it is painting -- but the compositor can
+# swaylock exposes no way to ask what it is painting, but the compositor can
 # see the surface, so a grab plus ImageMagick turns "is it black" into a number.
 # SANDBOXED through VIGILANCE_SCREEN_LUMA: without it this tier would measure
 # the DEVELOPER'S OWN SCREEN, which is the mistake behind seven past defects
@@ -110,7 +110,7 @@ whole reason this hook exists" || :
 # channels including alpha, so an opaque all-black frame reads 0.25 rather than
 # 0. The first version of this check called a pitch-black screen "not black"
 # for exactly that reason and contradicted a human looking at it. If the
-# measurement ever stops excluding alpha, 0.25 is what it will report -- so
+# measurement ever stops excluding alpha, 0.25 is what it will report, so
 # 0.25 must read as EMITTING, and the fix is to measure with -alpha off.
 VIGILANCE_SCREEN_LUMA=0.25
 _run sleep verify && fail "verify accepted 0.25 as black. That is precisely
@@ -120,7 +120,7 @@ VIGILANCE_SCREEN_LUMA=0; export VIGILANCE_SCREEN_LUMA
 
 # --- 4z. THE MEASUREMENT ITSELF, against a real image -----------------------
 # Everything above tests the THRESHOLD through VIGILANCE_SCREEN_LUMA, which
-# short-circuits the pipeline -- so the alpha handling, the thing that actually
+# short-circuits the pipeline, so the alpha handling, the thing that actually
 # produced a wrong verdict, would go untested. Here grim is stubbed to emit a
 # known opaque-black RGBA frame and the REAL magick measures it.
 #
@@ -137,7 +137,7 @@ if command -v magick >/dev/null 2>&1; then
   chmod +x "$T/bin/grim"
   _run sleep verify || fail "the REAL measurement called an opaque all-black
 frame 'emitting'. That is the alpha channel being averaged into the mean, which
-reads 0.5 on a black RGBA frame -- the bug that made a pitch-black screen
+reads 0.5 on a black RGBA frame, the bug that made a pitch-black screen
 measure as lit and contradicted a human looking straight at it"
   rm -f "$T/bin/grim"
   VIGILANCE_SCREEN_LUMA=0; export VIGILANCE_SCREEN_LUMA
@@ -153,7 +153,7 @@ printf '#!/bin/sh\nexit 0\n' > "$T/bin/magick"
 chmod +x "$T/bin/grim" "$T/bin/magick"
 _run sleep verify || fail "an unmeasurable screen was reported as drift. A
 greeter or a tty has no display to grab, and a hook that cannot see must not
-claim -- that is the whole reason this tier was rewritten"
+claim: that is the whole reason this tier was rewritten"
 rm -f "$T/bin/grim" "$T/bin/magick"
 VIGILANCE_SCREEN_LUMA=0; export VIGILANCE_SCREEN_LUMA
 
@@ -174,16 +174,16 @@ machine believes it is showing a prompt" || :
 _run wake                      # tidy up: clear the marker
 
 # --- 5. an edge with no darkness intent is a no-op --------------------------
-# `lock` is a LIT rung -- the screen is on, showing the locker. Blanking there
+# `lock` is a LIT rung: the screen is on, showing the locker. Blanking there
 # would black the screen at the moment the user is being asked for a password.
 _run lock || fail "the hook failed on the lock edge"
 case "$(_sent)" in
-  *USR2*) fail "the hook blanked the surface at the LOCK rung, which is lit --
+  *USR2*) fail "the hook blanked the surface at the LOCK rung, which is lit,
 that blacks the screen exactly when the password prompt appears" ;;
 esac
 
 # --- 6. a failed signal is REPORTED, not swallowed --------------------------
-# It costs only a wallpaper, never access -- but a blank that silently did not
+# It costs only a wallpaper, never access, but a blank that silently did not
 # happen is a screen quietly emitting all night, which is the whole point of
 # the hook.
 PKILL_FAIL=1; export PKILL_FAIL
@@ -214,7 +214,7 @@ unset VIGILANCE_LOCKER
 # And not merely nothing: on an ASCENT the machine scope unwinds FIRST, so
 # 20-panel-backlight restores brightness before this user-scope hook repaints.
 # The panel lights up showing a BLACK lock surface and the wallpaper arrives
-# afterwards -- a visible black flash on every wake, on a box that needed none
+# afterwards: a visible black flash on every wake, on a box that needed none
 # of it. Observed on manifold, which has intel_backlight at max 400.
 mkdir -p "$T/haslight/intel_backlight"
 printf '400\n' > "$T/haslight/intel_backlight/max_brightness"
@@ -230,7 +230,7 @@ case "$(_sent)" in
 esac
 
 # A DEVICE WITH max_brightness 0 IS NOT A BACKLIGHT. Treating it as one would
-# decline on hardware that genuinely cannot dim -- exactly the box this hook
+# decline on hardware that genuinely cannot dim, exactly the box this hook
 # exists for, left with a lit wallpaper on an OLED.
 mkdir -p "$T/zerolight/fake"
 printf '0\n' > "$T/zerolight/fake/max_brightness"
@@ -244,7 +244,7 @@ esac
 rm -f "$T/state/blanked"
 
 # --- A RESTORE IS NEVER GATED -----------------------------------------------
-# If a marker is outstanding we blanked before the policy said not to -- a
+# If a marker is outstanding we blanked before the policy said not to, a
 # deploy, a config change, a mixed setup. Declining then would leave the
 # wallpaper black with nothing able to bring it back. A short-circuit on state
 # that cannot clear the state is what left a stale save failing every ascent

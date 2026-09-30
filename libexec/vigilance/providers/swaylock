@@ -47,7 +47,7 @@ _vigilant=$(readlink -f "$_vigilant")
 UNIT=${VIGILANCE_LOCK_UNIT:-screen-lock.service}
 LOCKER=${VIGILANCE_LOCKER:-swaylock}
 # THE LOCKER'S ARGV AND UNIT TYPE ARE ITS OWN, and before this they were
-# swaylock's while the NAME was a knob -- a half promise, and the kind that
+# swaylock's while the NAME was a knob: a half promise, and the kind that
 # fails on the security path. `VIGILANCE_LOCKER=i3lock` resolved, passed the
 # `command -v` check, and was then handed `-f`, which i3lock does not have: the
 # unit fails and the screen does not lock. `Type=forking` is the same
@@ -85,7 +85,7 @@ command -v "$LOCKER" >/dev/null 2>&1 || {
 # create transient units on the developer's systemd, and the VM has no user bus
 # at all ("Failed to connect to bus: No medium found"). A file also lets a
 # fixture model the state CHANGING mid-run, which is the whole nature of a
-# race, and a boolean could not express `activating` at all -- which is why the
+# race, and a boolean could not express `activating` at all, which is why the
 # fixture agreed with the broken code.
 _unit_state() {   # -> systemd ActiveState
   if [ -n "${VIGILANCE_LOCK_ACTIVE_FILE:-}" ]; then
@@ -103,7 +103,7 @@ _unit_state() {   # -> systemd ActiveState
 SETTLE=${VIGILANCE_LOCK_SETTLE:-5}
 
 # Already up, or on its way: nothing to do. This check ALONE is a test-then-act
-# and the window between it and the systemd-run below is real -- see the race
+# and the window between it and the systemd-run below is real; see the race
 # note down there.
 case "$(_unit_state)" in active|activating|reloading) exit 0 ;; esac
 systemctl --user reset-failed "$UNIT" >/dev/null 2>&1 || true
@@ -114,7 +114,7 @@ systemctl --user reset-failed "$UNIT" >/dev/null 2>&1 || true
 #
 # IT IS ASKED ABOUT THE LOCKER IN USE, and that argument is the other half of
 # making the locker substitutable. The helper's output is inherently
-# locker-specific -- the shipped one emits swaylock's `-C <conf>` -- and the
+# locker-specific: the shipped one emits swaylock's `-C <conf>`, and the
 # provider used to hand it to whatever locker it was given, so substituting the
 # locker produced `i3lock -C .../swaylock.conf`. Caught by a test asserting the
 # argv for the first time, which is what a second platform buys before any of
@@ -127,9 +127,9 @@ if command -v vigilance-lock-argv >/dev/null 2>&1; then
   _args=$(vigilance-lock-argv "$LOCKER" 2>/dev/null || true)
 fi
 
-# LOSING THE RACE IS NOT FAILING. Two lock requests can arrive together -- a
+# LOSING THE RACE IS NOT FAILING. Two lock requests can arrive together, a
 # double hotkey press, or a keybind and a logind Session.Lock landing in the
-# same second -- and then BOTH pass the is-active check above before either
+# same second, and then BOTH pass the is-active check above before either
 # starts the unit. systemd arbitrates correctly and refuses the second with
 # "unit already exists"; treating that refusal as an error is the bug, because
 # the postcondition this hook exists for is satisfied either way.
@@ -154,9 +154,9 @@ if systemd-run --user --collect --unit="$UNIT" \
 fi
 # WAIT FOR IT TO SETTLE, do not sample once. The refusal means the unit exists,
 # which means someone is starting it, which means the honest answer is not yet
-# known. Sampling once reported failure while the winner's locker was mid-launch
-# -- the same test-then-act shape as the check above, in the code written to
-# repair it.
+# known. Sampling once reported failure while the winner's locker was
+# mid-launch, the same test-then-act shape as the check above, in the code
+# written to repair it.
 _w=0
 while [ "$_w" -le "$SETTLE" ]; do
   case "$(_unit_state)" in

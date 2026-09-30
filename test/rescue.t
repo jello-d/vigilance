@@ -3,8 +3,8 @@
 #
 # Both were absorbed from a host script, and the absorption is the thing under
 # test. The host had reimplemented knowledge of the depth file, the hooks and
-# the units from outside, and every probe that fell out of step did so SILENTLY
-# -- a stale-save probe watched a path nothing had written since the refactor,
+# the units from outside, and every probe that fell out of step did so SILENTLY:
+# a stale-save probe watched a path nothing had written since the refactor,
 # and a swaylock signal became a lock-killer when the patch was retired.
 #
 # So the assertions here are mostly about structure: rescue records through
@@ -125,8 +125,8 @@ grep -q "$RESCUE_LOG" "$T/alerts" \
 
 # --- a DEFAULT depth is only a claim when a session owns it -----------------
 # Found on a real machine, and it is the cry-wolf failure this tier keeps having
-# to unlearn. Nobody was logged in; the GREETER -- another user, with its own
-# runtime dir and its own depth file -- had correctly put the monitor into DDC
+# to unlearn. Nobody was logged in; the GREETER (another user, with its own
+# runtime dir and its own depth file) had correctly put the monitor into DDC
 # standby. This user had no depth record at all, so _depth() returned its `open`
 # default, report asserted the screen must therefore be lit, and reported FAIL
 # over a machine doing exactly the right thing.

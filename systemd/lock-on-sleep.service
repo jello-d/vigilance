@@ -45,7 +45,7 @@ ExecStart=@VIGILANT@ go lock atleast
 # returned 0; it does not mean a locker is up. systemd waits for this unit
 # before reaching sleep.target, so the check costs nothing anyone notices, and
 # it turns "the unit succeeded" into a claim about the SESSION rather than
-# about the hooks. Requires a lock.verify.d that actually asks -- the shipped
+# about the hooks. Requires a lock.verify.d that actually asks: the shipped
 # `locker-up` hook is the one that does; peripheral verifiers only assert the
 # screen is lit.
 #
@@ -56,7 +56,7 @@ ExecStart=@VIGILANT@ go lock atleast
 #
 # NO EDGE NAMED, which matters now that ExecStart may decline to raise. Pinned
 # to `lock`, this asked the `lock` rung's question about a machine sitting at
-# `sleep`, where the peripheral verifiers assert the screen is LIT -- so a
+# `sleep`, where the peripheral verifiers assert the screen is LIT, so a
 # correctly dark box would have failed this unit and alerted, moments before
 # suspending. Bare `verify` asks about the rung the machine is ACTUALLY at.
 # The lock claim survives the change because `locker-up` belongs in every

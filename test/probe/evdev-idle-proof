@@ -32,7 +32,7 @@
 #      all. Easy half.
 #   3  SYNTHETIC SILENCE, the negative control: the same device, still alive,
 #      no longer emitting. If a fresh open comes back readable anyway, the clock
-#      answers "input just now" for ever -- which looks exactly like a working
+#      answers "input just now" for ever, which looks exactly like a working
 #      clock, and is the signature false green this package exists to prevent.
 #
 # PHASE 3 HAS A PRECONDITION IT ASSERTS. The synthetic device must still EXIST
@@ -42,7 +42,7 @@
 #
 # WHAT IT BOUNDS RATHER THAN CLAIMS: phases 2 and 3 prove the evdev CORE
 # behaviour on a synthetic device. The per-client buffer is a property of that
-# core, not of any one driver, so this is a fair control -- but it is not a
+# core, not of any one driver, so this is a fair control, but it is not a
 # statement about a specific physical keyboard, and phase 1 is what speaks to
 # those.
 #
@@ -90,7 +90,7 @@ sudo modprobe uinput >/dev/null 2>&1 || true
 actuator and only the observation phase could run"
 
 # A SECOND OPINION FROM THE SHIPPED CLOCK, sandboxed. The counter source is the
-# mechanism being worked around, so it cannot certify that you were away -- but
+# mechanism being worked around, so it cannot certify that you were away, but
 # its reading beside phase 1's is the entire comparison this experiment is for.
 # Pointed at a scratch state dir: a probe that writes production state is only
 # partly a sandbox, which has bitten this project before.
@@ -100,7 +100,7 @@ COUNTERS=$HERE/../../libexec/vigilance/hooks/input-counters
 # FIELD ONE, as every consumer of an idle source takes it. The answer line now
 # carries what the clock has DEMONSTRATED after the number ("0 ceiling=93
 # age=93"), so echoing the whole thing printed "idle 0 ceiling=93 age=93s" in
-# the summary -- readable, but it is the same conflation that killed a test, and
+# the summary: readable, but it is the same conflation that killed a test, and
 # a probe whose own output is malformed is a probe whose numbers get doubted.
 _counter_idle() {
   if [ -x "$COUNTERS" ]; then
@@ -140,7 +140,7 @@ say "  (it has $(_counter_demo))"
 # is to prove the instrument works.
 #
 # So uinject waits TAP_DELAY before its first tap, and the sampler opens the
-# device in between. The margins are deliberately large -- an earlier probe in
+# device in between. The margins are deliberately large: an earlier probe in
 # this series had a one-second margin and could support any conclusion.
 TAP_DELAY=${TAP_DELAY:-8}
 _hold=$(( SETTLE + (QUIET_SECS * 2) + TAP_DELAY + 20 ))
@@ -195,7 +195,7 @@ say "  phase 3  synthetic device, silent      : $_p3 window(s) readable"
 say ""
 if [ "$_present3" = 0 ]; then
   say "NO VERDICT: the synthetic device was GONE by phase 3, so its silence"
-  say "means nothing -- there was nothing left to read. The hold is too short"
+  say "means nothing: there was nothing left to read. The hold is too short"
   say "for these phase lengths; raise it and re-run. Refusing to call this a"
   say "pass is the point: it is the one phase the experiment turns on."
 elif [ "$_p2" = 0 ]; then

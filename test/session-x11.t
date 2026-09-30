@@ -5,7 +5,7 @@
 # argument. Three defects came out of adding X11, and none of them needed X11 to
 # be RUNNING:
 #
-#   VIGILANCE_LOCKER was a half promise -- the name was a knob while `-f` and
+#   VIGILANCE_LOCKER was a half promise: the name was a knob while `-f` and
 #   Type=forking were not, both swaylock's;
 #   the integrator's argv helper handed a swaylock config file to whatever
 #   locker it was given;
@@ -14,7 +14,7 @@
 #   the same silence.
 #
 # Then the real server found a fourth, on the first run: Xvfb reports NO DPMS
-# block at all -- even started with `+extension DPMS` -- and the hook's first
+# block at all, even started with `+extension DPMS`, and the hook's first
 # version read that as "disabled" and FAILED every dark edge. Absent is not
 # disabled, and no amount of stubbing would have said so, because the fixture
 # was written by the same person as the hook.
@@ -43,7 +43,7 @@ PLUG=$PLUGINS/hooks
 # which this scenario found the hard way (306s, then 2s three seconds later), so
 # a reading taken across that boundary proves nothing.
 #
-# `xset s <n>` DOES NOT TAKE ON THIS SERVER -- asserted below rather than hoped
+# `xset s <n>` DOES NOT TAKE ON THIS SERVER, asserted below rather than hoped
 # for, because the first version of this case set 3600 and then asserted against
 # 90, and got 600 both times. So the window is chosen to be far shorter than
 # whatever the server reports, which is a claim about three seconds rather than
@@ -89,7 +89,7 @@ milliseconds are being reported as seconds"
 # project's signature false green, and `ceiling=` is the field that breaks it.
 # THE EXPECTED VALUE COMES FROM THE SERVER, not from something this file tried
 # to set. Asserting a number we chose would test `xset s`, which does not work
-# here; asserting the SERVER's number tests the only thing that matters -- that
+# here; asserting the SERVER's number tests the only thing that matters: that
 # the hook and the server agree about what can be witnessed.
 _ans=$("$PLUG/x11-idle")
 if [ "$SS" -gt 0 ]; then
@@ -121,11 +121,11 @@ _luma=$(env -u WAYLAND_DISPLAY sh -c \
 case "$_luma" in
   ''|*[!0-9.e+-]*) fail "the luma probe returned '$_luma' against a live X
 server. The probe found import capturing the root window, so the X11 branch is
-not being taken -- most likely the grabber choice, which prefers grim whenever
+not being taken, most likely the grabber choice, which prefers grim whenever
 WAYLAND_DISPLAY is set" ;;
 esac
 # AND IT IS IN RANGE. `%[fx:mean]` is normalised 0..1, and a value outside that
-# was once the first clue that a reading had been truncated by a grep -- the
+# was once the first clue that a reading had been truncated by a grep: the
 # instrument, not the screen.
 awk -v v="$_luma" 'BEGIN { exit !(v + 0 >= 0 && v + 0 <= 1) }' \
   || fail "luma $_luma is outside the 0..1 that fx:mean is defined on, so the
@@ -141,7 +141,7 @@ measurement is wrong before any threshold is applied"
 # silently asserting the wrong branch.
 if xset q 2>/dev/null | grep -q 'DPMS is '; then
   fail "this X server DOES report a DPMS block, so the decline asserted below
-would be about something else. Teach this case the working path instead --
+would be about something else. Teach this case the working path instead,
 that is a better problem to have"
 fi
 _rc=0
@@ -157,7 +157,7 @@ env VIGILANCE_STATE_DIR="$T/state" sh "$PLUG/x11-dpms" wake \
 
 # --- 6. AND THE RUNNER COUNTS THAT AS "NOTHING CHECKED", not as clean -----
 # The whole point of 78. A verify tier where every hook declines must not read
-# as a verified machine -- which is the defect that let a lit wallpaper sit on
+# as a verified machine, which is the defect that let a lit wallpaper sit on
 # an OLED behind a green report.
 mkdir -p "$HOOKS/sleep.verify.d"
 ln -sf "$PLUG/x11-dpms" "$HOOKS/sleep.verify.d/90-x11-dpms"

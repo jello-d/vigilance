@@ -56,8 +56,8 @@ for _t in "$_dir"/*.t; do
   # whole log is dumped at the end (the VM) that leaves a hang with literally no
   # evidence, which has cost two investigations: the lid cell was set aside as
   # "cause unknown" and the clock cell after it. Written only when a caller asks
-  # for it, so a desk run -- where output streams live and the last `ok` already
-  # says where you are -- is unchanged and two concurrent suites cannot collide.
+  # for it, so a desk run (where output streams live and the last `ok` already
+  # says where you are) is unchanged and two concurrent suites cannot collide.
   [ -z "${VIGILANCE_RUNNING_FILE:-}" ] \
     || printf '%s\n' "$(basename "$_t")" > "$VIGILANCE_RUNNING_FILE" \
     || true
@@ -77,7 +77,7 @@ for _t in "$_dir"/*.t; do
     # NEITHER IS A FAILURE, and this was a real hole. A test that exits 0
     # without reaching `pass` is counted as neither passed nor skipped, so the
     # suite goes on to report success and the ONLY trace is the total silently
-    # dropping by one -- which nobody reads as a regression.
+    # dropping by one, which nobody reads as a regression.
     #
     # Found by causing it: a mangled heredoc delimiter swallowed the rest of a
     # test file, so everything after it (including `pass`) was heredoc content.
@@ -87,7 +87,7 @@ for _t in "$_dir"/*.t; do
     *)
       if [ "$_trc" -eq 0 ]; then
         _rc=1
-        printf '%s: NO VERDICT -- exited 0 without reaching pass or skip\n' \
+        printf '%s: NO VERDICT: exited 0 without reaching pass or skip\n' \
           "$(basename "$_t")"
         printf '  A truncated or silently-aborted test is not a passing one.\n'
       elif [ -z "$_out" ]; then
@@ -96,7 +96,7 @@ for _t in "$_dir"/*.t; do
         # classically an unguarded `_x=$(vigilant report)` on a substrate where
         # report legitimately exits non-zero for an unrelated section. The run
         # then said "vigilance tests FAILED" with no test named and no output at
-        # all -- one blank line in a 68-line log -- and finding which file it
+        # all: one blank line in a 68-line log, and finding which file it
         # was cost an investigation. The runner knows the name; it just never
         # said it.
         printf '%s: FAILED with NO OUTPUT (rc=%s)\n' "$(basename "$_t")" "$_trc"
@@ -107,7 +107,7 @@ for _t in "$_dir"/*.t; do
 done
 
 if [ -n "$_only" ] && [ "$_seen" = 0 ]; then
-  echo "no test matches '$_only' -- a filter that selects nothing is a typo,"
+  echo "no test matches '$_only': a filter that selects nothing is a typo,"
   echo "not a clean run."
   exit 1
 fi
@@ -117,7 +117,7 @@ if [ "$_rc" -ne 0 ]; then
   exit 1
 fi
 if [ "$_skip" -gt 0 ]; then
-  printf '%d passed, %d skipped here (need:%s) -- run test/vm/run for those\n' \
+  printf '%d passed, %d skipped here (need:%s); run test/vm/run for those\n' \
     "$_pass" "$_skip" "$_need"
 else
   printf 'all vigilance tests passed (%d)\n' "$_pass"

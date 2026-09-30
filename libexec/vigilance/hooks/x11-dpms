@@ -7,7 +7,7 @@
 # off on the Wayfire build this package was written for re-modesets and was
 # observed to DESTROY VIEWS, which test/dpms.t asserts mechanically and is not
 # being weakened); `sway-dpms` is swaymsg; this is `xset`. One rung, three
-# mechanisms, no shared code -- which is what the framework/plugin boundary is
+# mechanisms, no shared code, which is what the framework/plugin boundary is
 # FOR. If this file needed the runner to change, the boundary would be in the
 # wrong place.
 #
@@ -18,8 +18,8 @@
 #
 # WHY THIS IS SAFE WHERE `wlopm --off` IS NOT. The Wayfire hazard was a MODESET
 # on the compositor's own outputs destroying its views. X11 DPMS is the
-# standard blanking mechanism on that platform -- xscreensaver, xautolock and
-# the server's own idle timer all use it -- and nothing on X11 recreates
+# standard blanking mechanism on that platform: xscreensaver, xautolock and
+# the server's own idle timer all use it, and nothing on X11 recreates
 # windows across it. Stated rather than assumed, because "the other platform's
 # off switch broke things" is not an argument about this one.
 #
@@ -46,7 +46,7 @@ if ! command -v xset >/dev/null 2>&1; then
   exit 78
 fi
 # DISPLAY is NOT guaranteed. These edges are crossed by system units and by a
-# supervision timer, neither of which inherits a session's environment -- the
+# supervision timer, neither of which inherits a session's environment, the
 # same reason the provider has to be told WAYLAND_DISPLAY. An X11 integrator
 # imports DISPLAY into the user manager; without it there is nothing to talk to.
 if [ -z "${DISPLAY:-}" ]; then
@@ -56,7 +56,7 @@ if ! xset q >/dev/null 2>&1; then
   exit 78
 fi
 
-# ABSENT IS NOT DISABLED, and the first version of this hook conflated them --
+# ABSENT IS NOT DISABLED, and the first version of this hook conflated them,
 # found on its first run against a real X server, which is the whole argument
 # for a second platform. Xvfb reports NO DPMS block at all (even asked for
 # `+extension DPMS`), and treating that as "disabled" made every dark edge FAIL:
@@ -75,7 +75,7 @@ case "$_dpmsq" in
 esac
 # DISABLED AT THE SERVER means `force off` is silently ignored: xset returns 0
 # and the screen stays lit. That is the asserted-versus-actual shape this
-# package exists to catch, so it is a REFUSAL rather than a no-op -- nothing may
+# package exists to catch, so it is a REFUSAL rather than a no-op: nothing may
 # enter a dark rung while claiming a mechanism that is switched off.
 case "$_dpmsq" in
   *"DPMS is Enabled"*) ;;
@@ -98,7 +98,7 @@ if [ "${VIGILANCE_KIND:-act}" = verify ]; then
   # is a backstop. Only the standing recheck offers the skip.
   hook_throttle "${VIGILANCE_PERIPHERAL_EVERY:-3600}" && exit 75
   # A REAL READBACK. `xset q` reports the monitor's current power state, so this
-  # asks the server rather than trusting that our own write landed -- the
+  # asks the server rather than trusting that our own write landed, the
   # standard ddc-monitor's verify is held to.
   #
   # THE SERVER'S VOCABULARY IS NOT OURS: it says Monitor is On / Standby /

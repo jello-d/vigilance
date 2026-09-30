@@ -64,7 +64,7 @@ under test, which is what keeps the snapshot honest."
 # for (a shadowed binary, a pinned argv, a checkout a commit behind).
 # THE VERDICT SCRIPT IS PARSE-CHECKED TOO. It is copied into the guest and run
 # there by systemd, so a syntax error in it surfaces as "the verdict unit never
-# ran" -- indistinguishable from a machine that failed to boot after the cut,
+# ran", indistinguishable from a machine that failed to boot after the cut,
 # which is the more alarming reading. Same rule as the guest script below, and
 # the same reason: cheapest possible check, before a four-minute round trip.
 dash -n "$HERE/test/vm/crash-verify" \
@@ -94,7 +94,7 @@ runcmd:
   - |
     {
     # cloud-init's runcmd has NO HOME, so a PATH built from "$HOME/.local/bin"
-    # silently becomes "/.local/bin" and every tool reads as not-installed --
+    # silently becomes "/.local/bin" and every tool reads as not-installed,
     # a harness bug that looks exactly like a product failure. Set it once.
     HOME=/root; export HOME
     _t=/dev/ttyS0
@@ -247,7 +247,7 @@ while [ "$_trial" -lt "$TRIALS" ]; do
     | sed 's/^/       /' || true
   _surv=$(sed -n 's/.*CRASH_SURVIVED=\([0-9]*\).*/\1/p' "$_c2" | tail -1)
   # REPORTED, NEVER ASSERTED. `_log` does not fsync, so records still in the
-  # page cache at the cut are legitimately gone -- that is a property worth
+  # page cache at the cut are legitimately gone: that is a property worth
   # MEASURING and stating, not a defect to fail on. Failing on it would demand
   # an fsync per record on the security path to buy a forensic nicety.
   if [ -n "${_wrote:-}" ] && [ -n "${_surv:-}" ]; then

@@ -7,7 +7,7 @@
 #
 # WHY A BOOT ID AND NOT A FLAG FILE. `systemctl enable` during boot 1 adds this
 # to a multi-user.target that is already being reached, so systemd may start it
-# in the SAME boot -- and a verdict script that runs in boot 1 would assert
+# in the SAME boot, and a verdict script that runs in boot 1 would assert
 # against an un-crashed machine and power it off before the crossing ever
 # started. Comparing /proc/sys/kernel/random/boot_id against the value the
 # arming boot recorded is true regardless of when the unit fires.
@@ -96,8 +96,8 @@ record reads as something it is not"
     _lost=$(awk -v b="$_base" \
       'NR <= b && !/^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:/ \
        {n++} END {print n + 0}' "$LOG")
-    [ "$_lost" = 0 ] || _fail "$_lost of the first $_base records -- all of
-which were SYNCED before the cut -- are no longer timestamped records. Losing
+    [ "$_lost" = 0 ] || _fail "$_lost of the first $_base records (all of
+which were SYNCED before the cut) are no longer timestamped records. Losing
 unsynced records is expected; corrupting committed ones is not"
     [ "$_lines" -ge "$_base" ] || _fail "the log holds $_lines records against
 $_base synced before the cut; it was truncated below its committed length"

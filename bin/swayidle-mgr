@@ -1,7 +1,7 @@
 #!/bin/sh
-# swayidle-mgr -- managed swayidle, TIMER-ONLY: its one job is the idle-LOCK
+# swayidle-mgr: managed swayidle, TIMER-ONLY: its one job is the idle-LOCK
 # timer. It used to also carry swayidle's before-sleep and logind-Lock duties
-# plus a phantom-relock detector, AND a panel blank/unblank timer -- but
+# plus a phantom-relock detector, AND a panel blank/unblank timer, but
 # swayidle WEDGES on this Wayfire build and silently drops events, so ALL
 # security-critical locking moved to the swayidle-INDEPENDENT smart-lock /
 # smart-trigger stack (modules/lock; CLAUDE.md "SCREEN LOCKING is swayidle-
@@ -19,13 +19,13 @@
 #
 # swayidle invokes `swayidle-mgr event idle-lock` when the timer fires (the
 # driver below turns it into smart-lock). Do NOT re-add before-sleep, lock, or
-# blank wiring here -- locking wedges in the security path, and the blank now
+# blank wiring here: locking wedges in the security path, and the blank now
 # rides swaylock (idle -> lock -> swaylock blank-after -> panel-power).
 set -eu
 
 # --- idle policy: single source of truth ------------------------------------
 # An optional integrator config supplies policy (KEY=value, sourced): the
-# timeouts below and the idle-SUSPEND seam. vigilance ships NONE -- it is pure
+# timeouts below and the idle-SUSPEND seam. vigilance ships NONE: it is pure
 # mechanism; a provisioner drops an idle.conf to add policy like idle-suspend. A
 # test sets the same vars via env (no conf present in its sandbox).
 _conf=${SWAYIDLE_CONF:-${XDG_CONFIG_HOME:-$HOME/.config}/vigilance/idle.conf}
@@ -33,7 +33,7 @@ _conf=${SWAYIDLE_CONF:-${XDG_CONFIG_HOME:-$HOME/.config}/vigilance/idle.conf}
 
 # THE HEARTBEAT. A wedged swayidle is RUNNING: the process is alive, its argv
 # is correct, its unit is active, and it emits nothing. Every liveness check in
-# this suite passes while the box never locks again -- which is the failure
+# this suite passes while the box never locks again, which is the failure
 # that created this package.
 #
 # A watchdog cannot see that without an expectation, and `idle-lock` is far too
@@ -46,7 +46,7 @@ LOCK_TIMEOUT=${LOCK_TIMEOUT:-480}   # seconds idle before the lock
 BLANK_DELAY=${BLANK_DELAY:-120}     # further seconds before peripherals go dark
 # Idle-SUSPEND seam (OFF unless the integrator sets both). SUSPEND_TIMEOUT is
 # seconds idle before SUSPEND_CMD runs; that command decides whether to ACTUALLY
-# suspend (e.g. only on battery) and asks SYSTEMD -- crossing a real power
+# suspend (e.g. only on battery) and asks SYSTEMD, crossing a real power
 # transition is systemd's job, not vigilant's (the trust root must not compete
 # to initiate it). Unset = no suspend timer, so vigilance alone never suspends.
 SUSPEND_TIMEOUT=${SUSPEND_TIMEOUT:-}
@@ -63,7 +63,7 @@ export PATH
 # being published as a SHARED command (one root-owned tree, one /usr/local/bin
 # symlink, and the ~/.local/bin copy deliberately REMOVED so it cannot shadow).
 # The instant that lands, a hardcoded ~/.local/bin/vigilant is a path that no
-# longer exists -- and swayidle would arm its timers with it and fail silently,
+# longer exists, and swayidle would arm its timers with it and fail silently,
 # which is EXACTLY the 2026-09-12 idle-lock outage, re-created by its own fix.
 #
 # So ask PATH, which now covers both the user-only and shared layouts, and fail
@@ -77,7 +77,7 @@ VIGILANT_CMD=$(_find_vigilant)
 
 # ...and ABORT rather than arm a timer that cannot fire. Checked where it
 # matters (arming, and firing) rather than at load, because `status`, `stop` and
-# `tail` are diagnostics that must keep working on a broken box -- refusing to
+# `tail` are diagnostics that must keep working on a broken box: refusing to
 # report the state is the last thing wanted when the state is what is wrong.
 _need_vigilant() {
   if [ -z "$VIGILANT_CMD" ] || [ ! -x "$VIGILANT_CMD" ]; then
@@ -100,7 +100,7 @@ _need_vigilant() {
 # accident, via the wrong timer.
 # `atleast`, because the IDLE LOCK is a security descent and can never
 # legitimately want to raise the machine. The `resume` arm further down keeps
-# plain `go lock` -- that one is the ascent, and it is the only way a woken box
+# plain `go lock`: that one is the ascent, and it is the only way a woken box
 # gets its screen back. Two arms of the same daemon, opposite intents, and the
 # verb used to be identical for both.
 # Overridable, so a test never locks a real screen.
@@ -108,7 +108,7 @@ LOCK_CMD=${LOCK_CMD:-$VIGILANT_CMD go lock atleast}
 # The peripherals now ride VIGILANT, not swaylock. The patched swaylock used
 # to fork $HOME/bin/panel-power on its own blank-after timer; that path went
 # stale when vigilance extracted panel-power to ~/.local/bin, the execl failed,
-# and `_exit(127)` swallowed it -- dead on two machines for weeks. The patch is
+# and `_exit(127)` swallowed it: dead on two machines for weeks. The patch is
 # retired (docs/framework-refactor.md 10.1) and the blank edge is an ordinary
 # swayidle timer again, which the event log shows handled blank AND restore
 # while locked for months before the patch existed.
@@ -181,7 +181,7 @@ cmd_event() {
 #
 # This was a bare `pkill -x swayidle`, which kills every swayidle on the box by
 # name. It cannot tell ours from anyone else's, so it would silently take out
-# an unrelated instance -- including any independent idle client -- and leave
+# an unrelated instance, including any independent idle client, and leave
 # no trace that it had. The sweep is KEPT, because leaving a foreign timer
 # running would mean `stop` did not stop idle locking, which is the one thing
 # it promises. What changes is that a foreign instance is now NAMED.
@@ -210,7 +210,7 @@ _run() {
   set -- -w
   # SWAYIDLE_DEBUG=1 adds -d: swayidle's trace of idle/active/Register/timeout
   # events into the worker's stdio log, to root-cause a phantom-relock storm.
-  # Opt-in, OFF by default -- normal behaviour is unchanged.
+  # Opt-in, OFF by default: normal behaviour is unchanged.
   [ -n "${SWAYIDLE_DEBUG:-}" ] && set -- "$@" -d
   # ARMED FIRST because it is the shortest, and kept separate from the lock
   # timer on purpose: swayidle measures every timeout from the last input
@@ -241,11 +241,11 @@ _run() {
   fi
   # BEFORE the exec, so this is swayidle's OWN pid: exec replaces the process
   # and keeps it. Written for `stop`, which used to pkill every swayidle on the
-  # box by name -- a blunt instrument that would also kill an unrelated or
+  # box by name: a blunt instrument that would also kill an unrelated or
   # independent one, and that cannot tell "mine" from "somebody else's".
   # TOLERANT: a pidfile we cannot write must never stop the timer from arming.
   # Bookkeeping failing is not a reason to leave the machine without an idle
-  # lock -- the same rule _set_depth carries, and that ddc-monitor once broke
+  # lock, the same rule _set_depth carries, and that ddc-monitor once broke
   # one layer out by aborting a whole edge on a failed truncate.
   [ -n "${PIDFILE:-}" ] && { printf '%s\n' "$$" > "$PIDFILE" 2>/dev/null \
     || true; }
@@ -255,9 +255,9 @@ _run() {
   # separate "here is the argv" function would be a second source of truth for
   # the thing most worth not having two of.
   #
-  # This suite has paid for that three times -- a swept binary a running daemon
+  # This suite has paid for that three times: a swept binary a running daemon
   # still pointed at, a heartbeat armed only after a restart, a watchdog
-  # accusing a healthy timer -- and every one was invisible to a config-level
+  # accusing a healthy timer, and every one was invisible to a config-level
   # check because the config was right and the PROCESS was old.
   if [ -n "${ARGV_ONLY:-}" ]; then
     printf '%s\n' "$@"

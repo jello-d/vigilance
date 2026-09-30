@@ -73,7 +73,7 @@ done
 # ...and A DEPTH RECORD FROM THE FUTURE MUST NOT BLOCK ANYTHING.
 #
 # A wall clock is not monotonic. An NTP step, an RTC left in local time after a
-# dual boot, or a VM restore makes `now - entered_at` NEGATIVE -- and a negative
+# dual boot, or a VM restore makes `now - entered_at` NEGATIVE, and a negative
 # satisfies `-lt $COOLDOWN`, so the guard blocked EVERY idle lock for as long as
 # the skew lasted and said so in words that give it away: "idle-lock -3600s
 # after unlock". Measured, not feared, and the screen never locked.
@@ -100,8 +100,8 @@ expect_depth lock
 # before the fix: a hook in wake.block.d made `vigilant force open` AND
 # `vigilant rescue` both return 3 with the machine still recorded at `sleep`.
 #
-# That is the panic key -- bound to a bare unmodified key, pressed BLIND by
-# someone who cannot see the screen -- disabled by a plugin. "The screen is dark
+# That is the panic key (bound to a bare unmodified key, pressed BLIND by
+# someone who cannot see the screen), disabled by a plugin. "The screen is dark
 # and nothing will bring it back" was a supported configuration.
 #
 # Nothing is lost by refusing it. This edge performs no authentication (swaylock

@@ -136,7 +136,7 @@ The verify tier is the one that earns the name. Without it an edge can log a
 clean crossing over hardware that never moved, which is exactly how a monitor
 once sat dark for two days behind a green light.
 
-A hook may exit **78** to say **not applicable** -- "there is nothing here for
+A hook may exit **78** to say **not applicable**: "there is nothing here for
 me to do". That is deliberately distinct from 0, because exit 0 means both "I
 did the work" and "not applicable", and nothing downstream can then tell a tier
 where every hook *confirmed* from one where every hook *declined*. On a desktop
@@ -152,12 +152,12 @@ verified by nothing. `report` gains a **coverage** section naming every edge
 that acts with no verify tier, asked statically so it can see an edge the
 machine is not currently on.
 
-So `verify` now names them -- `ok (3 checked, 1 n/a: panel-backlight)` -- and an
+So `verify` now names them: `ok (3 checked, 1 n/a: panel-backlight)`, and an
 edge where *every* hook declined is reported as `NOTHING CHECKED`, a FAIL: the
 state is unknown rather than good. Using 78 is optional; a hook that exits 0 is
 counted as having checked, so nothing existing changes behaviour.
 
-A verify hook may also exit **75** to say **not due** -- "I checked recently".
+A verify hook may also exit **75** to say **not due**: "I checked recently".
 `hook_lib` supplies `hook_throttle <seconds>` for it, and the third code is
 there for the same reason as the second: *nothing is wired to look* is a
 failure, while *everything was checked within the hour* is the machine being
@@ -180,7 +180,7 @@ A broken block hook must never be able to suppress a lock, because suppressing
 a lock is a security failure while allowing a redundant one is merely noise.
 
 Hooks are **time-bounded**. They run in lexical order and the lock provider is
-not first, so a hook that hangs blocks every later hook on its edge -- including
+not first, so a hook that hangs blocks every later hook on its edge, including
 the one that locks the screen. Under `lock-on-sleep.service` that removes the
 guarantee outright: systemd kills the unit at its 25s timeout and nothing can
 veto a suspend, so the box sleeps unlocked. Each hook therefore runs under
@@ -194,7 +194,7 @@ legitimately slower than anything on the lock path, and sharing the edge bound
 would retire the forensic tier by crying wolf.
 
 `report` also compares the **edge budget** against `lock-on-sleep.service`'s
-`TimeoutStartSec` -- two numbers in two files that must relate, with nothing
+`TimeoutStartSec`: two numbers in two files that must relate, with nothing
 else relating them. The number that matters is not the total but the time before
 the screen is *locked*: hooks run in lexical order and `block.d` runs before all
 of them, so anything ordered ahead of the provider delays the lock itself, while
@@ -204,8 +204,8 @@ They also only apply in one direction. **A block may refuse to take the machine
 down; it may never refuse to bring it back up.** Refusing a descent is the
 tier's purpose and is safe: the machine stays awake and usable. Refusing an
 ascent leaves it in a dark rung with the one path out vetoed, which would make
-"the screen is dark and nothing will bring it back" a supported configuration
--- and it disabled `vigilant rescue`, the panic key, until this was fixed.
+"the screen is dark and nothing will bring it back" a supported configuration,
+and it disabled `vigilant rescue`, the panic key, until this was fixed.
 Nothing is lost: the `unlock` edge performs no authentication (the locker does),
 so blocking it never kept anyone out. A block hook wired on `unlock`, `wake` or
 `resume` is ignored and reported by `vigilant report` as a wiring error.
@@ -260,7 +260,7 @@ An integrator chooses which run on which edge, because that is policy:
     hooks/panel-backlight  the built-in panel backlight
     hooks/lock-blank       paint the LOCK SURFACE black, and restore it
                            (declines where a sysfs backlight can do it)
-    hooks/sway-dpms        power outputs off/on -- SWAY sessions only
+    hooks/sway-dpms        power outputs off/on (SWAY sessions only)
     hooks/x11-dpms         the same, in an X11 session (xset dpms)
     hooks/screen-dark      VERIFY the screen is actually dark (framebuffer
                            + backlight; blind to DDC, which ddc-monitor owns)
@@ -338,13 +338,13 @@ explicitly unblank. Hence:
 
 - **`panel-backlight` is a trade, not a free win.** A backlight written through
   sysfs is invisible to the input stack. Where the platform can safely blank
-  the panel itself, this hook is both REDUNDANT and INFERIOR -- same darkness,
+  the panel itself, this hook is both REDUNDANT and INFERIOR: same darkness,
   by a route a keypress cannot undo. Prefer the platform's mechanism and leave
   it unwired. It exists for the case where the platform cannot.
 - **`lock-blank` exists because nothing else can repaint a locked screen.**
   Under `ext-session-lock` the lock surface renders above every layer-shell
   layer, so no overlay can cover it, and on a panel with no DPMS standby the
-  hardware can only DIM -- measured on a QD-OLED, `VCP 10 = 0` is dim, not
+  hardware can only DIM: measured on a QD-OLED, `VCP 10 = 0` is dim, not
   black. So the locker has to do it, and swaylock is patched with a two-signal
   interface (`SIGUSR2` blank, `SIGRTMIN` restore) carrying no timer and no
   policy: WHEN to blank is this hook's business, driven by the ladder. On an
@@ -354,22 +354,22 @@ explicitly unblank. Hence:
   It is **hardware-gated**, because it is a last resort and not a preference:
   a box with a usable sysfs backlight declines with **78**, since
   `panel-backlight` already takes that panel genuinely dark. Wiring it there
-  costs the lock wallpaper and buys nothing -- and worse, on an ascent the
+  costs the lock wallpaper and buys nothing, and worse, on an ascent the
   machine scope unwinds first, so the backlight comes back up showing a *black*
   lock surface and the wallpaper arrives after it: a visible black flash on
   every wake. The predicate is deliberately cheap ("is there a usable sysfs
   backlight") rather than honest ("can every output be darkened some other
   way"), which would need the output list and a ddcutil round trip on the lock
-  path. `VIGILANCE_LOCK_BLANK=always|never` overrides it -- `always` is for the
+  path. `VIGILANCE_LOCK_BLANK=always|never` overrides it; `always` is for the
   mixed case the cheap test answers wrong, an internal panel with a backlight
   plus an external monitor without one.
 
 - **`screen-dark` is the only check that asks the RUNG'S question.** Every other
   verifier asks about its own mechanism, and each can be satisfied or n/a on its
   own terms while the thing the rung MEANS goes unexamined. That is not
-  theoretical: a lit screen survived four separate green verdicts -- an
+  theoretical: a lit screen survived four separate green verdicts: an
   unimplemented `D6` code, a monitor that vanished from its own map, a user
-  session with no darkening mechanism, and a greeter with none either -- and
+  session with no darkening mechanism, and a greeter with none either, and
   every hook was individually correct each time. The failure lived in the gap
   *between* per-device checks, which is exactly where a per-device check cannot
   look. It compares what the display is SHOWING against what the rung claims,
@@ -384,7 +384,7 @@ explicitly unblank. Hence:
   `bl=0` at the `sleep` rung while this reported "still emitting, 0.277" once a
   minute. It had only looked right because `lock-blank` was painting the
   surface black there, and gating that hook to the hardware needing it removed
-  the mask. So the backlight is now read directly -- an observation, not an
+  the mask. So the backlight is now read directly: an observation, not an
   assumption. Darkening by **DDC** remains invisible to it; `ddc-monitor`'s
   verify owns that, and the two cases cannot overlap, because a box with no
   backlight is exactly the box where `lock-blank` paints black.
@@ -394,8 +394,8 @@ explicitly unblank. Hence:
   has nothing to signal; on a panel advertising no DPMS standby `ddc-monitor`
   can only dim. So a greeter's sleep edge killed the keyboard and left the
   screen lit, on the session nobody is present to notice. The gate is the tool:
-  `swaymsg` only talks to sway, so in a Wayfire session -- which gets the same
-  machine hooks, and where powering an output off destroys views -- it simply
+  `swaymsg` only talks to sway, so in a Wayfire session, which gets the same
+  machine hooks, and where powering an output off destroys views, it simply
   cannot act and declines. `dpms` stays ON-only and untouched.
 
 - **`ddc-monitor` is not redundant with anything, and cannot be undone by
@@ -546,7 +546,7 @@ been in the instrument rather than the subject: a pattern that matched nothing
 `sed` delimiter that clashed with `||`, and a mutation that produced unbalanced
 shell and so "killed" on a syntax error while proving nothing. So the driver
 asserts the mutation **landed**, that the result still **parses**, and that the
-named tests were **green beforehand** -- then, and only then, that one dies.
+named tests were **green beforehand**: then, and only then, that one dies.
 
 Matching is exact and whole-line: no regex, nothing to clash with the `||`, `*`
 and `$` these lines are full of, and an absent line is a hard error rather than
@@ -556,7 +556,7 @@ of quietly disarming a mutation nobody runs until next month.
 
 The ladder is **declared once**, as a table of `rung / descent edge / ascent
 edge / intent`. Five functions used to know the vocabulary by heart and five
-more lists repeated it, with the rung list written out twice -- eleven places
+more lists repeated it, with the rung list written out twice: eleven places
 to edit in step and nothing to notice if one was missed. Intent belongs to the
 **rung**, not the edge, which is why it collapses: `resume` is dark and `wake`
 is lit purely because of where each *lands*. Adding a row to the table adds the
@@ -568,8 +568,8 @@ is not ours to force.
 Define `level_get` and `level_set`, call `hook_level_dark` / `hook_level_lit`,
 and you inherit the rules without inheriting `brightnessctl`: save once, assert
 every time, **keep** the save when a device refuses a write, **drop** it when
-the device cannot be read at all. That last distinction is the one that matters
--- collapsing it left a stale save failing every ascent for four days.
+the device cannot be read at all. That last distinction is the one that matters:
+collapsing it left a stale save failing every ascent for four days.
 `hook_dark`/`hook_lit` are now thin brightnessctl adapters over the same
 implementation, so `brightnessctl` is the first caller rather than the shape of
 the interface. `ddc-monitor` had to re-implement all of it by hand for a VCP
@@ -577,33 +577,33 @@ write, which is what made the split necessary.
 
 `input-counters` is an `idle.d` source that needs **no privilege, no daemon,
 and cannot see a keystroke**. It reads monotonic counters the kernel already
-keeps -- `i8042` IRQ totals for a PS/2 keyboard or trackpoint, and `urbnum` on
+keeps: `i8042` IRQ totals for a PS/2 keyboard or trackpoint, and `urbnum` on
 the parent USB device for USB input (xHCI handles NAKs in hardware, so a URB
 completes only when the device actually sends a report; measured flat at idle).
 Devices are found by walking **up** from `/sys/class/input`, so only things
 that genuinely produce input events count. Counts carry no scancode, button or
 coordinate, so the mechanism is *incapable* of observing content rather than
 merely unwilling. The supervision timer already calls it once a minute, which
-is exactly the sampling loop such a clock needs -- so there is nothing new to
+is exactly the sampling loop such a clock needs, so there is nothing new to
 wedge, and the sampler is a systemd unit, the independent observer again.
 
 Its limit is measured, not assumed: **anything that talks to an input device
 increments that device's counter**. A QMK keyboard observed emitting a burst
 every 40-60s with nobody present resets the clock that often, so it can never
 witness the 480s a lock deadline needs. That errs toward *active*, which
-suppresses a finding rather than inventing one -- but a clock that returns a
+suppresses a finding rather than inventing one, but a clock that returns a
 number would make `report` call the deadline measurable while it was
 unreachable. So the hook records the **longest quiet stretch it has ever seen**;
 a ceiling far below the box's deadlines is the tell.
 
 `report` carries a **deadlines** section asking, per deadline, whether anything
 can measure it. The deadline that matters is expressed in *idle* time, and
-vigilant could not read idle time -- its only clock was time-since-entering-the-
+vigilant could not read idle time: its only clock was time-since-entering-the-
 rung, which over-reports on a machine in use (it once called `lock` 1616s
 overdue while the machine was being typed on). So an idle anchor was refused
 outright, which made the SOON question unanswerable and left a whole tier
 inert. `idle.d` is that missing number: a cross-cutting source that prints
-seconds since last input, or exits **78** for "I cannot tell". 78 is not 0 --
+seconds since last input, or exits **78** for "I cannot tell". 78 is not 0:
 0 means "input one second ago", so reading a missing answer as a number would
 silently reset every deadline forever. With several sources the **minimum**
 wins, so a stale one cannot manufacture a false overdue against a machine
@@ -611,10 +611,10 @@ somebody is sitting at.
 
 **Forcing is retired.** `VIGILANCE_ENFORCE=force` does nothing. It was
 unreachable by construction (`sleep` refused as a dark rung, `lock` refused as
-idle-anchored -- the intersection of forceable and measurable was empty), and
+idle-anchored, the intersection of forceable and measurable was empty), and
 it had been superseded: every failure it would have acted on is now caught
 closer to the cause. One sliver remained, and it is the failure that created
-this package -- the idle timer alive, correctly armed, and silently not firing.
+this package: the idle timer alive, correctly armed, and silently not firing.
 A wedged timer passes the argv check, logs no event for `audit`, and leaves the
 machine at a rung it genuinely matches. That wants *detecting*, which the idle
 clock now makes possible.

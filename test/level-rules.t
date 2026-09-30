@@ -12,7 +12,7 @@
 #                        that the device is still dim. Trusting it made the
 #                        descent a silent no-op that reported success, twice: a
 #                        keyboard LED (f08f3a7) and then, three weeks later, the
-#                        DDC brightness write (72cd706) -- the same bug, because
+#                        DDC brightness write (72cd706): the same bug, because
 #                        the fix landed in one of two copies.
 #   UNREADABLE DROPS     a device that is GONE must lose its stale save, or it
 #                        fails every ascent forever and nothing clears it.
@@ -22,7 +22,7 @@
 #
 # THE RULES WERE IMPLEMENTED TWICE and that is what this table is for. They now
 # live once, in hook_lib's hook_level_dark / hook_level_lit, with the actuator
-# supplied by the caller -- so the table runs the SAME cases through the generic
+# supplied by the caller, so the table runs the SAME cases through the generic
 # entry point AND through each shipped adapter. A rule that holds for
 # brightnessctl and not for DDC is exactly the shape that shipped twice, and it
 # cannot be seen by a test that only exercises one.
@@ -130,7 +130,7 @@ _save_bctl() { cat "$T/save.bctl" 2>/dev/null || echo -; }
 # because _bright_save is a ONE-LINER: its range has no `^}` of its own, so it
 # ran on to the next function's closing brace and the following range then
 # printed that function a second time. The result was a duplicated definition,
-# which is not valid shell -- so all nine cases failed with rc=2 and a table
+# which is not valid shell, so all nine cases failed with rc=2 and a table
 # that had not run at all looked like nine broken rules.
 cat > "$T/bin/ddcutil" <<'EOF'
 #!/bin/sh
@@ -264,7 +264,7 @@ armed, and an unrecorded level is no way back."
 such device here' was the old message and it was the wrong diagnosis: the device
 was present, and the filesystem was the problem."
 else
-  # ROOT IGNORES PERMISSION BITS, so the fault cannot be injected here at all --
+  # ROOT IGNORES PERMISSION BITS, so the fault cannot be injected here at all,
   # the same reason test/actuators declares `require unprivileged`. Said out
   # loud, because a skip nobody sees is how coverage gets overstated.
   _NOTCHECKED=' not checked: unwritable-save(root ignores modes)'

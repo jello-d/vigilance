@@ -7,8 +7,8 @@
 #   _logline() { printf '%s %s\n' "$(date -d "@$1" '+%Y-%m-%dT%H:%M:%S')" "$2" }
 #
 # which restates _log's format instead of using it. So a change to how the
-# runner writes a crossing -- a different timestamp format, a reworded "cross"
-# line, a prefix -- would leave audit.t and idle-audit.t GREEN while, in
+# runner writes a crossing (a different timestamp format, a reworded "cross"
+# line, a prefix) would leave audit.t and idle-audit.t GREEN while, in
 # production, `audit` silently matched nothing and reported "no events found in
 # range". A forensic tier that has gone blind reports exactly the same thing as
 # one with nothing to find.
@@ -54,7 +54,7 @@ range', which is indistinguishable from a healthy machine"
 #
 # THE LOG IS TRUNCATED FIRST, and that is the whole assertion. Without it the
 # earlier `cross lock:` line was still present and satisfied the reconciliation
-# on its own -- so this passed with the already-at branch DELETED from the
+# on its own, so this passed with the already-at branch DELETED from the
 # parser. Caught by mutating the parser; the test proved nothing until the log
 # held the no-op line and nothing else.
 : > "$VIGILANCE_LOG"
@@ -113,7 +113,7 @@ esac
 # --- 6. an ASCENT-edge assertion, which ONLY the `cross` form can satisfy ---
 # The contract lets a source name any edge, and the three parser branches are
 # not equally reachable. For a DESCENT edge the arrived-at-rung form subsumes
-# the cross form -- "cross lock: open -> lock" ends in "-> lock" either way --
+# the cross form ("cross lock: open -> lock" ends in "-> lock" either way)
 # so deleting the cross branch entirely left every test above green.
 #
 # An ASCENT edge is the case that separates them: "cross wake: sleep -> lock"
@@ -132,7 +132,7 @@ against a real 'cross wake:' line. Only the literal cross-form match can satisfy
 an ascent edge, so that branch of the parser is now dead"
 
 # --- 7. EVERY LINE IS A RECORD ----------------------------------------------
-# The contract this file is named for, and it was never actually asserted --
+# The contract this file is named for, and it was never actually asserted:
 # every case above tests that the PARSER understands well-formed records, and
 # none tested that the WRITER only ever produces them.
 #
@@ -146,7 +146,7 @@ an ascent edge, so that branch of the parser is now dead"
 #   verify sleep: FAIL
 #
 # The audit tier reads this file BY LINE, so untimestamped debris is precisely
-# what makes a forensic pass mis-read a window -- and this is the tier of last
+# what makes a forensic pass mis-read a window, and this is the tier of last
 # resort, so when it is confused nothing else is looking.
 #
 # Driven through the path that produced it rather than a synthetic message: a

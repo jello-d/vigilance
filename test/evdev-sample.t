@@ -5,7 +5,7 @@
 # test/probe/evdev-idle-proof asks a question only a real machine can answer: do
 # that box's REAL input devices chatter with nobody present? But it has to
 # establish first that its instrument works at all, and the first live run
-# failed exactly there and reported "evdev CANNOT see input this way here" -- a
+# failed exactly there and reported "evdev CANNOT see input this way here", a
 # verdict about the kernel produced by a bug in the driver script.
 #
 #   14:25:26  uinject taps 40 keys
@@ -23,8 +23,8 @@
 #
 # THE NEGATIVE CONTROL IS THE ONE THAT MATTERS, as it is there: whether a fresh
 # open comes back NOT readable when nothing is arriving. If it were readable
-# regardless, an idle clock built on this would answer "input just now" for ever
-# -- indistinguishable from a working clock, which is the failure this package
+# regardless, an idle clock built on this would answer "input just now" forever,
+# indistinguishable from a working clock, which is the failure this package
 # exists to prevent. And it is only meaningful while the device still EXISTS: a
 # destroyed device is unreadable for the wrong reason, so that is asserted too.
 set -eu
@@ -74,7 +74,7 @@ $(cat "$T/active.out")"
 [ "$(_hits "$T/active.out")" = 1 ] || fail "THE SAMPLER SAW NO INPUT while a
 device was actively emitting into the window. Either the open-wait-poll sequence
 does not detect events on this kernel, or the stimulus fell outside the window
-again -- and the second is what produced a live 'evdev cannot see input' verdict
+again, and the second is what produced a live 'evdev cannot see input' verdict
 that was really a driver bug. uinject said: $(cat "$T/uinject.out")
 sample: $(grep uinject "$T/active.out")"
 
@@ -102,8 +102,8 @@ $(grep uinject "$T/quiet.out")"
 # INCAPABLE of observing content rather than merely unwilling.
 #
 # SCOPED TO THE FD READ PRIMITIVES, and the first version was not. It also
-# matched `fh.read()` -- which reads a device NAME out of sysfs, world-readable
-# text with no event in it -- so it failed on correct code and called the
+# matched `fh.read()`, which reads a device NAME out of sysfs, world-readable
+# text with no event in it, so it failed on correct code and called the
 # product a keylogger. A check that fires on the safe construction is one that
 # gets deleted along with the guarantee it was protecting.
 #

@@ -16,7 +16,7 @@ trap 'session_done; rm -rf "$T"' EXIT INT TERM HUP
 
 # A REPRESENTATIVE INTEGRATION, not tackup's. This package ships its hooks
 # unwired by design and the integrator decides the wiring, so the tier cannot
-# claim to test THE wiring -- only that the shipped hooks work when wired in a
+# claim to test THE wiring, only that the shipped hooks work when wired in a
 # reasonable way. The set is chosen from where the defects were: the lock
 # provider, the thing that verifies it, the idle clock and the watchdog.
 wire lock ''        swaylock
@@ -29,7 +29,7 @@ wire_cross watchdog swayidle-watchdog
 # --- 1. THE REAL HOOK SET MUST NOT MANUFACTURE FINDINGS --------------------
 # The cheapest case and one of the most valuable. `report` scanned every file
 # any hook kept in its state dir and called it an unrestored brightness save,
-# so the first STATEFUL hook -- the idle clock -- earned a permanent FAIL at
+# so the first STATEFUL hook (the idle clock) earned a permanent FAIL at
 # every lit rung. Nothing caught it, because no tier ever had two real hooks
 # keeping state at the same time.
 #
@@ -37,7 +37,7 @@ wire_cross watchdog swayidle-watchdog
 # one-shot run never reaches the state-keeping path at all.
 #
 # SCOPED TO THE SECTIONS THE HOOKS OWN. My first draft took report's whole
-# exit status and the VM failed it immediately -- on `machinery`, which reads
+# exit status and the VM failed it immediately: on `machinery`, which reads
 # the guest's real systemd and legitimately reports units this substrate never
 # enables. That is the fourth time this suite has paid for "one exit code for
 # nine sections", and the first thing the new tier did was charge me for it

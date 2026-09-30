@@ -19,8 +19,8 @@
 #
 # WHAT IT TOOK TO GET HERE, because each piece silently holds the chain open:
 #
-#   a lockable session   `Class=greeter` CANNOT be locked -- logind answers
-#                        "Session does not support lock screen" -- so greetd's
+#   a lockable session   `Class=greeter` CANNOT be locked: logind answers
+#                        "Session does not support lock screen", so greetd's
 #                        default slot is no use. Measured: `su -l` gives
 #                        Class=user, and that one locks.
 #   a reachable trigger  the unit rendered for root points into /root, which
@@ -98,8 +98,8 @@ _close_lid
 # pedantry. Measured here: the lid crossed `lock` correctly and two seconds
 # later the machine was back at `open`, because the provider started a locker,
 # the locker could not survive on a headless guest, and its
-# ExecStopPost=`vigilant go open` unwound the ladder. THAT IS CORRECT -- it is
-# the recovery locker-killed-while-locked exists to assert -- so demanding a
+# ExecStopPost=`vigilant go open` unwound the ladder. THAT IS CORRECT: it is
+# the recovery locker-killed-while-locked exists to assert, so demanding a
 # resting depth of `lock` here would fail this cell over another cell's
 # behaviour, and the log is the durable record of what the lid actually did.
 printf '%s\n' "$(_vlog_since "$_a0")" | grep -q 'cross lock: open -> lock' \

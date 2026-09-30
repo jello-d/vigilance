@@ -13,7 +13,7 @@ _self=$(readlink -f "$0")
 . "$(dirname "$_self")/../hook_lib"
 
 # 78, NOT 0. Without brightnessctl this hook drives nothing, and exit 0
-# would count it as a tier that CHECKED -- the conflation the n/a
+# would count it as a tier that CHECKED: the conflation the n/a
 # contract exists to break, in the tier where it was first measured.
 if ! hook_have_brightnessctl; then
   echo "kbd-backlight: brightnessctl is not installed; nothing to drive" >&2
@@ -38,7 +38,7 @@ if [ "${VIGILANCE_KIND:-act}" = verify ]; then
   # NOT DUE? A peripheral check earns an hour, not a minute. The standing
   # recheck forces a FULL verify on the first pass after the rung changes, which
   # is when drift is actually introduced, so this cadence is a backstop rather
-  # than the primary mechanism -- and in the whole log history these verifiers
+  # than the primary mechanism, and in the whole log history these verifiers
   # have reported drift exactly never. Only the recheck offers the skip; an
   # explicit `vigilant verify` is always real.
   hook_throttle "${VIGILANCE_PERIPHERAL_EVERY:-3600}" && exit 75

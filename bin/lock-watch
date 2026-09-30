@@ -1,5 +1,5 @@
 #!/bin/sh
-# lock-watch -- correlate what triggers a (re)lock. Logs the logind Session
+# lock-watch: correlate what triggers a (re)lock. Logs the logind Session
 # Lock/Unlock D-Bus signals + swaylock/lid/AC transitions, timestamped, so a
 # relock storm can be attributed from the log instead of live-triggering.
 set -u

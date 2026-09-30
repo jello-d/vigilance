@@ -10,7 +10,7 @@
 #                                     rounds. It was the crossing lock's first
 #                                     primitive and it did not work.
 #   swaylock ignores unknown config   it prints the option and its whole usage,
-#                                     and the provider returned 1 -- an alert
+#                                     and the provider returned 1, an alert
 #                                     on the lock edge from a dead config key.
 #   `fx:mean` measures luminance      it averages ALPHA too, so an opaque
 #                                     all-black frame reads 0.25, and the
@@ -61,7 +61,7 @@ lock cannot serialise anything and every hook is back to racing its own twin"
 # The per-hook bound is the only thing stopping a wedged hook holding the lock
 # edge open until systemd reaps the unit and the box sleeps unlocked. A hook
 # that TRAPS TERM is the realistic case, and plain `timeout` cannot tell that
-# apart from a polite one -- which is why a mutation dropping `-k` once looked
+# apart from a polite one, which is why a mutation dropping `-k` once looked
 # covered.
 if command -v timeout >/dev/null 2>&1; then
   _t0=$(date +%s)
@@ -82,7 +82,7 @@ fi
 #
 # THIS ASSERTS THE PATH THE CODE TAKES, not the defect it avoids. The first
 # draft asserted that `$(...)` IS still defeated, and the VM failed it
-# immediately -- correctly. Measured:
+# immediately, correctly. Measured:
 #
 #   host (uutils timeout 0.10.0)   $(...) defeated, ~8s against a 1s bound
 #   VM   (GNU coreutils)           $(...) bounded, 2s
@@ -130,7 +130,7 @@ fi
 
 # --- 5. `stat -c %Y` IS AN INTEGER (bin/vigilant, the stale-lock age) -------
 # The crossing lock decides whether a pid-less claim is a crash or a claim in
-# progress by its AGE, and an unparseable mtime reads as epoch 0 -- ancient,
+# progress by its AGE, and an unparseable mtime reads as epoch 0: ancient,
 # therefore breakable, therefore the lock gets stolen from a live holder.
 _st=$(stat -c %Y "$T" 2>/dev/null || echo)
 case "${_st:-}" in

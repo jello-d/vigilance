@@ -1,7 +1,7 @@
 # Keep the idle timer ALIVE, so idle policy survives its wrapper dying.
 #
 # swayidle-mgr was autostarted by the compositor and supervised by nothing. If
-# it died, EVERY idle timer died with it -- lock, blank, and (since the
+# it died, EVERY idle timer died with it: lock, blank, and (since the
 # integrator's idle-suspend seam) suspend too. The box silently went back to
 # never locking and never suspending, which is the exact failure this suite
 # exists to remove: one wedge-prone daemon must not BE the guarantee.
@@ -11,7 +11,7 @@
 #
 #   DEATH   this unit. swayidle exits, systemd restarts it. Covered.
 #   WEDGE   NOT this unit. A swayidle alive and silently not firing looks
-#           perfectly healthy to systemd -- and that is the failure that cost
+#           perfectly healthy to systemd, and that is the failure that cost
 #           this box two days of a dark monitor. `vigilant audit` catches it
 #           by asking whether the timers that fired produced their edges.
 #
@@ -25,8 +25,8 @@
 # `0_environment` autostart does that via dbus-update-activation-environment,
 # and sorts first so it wins the race), and a compositor must be there to
 # connect to. graphical-session.target would be the textbook anchor but is
-# INACTIVE on this session, and default.target -- usable by vigilance-logind,
-# since gdbus needs no display -- is active with no compositor at all, so
+# INACTIVE on this session, and default.target (usable by vigilance-logind,
+# since gdbus needs no display) is active with no compositor at all, so
 # anchoring here would start swayidle into a void and spin.
 #
 # The start limit makes that safe regardless. The imported WAYLAND_DISPLAY
@@ -45,8 +45,8 @@ Type=simple
 # process. The default `start` detaches, which would leave the unit supervising
 # a launcher that exited immediately.
 # %h IS CORRECT HERE, and is the ONE unit that keeps it. swayidle-mgr is a
-# USER-ONLY command by classification -- only a logged-in session has an idle
-# timer -- so each user runs their own copy, and %h in a --user unit resolves to
+# USER-ONLY command by classification: only a logged-in session has an idle
+# timer, so each user runs their own copy, and %h in a --user unit resolves to
 # THAT user's home. That is the opposite of the %h bug: the failure was %h in a
 # SYSTEM unit, where it resolves to ROOT's home regardless of User= and the unit
 # 203/EXEC'd on every sleep for a refactor.

@@ -19,7 +19,7 @@
 # VERIFICATION, not the lock, and the two must not be reported as the same
 # thing.
 #
-# I ESTIMATED THIS WRONG BY HAND FIRST -- counted lock.d only, got "2 hooks,
+# I ESTIMATED THIS WRONG BY HAND FIRST: counted lock.d only, got "2 hooks,
 # fine", and missed that block, report and verify all draw on the same budget.
 # The real figure on that box was 8 hooks. That is the argument for computing it
 # rather than leaving it to whoever remembers the tiers.
@@ -75,7 +75,7 @@ case "$_out" in
   *) printf '%s\n' "$_out" >&2
      fail "3 hooks at a 10s bound is 36s against a 25s budget and report did
 not say the LOCK itself can overrun. If those hooks hang, systemd kills the
-unit mid-lock and logind suspends anyway -- nothing can veto a suspend" ;;
+unit mid-lock and logind suspends anyway; nothing can veto a suspend" ;;
 esac
 # Actionable, or the reader has a number and no next step. These are plain
 # hooks, none of which resolves into a providers/ directory, so this is the
@@ -86,7 +86,7 @@ case "$_out" in
   *"No hook in lock.d resolves into a providers/ directory"*) ;;
   *) printf '%s\n' "$_out" >&2
      fail "with no identifiable provider the check assumed every act hook runs
-before the lock -- correct, and the safe direction -- but did not say it was an
+before the lock: correct, and the safe direction, but did not say it was an
 assumption. A guess presented as a measurement is what sends someone tuning a
 number that was never measured" ;;
 esac
@@ -100,7 +100,7 @@ esac
 # lock can cost the lock. A provider ordered first means one act hook precedes
 # it, however many follow.
 #
-# It is found by CONVENTION -- a hook resolving into a providers/ directory --
+# It is found by CONVENTION (a hook resolving into a providers/ directory)
 # so the fixture builds exactly that: a real directory of that name, symlinked
 # into lock.d the way an integrator wires it.
 mkdir -p "$T/plug/providers"
@@ -121,7 +121,7 @@ them means the warning can never be cleared by the remedy it recommends, which
 is how a check gets ignored" ;;
 esac
 # The milder TOTAL warning is still correct here and must remain: 4 hooks x 12s
-# is 48s, so the unit can still be killed -- after the screen is locked. The two
+# is 48s, so the unit can still be killed, after the screen is locked. The two
 # claims are different and the distinction is the reason for identifying the
 # provider at all.
 case "$_out" in
@@ -154,7 +154,7 @@ esac
 # the block term entirely goes unnoticed there.
 #
 # 1 block + a provider ordered SECOND = 3 hooks x 12s = 36s, over the 25s
-# budget. Drop the block term and it reads 24s, which fits -- so the verdict
+# budget. Drop the block term and it reads 24s, which fits, so the verdict
 # flips, which is what makes the case worth having.
 rm -f "$VIGILANCE_HOOK_ROOT/lock.d/99-provider"
 rm -rf "$VIGILANCE_HOOK_ROOT/lock.d"
@@ -169,7 +169,7 @@ case "$_out" in
   *) printf '%s\n' "$_out" >&2
      fail "a block hook was not counted alongside an identified provider. The
 block tier runs before every act hook, so it is always part of the delay before
-the lock -- dropping it understates the span by exactly the tier that is
+the lock: dropping it understates the span by exactly the tier that is
 guaranteed to precede the provider" ;;
 esac
 rm -rf "$VIGILANCE_HOOK_ROOT/lock.block.d" "$VIGILANCE_HOOK_ROOT/lock.d"
@@ -212,7 +212,7 @@ case "$_out" in
      fail "48s of verify work against a 25s budget was not reported at all. The
 unit is still killed; what survives is the lock, not the verification" ;;
 esac
-# ...as INFO, not WARN. The lock -- the guarantee -- fits. On a normally-wired
+# ...as INFO, not WARN. The lock (the guarantee) fits. On a normally-wired
 # box the total exceeds the budget permanently and no realistic wiring clears
 # it, so warning here would be a line that is always on, which is how a report
 # teaches you to skip the line that matters.
@@ -240,7 +240,7 @@ case "$_out" in
   *"fits lock-on-sleep's 25s"*) ;;
   *) printf '%s\n' "$_out" >&2
      fail "with the bound lowered to 3s, 4 hooks is 20s and fits, but report
-still says otherwise -- it is not reading the bound actually in force, so it
+still says otherwise: it is not reading the bound actually in force, so it
 would go on warning after the remedy it suggested was applied" ;;
 esac
 

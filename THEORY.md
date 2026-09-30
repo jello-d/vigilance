@@ -107,14 +107,14 @@ Stated plainly rather than implied:
   same reason: in a sandbox most hooks correctly decline (78), so it would pass
   vacuously and read as coverage it does not have. **Narrowed, not closed:**
   every actuator that keeps a LEVEL is now covered, because that is where
-  repeat-safety actually failed -- twice, as the identical silent no-op. See
+  repeat-safety actually failed: twice, as the identical silent no-op. See
   `test/level-rules.t`, whose `second-descent-re-asserts` case runs against the
   generic rules and each shipped adapter. A hook with no level to restore is
   still discipline only.
 - **A peripheral verifier is checked hourly, not every minute.** Cadence
   follows consequence: `locker-up` answers "is the session secured" and earns a
   minute, while "is the keyboard's RGB still off" does not. What makes that
-  safe is the EVENT -- the first pass after the rung CHANGES verifies
+  safe is the EVENT: the first pass after the rung CHANGES verifies
   everything, because that is when drift is introduced (the keyboard-backlight
   drift appeared 14 seconds after a crossing). The hourly pass is a backstop
   for the case nobody thought of. Measured before it: the recheck ran the whole
@@ -127,12 +127,12 @@ Stated plainly rather than implied:
   when it shipped: report's `cadence` section names when each deferring tier
   last genuinely looked and whether the transition has fired for the rung the
   machine is on (invariant 25). What remains discipline is the hourly interval
-  itself -- nothing asserts that a tier deferring for an hour is checked within
+  itself: nothing asserts that a tier deferring for an hour is checked within
   the hour, because only the wall clock could say so.
 - **A counter clock is blind during vigilance's own supervision pass.** The
   pass reads the clock before any hook runs and tells its sources to
   re-baseline afterwards, so traffic our own hooks generate on an input device
-  is not counted as seat input -- which it was, once a minute, for ever. What
+  is not counted as seat input, which it was, once a minute, for ever. What
   remains unattributed is the pass itself, about three seconds in sixty, and
   real input inside that window is missed. Stated with the arithmetic rather
   than waved at: falsely reaching a 480s deadline needs EIGHT consecutive
@@ -159,8 +159,8 @@ that seemed to authorise one was answering a different question.
 an event, and `test/evdev-sample.t` holds that down in the guest. Both are
 about a WINDOW.
 
-A clock needs more than that. A hook observes only while it runs -- about 8s of
-every 60 under its bound -- and **sampled observation cannot prove absence
+A clock needs more than that. A hook observes only while it runs, about 8s of
+every 60 under its bound, and **sampled observation cannot prove absence
 between samples**, so it would report idle time it never watched. That is the
 one unsafe direction for a clock gating an alert: it manufactures a finding
 rather than suppressing one. Continuous coverage means a persistent process
@@ -292,8 +292,8 @@ Two substrates run the SAME scenarios:
 
 THE SESSION TIER IS THE ANSWER TO THE FOURTH SHORTFALL BELOW. Both other tiers
 replace the shipped hooks with recorders, so nothing ever ran the real hook set
-through a real ladder cycle. It uses the guest's real paths on purpose -- the
-real log, the real hook tree, the real units -- because sandboxing them would
+through a real ladder cycle. It uses the guest's real paths on purpose: the
+real log, the real hook tree, the real units, because sandboxing them would
 put the recorders back one layer down. A VM marker gates it, so a capability
 granted by mistake cannot aim it at a desk.
 
@@ -333,7 +333,7 @@ On top of that:
    a READER, and it must not hold that lock across its verify: a verify is
    seconds of ddcutil round trips and screen captures, and making a lock request
    wait on one would trade a reporting fault for a security one. So the recheck
-   uses optimistic concurrency instead -- measure, then check whether the state
+   uses optimistic concurrency instead: measure, then check whether the state
    moved, and discard if it did. **That is only valid if the discarded work had
    no externally visible effect**, which is invariant 21 and which took three
    attempts to get right: the verdict was discarded correctly all along while

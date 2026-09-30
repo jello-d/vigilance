@@ -5,7 +5,7 @@
 # provide: being UNPRIVILEGED. The guest runs as root, and root ignores
 # permission bits, so `chmod 0444` cannot make a node unwritable there. The VM
 # tier caught that by failing this assertion, which is the integration value the
-# two tiers exist for -- and declaring the need is better than a silent
+# two tiers exist for, and declaring the need is better than a silent
 # `[ "$(id -u)" != 0 ]` guard, because a skip nobody sees overstates coverage.
 set -eu
 . "$(dirname "$0")/harness_lib"
@@ -17,7 +17,7 @@ require unprivileged
 # hook_lib DECLARES that the login user must be in `input` for brightnessctl to
 # drive these nodes, and nothing checked it, so the requirement was a comment.
 # On a real box the user was in none of input/video/i2c and every write was
-# denied -- while hook_dark/hook_lit swallow brightnessctl failure by design
+# denied, while hook_dark/hook_lit swallow brightnessctl failure by design
 # (`|| true`), so vigilant logged clean crossings over hardware that never
 # moved. Asserted-versus-actual drift in the actuators rather than the record,
 # which is the one place this project had not been looking.
@@ -39,7 +39,7 @@ chmod 0444 "$_node"
 # Scoped to the SECTION, not to report's overall exit code. That code folds in
 # machinery, which asks the real systemd about real units, so `report && fail`
 # would pass for free on any host red for a reason this file never meant to
-# test -- and would then keep passing with the actuator check deleted.
+# test, and would then keep passing with the actuator check deleted.
 _out=$("$VIGILANT" report 2>>"$T/stderr") || true
 _fail_in "$_out" actuators "an unwritable actuator node was not flagged. The
 hooks that drive it swallow the denial by design, so nothing else in the system

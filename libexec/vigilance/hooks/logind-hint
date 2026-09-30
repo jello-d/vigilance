@@ -79,8 +79,8 @@ if [ -z "$_sid" ]; then
     $3 == u && $4 != "" && $4 != "-" { print $1; exit }')
 fi
 if [ -z "$_sid" ]; then
-  # 78, NOT 1. A box with no seated session for this user -- a headless server,
-  # an ssh-only context -- has nothing to report against, and that is "I could
+  # 78, NOT 1. A box with no seated session for this user (a headless server,
+  # an ssh-only context) has nothing to report against, and that is "I could
   # not look", not "I tried and failed". Exit 1 here would raise a hook-failed
   # alert on every unlock on a machine where nothing is wrong, which is the
   # cry-wolf this suite bans. It became reachable the moment the seat check

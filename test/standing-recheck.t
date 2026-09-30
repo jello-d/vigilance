@@ -3,7 +3,7 @@
 #
 # THE GAP. Verification only ever happened when an edge was crossed. So a
 # machine that reached a rung correctly and then DRIFTED out of it went
-# unnoticed until the next crossing -- at `sleep`, possibly hours. And a
+# unnoticed until the next crossing, at `sleep`, possibly hours. And a
 # mechanism that never worked at all was asked exactly once, at the moment it
 # was least likely to have failed yet.
 #
@@ -15,7 +15,7 @@
 #
 # IT IS ONLY SAFE BECAUSE ALERTS DEDUP. Without onset-deduplication a persistent
 # fault would notify every minute, and the enforce timer would be switched off
-# by hand -- which is not hypothetical, it happened on a live box, and every
+# by hand, which is not hypothetical, it happened on a live box, and every
 # subsequent report was green because nothing was running.
 set -eu
 . "$(dirname "$0")/harness_lib"
@@ -37,7 +37,7 @@ _verifier() {   # <rc> [message]
   # AND IT RECORDS THAT IT RAN. Some guards here are about whether the verify
   # tier EXECUTED AT ALL rather than about its verdict, and no outcome
   # assertion can tell "ran, then the verdict was discarded" from "never ran":
-  # both are a silent pass with no alert. `printf`, never `: >` -- a redirection
+  # both are a silent pass with no alert. `printf`, never `: >`: a redirection
   # error on a special builtin exits the shell outright under dash.
   printf '#!/bin/sh\nprintf "" > %s/ran\n' "$T" > "$_vp"
   if [ -n "${2:-}" ]; then
@@ -74,11 +74,11 @@ A standing check that cries on a correct machine is one that gets turned off"
 _verifier 1
 [ "$(_enforce)" != 0 ] || fail "the machine stopped matching the rung it claims
 and the supervision pass reported success. Nothing crossed an edge, so nothing
-else would have asked -- that is the window every miss in this project has
+else would have asked: that is the window every miss in this project has
 lived in"
 # The DRIFT alert specifically, not just "an alert". A failing verify hook also
 # raises hook-failed from inside the runner, so counting alerts cannot tell
-# whether the standing check reported anything of its own -- and a test that
+# whether the standing check reported anything of its own, and a test that
 # cannot tell passes with that alert deleted.
 grep -q '^drift$' "$T/alerts" || fail "the standing check raised no DRIFT alert
 of its own. hook-failed says which hook returned non-zero; drift says the
@@ -94,7 +94,7 @@ can find"
 for _i in 1 2 3 4 5 6; do _enforce >/dev/null; done
 [ "$(_alerts)" -le 1 ] || fail "six passes over the SAME unchanged fault raised
 $(_alerts) notifications. A notifier that fires every minute about a fact that
-has not changed is one people silence -- and the timer goes with it"
+has not changed is one people silence, and the timer goes with it"
 
 # --- 4. ...but the LOG is never suppressed ---------------------------------
 # Throttling is a courtesy to the human, never a gap in the record: the log is
@@ -126,7 +126,7 @@ suppressed; an operator debugging a notifier has no way to see every event"
 # repeat and nobody was told anything for the length of the skew. That is the
 # storm-quieting this function exists to provide, inverted into storm-silencing,
 # and it is the documented failure that once had an enforce timer stopped by
-# hand -- except this version needs no human to switch anything off.
+# hand, except this version needs no human to switch anything off.
 : > "$T/alerts"
 _verifier 1 "a fault raised while the dedup stamps sit in the future"
 VIGILANCE_ALERT_COOLDOWN=3600 "$VIGILANT" enforce >/dev/null 2>&1 || true
@@ -156,7 +156,7 @@ the subsystem, or one open problem hides every later one"
 # drift discovered on a pass that then returns 0 for an unrelated reason is a
 # drift thrown away.
 # AT `lock`, NOT `sleep`. The enforcement target is the edge BELOW the current
-# rung, and below `sleep` is `suspend` -- which is deliberately excluded as a
+# rung, and below `sleep` is `suspend`, which is deliberately excluded as a
 # target, so `sleep` never reaches the not-due-yet path at all. `lock` has
 # `sleep` below it, which is enforceable.
 go open
@@ -185,8 +185,8 @@ go sleep
 
 # --- 7. it runs even when there is NO deadline to enforce ------------------
 # The recheck and the deadline logic answer different questions. Every early
-# return in the enforcement path -- no target, no deadline, not due yet,
-# blocked -- would otherwise skip the standing check entirely, which is most
+# return in the enforcement path (no target, no deadline, not due yet,
+# blocked) would otherwise skip the standing check entirely, which is most
 # of the time on a healthy machine.
 rm -rf "$VIGILANCE_HOOK_ROOT/sleep.due.d"
 : > "$T/alerts"
@@ -199,13 +199,13 @@ having an answer"
 # --- 8. A VERIFY THAT COULD NOT LOOK IS NOT DRIFT --------------------------
 # DRIFT means we looked and the machine was wrong. 78 means nothing was wired
 # to look. Raising the first for the second alerts every minute about a static
-# wiring fact -- and an alert that fires on a correct machine is how the
+# wiring fact, and an alert that fires on a correct machine is how the
 # enforce timer got stopped by hand on a live box, after which every report was
 # green because nothing was running.
 : > "$T/alerts"
 rm -rf "$VIGILANCE_HOOK_ROOT/sleep.verify.d"
 [ "$(_enforce)" = 0 ] || fail "with NO verify hook wired for the current rung,
-the supervision pass failed. `verify` answers 78 there -- nobody asked -- and
+the supervision pass failed. `verify` answers 78 there (nobody asked), and
 treating that as drift means a permanent alert about a wiring gap"
 [ "$(_alerts)" = 0 ] || fail "an edge with no verify hooks raised an alert:
 $(_alerts). 'I could not look' must not be reported as 'the machine is wrong'"
@@ -225,7 +225,7 @@ grep -q "STILL-DRIFTED" "$VIGILANCE_LOG" && \
 #   22:24:03  STILL-DRIFTED at 'sleep'
 #
 # The minute before was CLEAN, which is what ruled out genuinely-lit LEDs. A
-# few percent of wakes land in that window -- often enough to teach a reader
+# few percent of wakes land in that window, often enough to teach a reader
 # that drift alerts are noise, which is the one thing this tier cannot afford.
 #
 # Reproduced by a verify hook that CROSSES AN EDGE while it runs, which is what
@@ -234,7 +234,7 @@ grep -q "STILL-DRIFTED" "$VIGILANCE_LOG" && \
 # THE COOLDOWN GOES OFF FOR THE WHOLE OF CASE 9. Case 3 turned dedup ON because
 # dedup was ITS subject; here the race guard is, and the alerts this case must
 # see or not see repeat messages earlier cases already raised. Left on, every
-# assertion below reads whatever its NEIGHBOURS happened to do -- which is the
+# assertion below reads whatever its NEIGHBOURS happened to do, which is the
 # trap this file's header warns about, and it made two mutations survive: the
 # alert they were meant to catch was suppressed as a repeat, not by the guard.
 VIGILANCE_ALERT_COOLDOWN=0; export VIGILANCE_ALERT_COOLDOWN
@@ -251,9 +251,9 @@ EOF
 chmod +x "$VIGILANCE_HOOK_ROOT/sleep.verify.d/10-probe"
 [ "$(_enforce)" = 0 ] || fail "a verify that FAILED while the machine crossed
 an edge was reported as drift. The answer is about the rung we left, and the
-hardware it judged had already moved on -- so the verdict is not about
+hardware it judged had already moved on, so the verdict is not about
 anything. This fired on a live box one second after a wake"
-# grep the FILE, not `_alerts` -- that helper returns a COUNT, so matching it
+# grep the FILE, not `_alerts`: that helper returns a COUNT, so matching it
 # against a kind name is an assertion that can never fire either way.
 if grep -q '^drift$' "$T/alerts" 2>/dev/null; then
   fail "a crossing in flight raised a DRIFT alert. A few percent of wakes land
@@ -302,8 +302,8 @@ always would pass the case above and switch the tier off"
 
 # --- 9b. A CROSSING STILL RUNNING IS NOT DRIFT EITHER ----------------------
 # THE SECOND RACE, and the depth-moved guard above is structurally blind to it.
-# _cross_one commits the depth BEFORE running the act tier -- deliberately, so
-# a hook can read the rung it is acting for -- so mid-crossing the record is
+# _cross_one commits the depth BEFORE running the act tier: deliberately, so
+# a hook can read the rung it is acting for, so mid-crossing the record is
 # ahead of the machine and perfectly STILL. Nothing moves for the guard to see.
 #
 # Observed on manifestor, on a hotkey press that worked:
@@ -317,7 +317,7 @@ always would pass the case above and switch the tier off"
 #
 # THE GUARD MUST RUN BEFORE THE VERIFY, not after. The hook-failure alert is
 # raised from INSIDE cmd_verify, so discarding the verdict afterwards would
-# still have toasted -- which is what the user actually saw.
+# still have toasted, which is what the user actually saw.
 : > "$T/alerts"
 go open
 go sleep
@@ -333,14 +333,14 @@ record is ahead of the machine ON PURPOSE and the gap is guaranteed"
 # THE VERIFY MUST NOT HAVE RUN, and that is the ONLY thing separating this guard
 # from the post-verify one below. Both discard the verdict and neither notifies
 # (the verify's own alerts are deferred either way), so an assertion about the
-# outcome passes with this check deleted -- which is exactly how the mutation
+# outcome passes with this check deleted, which is exactly how the mutation
 # removing it survived. What the pre-check uniquely buys is that the verify tier
 # never runs CONCURRENTLY with the act tier: they touch the same hardware, and a
 # ddcutil round trip or a screen capture taken mid-crossing measures a machine
 # in motion. Cheaper, too, but the concurrency is the reason.
 [ ! -e "$T/ran" ] || fail "the verify tier RAN while a crossing was in flight.
 Its hooks read the hardware the act tier is still writing, so the measurement is
-of a machine in motion -- and the verdict is thrown away afterwards anyway"
+of a machine in motion, and the verdict is thrown away afterwards anyway"
 grep -q "NO-VERDICT: a crossing was in flight" "$VIGILANCE_LOG" \
   || fail "the pre-verify guard fired and the log does not say so. Both guards
 end in the same silent outcome, so only the RECORD can tell a reader which one
@@ -351,8 +351,8 @@ inside cmd_verify. The guard has to come before the verify, not after it"
 fi
 
 # A LEAKED MARKER MUST NOT SILENTLY DISABLE THE TIER. vigilant killed
-# mid-crossing -- systemd reaping lock-on-sleep on its 25s timeout is the
-# realistic case -- would otherwise leave a file that switches off the only
+# mid-crossing (systemd reaping lock-on-sleep on its 25s timeout is the
+# realistic case) would otherwise leave a file that switches off the only
 # check watching a settled machine. That is a far worse bug than the one being
 # fixed, and it would be invisible: every report green, forever.
 : > "$T/alerts"
@@ -370,7 +370,7 @@ suppressed the recheck. The pid check alone cannot survive recycling"
 # above do not cover. `_crossing_inflight` states that it fails OPEN on every
 # doubt, and a negative elapsed time satisfied its `-le $CROSSING_MAX` bound, so
 # a backward clock step believed the marker and switched off the only tier that
-# watches a settled machine -- for the length of the skew, and silently. A wall
+# watches a settled machine, for the length of the skew, and silently. A wall
 # clock is not monotonic: an NTP step, a dual-boot RTC, a VM restore.
 : > "$T/alerts"
 printf '%s %s\n' "$$" "$(( $(date +%s) + 3600 ))" > "$_mark"
@@ -409,7 +409,7 @@ done
 _n=$(grep -c '^watchdog$' "$T/alerts" 2>/dev/null || echo 0)
 [ "$_n" -le 1 ] || fail "four passes over ONE unchanged finding notified $_n
 times, because the elapsed second count made each message unique. A dedup that
-hashes the message is defeated by any alert that counts upward -- which is
+hashes the message is defeated by any alert that counts upward, which is
 every alert about a duration, and those are the ones that repeat forever"
 
 # ...and two GENUINELY different findings still both get through, or the fix
@@ -429,9 +429,9 @@ it, and merging those hides the second fault behind the first"
 rm -rf "$VIGILANCE_HOOK_ROOT/watchdog.d"
 
 # --- CADENCE FOLLOWS CONSEQUENCE, and a TRANSITION is what forces a full pass
-# -- WHY: the recheck ran the whole verify tier every minute, measured at 2.0s a
-# pass on a live box -- 48 minutes of work a day on an idle machine, one second
-# of it a single ddcutil probe -- and in the entire log history the peripheral
+# WHY: the recheck ran the whole verify tier every minute, measured at 2.0s a
+# pass on a live box: 48 minutes of work a day on an idle machine, one second
+# of it a single ddcutil probe, and in the entire log history the peripheral
 # verifiers had reported drift exactly NEVER. Every drift the recheck ever
 # caught came from a bug of ours, since fixed.
 #
@@ -439,12 +439,12 @@ rm -rf "$VIGILANCE_HOOK_ROOT/watchdog.d"
 # CHANGES verifies everything, because that is when drift is introduced (the
 # keyboard-backlight drift appeared 14 seconds after a crossing). Crossings
 # themselves do NOT verify and deliberately still do not: an in-line read-back
-# fires before a device can settle -- the mute LED comes back two seconds later
-# -- and it would add a verify pass to the lock path.
+# fires before a device can settle: the mute LED comes back two seconds later
+#, and it would add a verify pass to the lock path.
 VIGILANCE_ALERT_COOLDOWN=0
 # THE TIER IS CLEARED FIRST. An earlier case leaves a deliberately FAILING probe
 # wired here, and a failing tier makes cmd_verify print FAIL and never reach the
-# line this case is about -- so the assertion was about a neighbour's fixture.
+# line this case is about, so the assertion was about a neighbour's fixture.
 # Exactly the trap this file's own header warns about, hit again in it.
 rm -f "$VIGILANCE_HOOK_ROOT"/sleep.verify.d/* 2>/dev/null || true
 _slow=$VIGILANCE_HOOK_ROOT/sleep.verify.d/70-slow
@@ -460,7 +460,7 @@ chmod +x "$_slow"
 # PRIMED FIRST, and this ordering is the whole assertion. A hook that has NEVER
 # been checked runs whatever the cadence says, so without a fresh stamp in place
 # the case cannot tell "ran because the rung changed" from "ran because it had
-# no stamp yet" -- and the mutation disabling the trigger passed it.
+# no stamp yet", and the mutation disabling the trigger passed it.
 go sleep
 "$VIGILANT" enforce >/dev/null 2>&1 || true
 [ -s "$T/slowran" ] || fail "fixture: the priming pass did not run the hook, so
@@ -497,7 +497,7 @@ esac
 # ...AND A DEFERRAL BESIDE AN n/a IS STILL COVERED. Measured with the real
 # hooks: four deferred and one declined reported "NOTHING CHECKED ... its state
 # is unknown rather than good" about a tier whose checks had all run within the
-# hour -- a false failure that would have alerted. A deferral ANYWHERE means the
+# hour: a false failure that would have alerted. A deferral ANYWHERE means the
 # tier is covered; only an all-declined tier is the absent verdict.
 mkdir -p "$VIGILANCE_HOOK_ROOT/sleep.verify.d"
 printf '#!/bin/sh\nexit 78\n' > "$VIGILANCE_HOOK_ROOT/sleep.verify.d/71-na"

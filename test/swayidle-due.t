@@ -50,7 +50,7 @@ _due() {   # <edge> <argv-file> -> prints the hook's answer, asserts exit 0
   _rc=0
   _o=$(VIGILANCE_IDLE_CMDLINE=$2 sh "$HOOK" "$1" 2>>"$T/stderr") || _rc=$?
   # ALWAYS 0. A due hook that exits non-zero is a BROKEN SOURCE to the runner,
-  # which is a different finding from "no opinion" -- and "no opinion" is the
+  # which is a different finding from "no opinion", and "no opinion" is the
   # answer for most edges on any real wiring, so a non-zero here would make the
   # tier look broken on every healthy box.
   [ "$_rc" = 0 ] || fail "the hook exited $_rc for edge '$1'. A due source must
@@ -97,7 +97,7 @@ done
   || fail "with a home directory named /home/sleepy the hook answered
 '$(_due sleep "$T/sleepy")' instead of '600 idle'. A bare substring match reads
 the PATHS, so the 60s tick wins and the sleep deadline is wrong by a factor of
-ten -- which the overdue detector then reports as a fault"
+ten, which the overdue detector then reports as a fault"
 
 # --- 4. ...nor may one edge name match another ------------------------------
 # "lock" is a substring of "unlock" and of "lockdown". Only a whole-word match
@@ -155,7 +155,7 @@ run on resume, and it has no deadline of its own"
 # The second field is load-bearing: swayidle measures from the last INPUT, and
 # saying so is what stops the supervision loop calling a busy machine overdue.
 # Dropping it would leave the deadline read against time-since-entry, which
-# over-reports on a machine in use -- it once called `lock` 1616s overdue while
+# over-reports on a machine in use: it once called `lock` 1616s overdue while
 # the box was being typed on.
 case "$(_due lock "$T/real")" in
   *" idle") ;;

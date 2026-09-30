@@ -24,7 +24,7 @@
 # cleared, and logind read `yes` while the depth record, swaylock and
 # screen-lock.service all said unlocked.
 #
-# THE FIXTURE MUST PRINT `-`, or it cannot express the bug -- the same reason a
+# THE FIXTURE MUST PRINT `-`, or it cannot express the bug: the same reason a
 # boolean lock-unit fixture could not express `activating` and shipped a defect
 # to a live box twice. Stubbing loginctl and busctl is legitimate here for the
 # opposite reason to usual: they are the trust root, so the test must not create
@@ -40,7 +40,7 @@ PATH="$T/bin:$PATH"; export PATH
 
 # A REAL FLEET LAYOUT, taken from `loginctl list-sessions` on a live box: two
 # seatless `manager` bookkeeping sessions first, then the real wayland one. The
-# ORDER matters -- the bug was taking the first match, so a fixture listing the
+# ORDER matters: the bug was taking the first match, so a fixture listing the
 # real session first would pass with the defect present.
 cat > "$T/bin/loginctl" <<EOF
 #!/bin/sh
@@ -98,13 +98,13 @@ _path_used() {
 _run unlock
 [ "$_rc" = 0 ] || fail "with no XDG_SESSION_ID the hook exited $_rc: $_out
 The unlock edge runs from the locker unit's teardown, which has no session id,
-so this is the path that runs on every real unlock -- and it picked logind's
+so this is the path that runs on every real unlock, and it picked logind's
 seatless 'manager' session because `loginctl` prints '-' for an empty seat and
 the old guard tested only for an empty field"
 [ "$(_path_used)" = 9 ] || fail "the hint was reported against session
 '$(_path_used)', not the seated session 9. Setting it on the wrong session
 leaves the real one stale while reporting success, which is the standard
-interface lying -- exactly what this hook exists to prevent"
+interface lying, exactly what this hook exists to prevent"
 
 # --- 2. ...and the value must follow the EDGE -------------------------------
 grep -q 'SetLockedHint b false' "$T/busctl.log" \

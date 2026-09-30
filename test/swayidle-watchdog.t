@@ -4,14 +4,14 @@
 # The hard half of a watchdog is not noticing silence, it is knowing when
 # silence means something. A daemon that emits only on idle transitions is
 # legitimately quiet whenever nobody is there, so a naive "no events lately"
-# check fires on every correct machine and gets deleted within a week -- taking
+# check fires on every correct machine and gets deleted within a week, taking
 # the one real finding with it.
 #
 # Three innocent explanations have to be excluded before silence is a fault,
 # and each is asserted here:
 #
 #   the box has not been up long enough to have emitted anything;
-#   the machine is at `lock` or below, which PROVES the timer worked -- that is
+#   the machine is at `lock` or below, which PROVES the timer worked: that is
 #     how it got there;
 #   the subject is not present or not running at all, which is a different
 #     tier's finding and must not be reported twice in different words.
@@ -24,7 +24,7 @@ mkdir -p "$T/bin" "$T/state/swayidle-mgr"
 LOG=$T/state/swayidle-mgr/events.log
 
 # swayidle must look present AND running, or the hook declines before it ever
-# reaches the question under test -- the precondition, asserted rather than
+# reaches the question under test: the precondition, asserted rather than
 # assumed, because every case below would otherwise pass for the wrong reason.
 printf '#!/bin/sh\nexit 0\n' > "$T/bin/swayidle"; chmod +x "$T/bin/swayidle"
 cat > "$T/bin/pgrep" <<'EOF'
@@ -43,13 +43,13 @@ PGREP_FOUND=1; export PGREP_FOUND
 SWAYIDLE_LOG_DIR=$T/state/swayidle-mgr; export SWAYIDLE_LOG_DIR
 # THE ARMED COMMAND LIST IS PINNED. A daemon pins its argv at start, so the
 # heartbeat this hook watches for only exists in an instance launched AFTER it
-# was added -- and without a fixture every case here would judge whatever the
+# was added, and without a fixture every case here would judge whatever the
 # developer's own swayidle happens to be armed with.
 VIGILANCE_IDLE_CMDLINE=$T/cmdline; export VIGILANCE_IDLE_CMDLINE
 printf 'swayidle\0timeout\060\0swayidle-mgr event idle-tick\0' > "$T/cmdline"
 # PINNED, never the host's. Every case below depends on how long the machine
 # has been up, and reading the real /proc/uptime meant these passed only
-# because THIS box had been up for days -- the VM tier, booted seconds
+# because THIS box had been up for days; the VM tier, booted seconds
 # earlier, failed the very first case. A test whose verdict depends on the
 # substrate is not testing the code.
 VIGILANCE_UPTIME_FILE=$T/uptime; export VIGILANCE_UPTIME_FILE
@@ -57,7 +57,7 @@ printf '999999.00 999999.00\n' > "$T/uptime"
 VIGILANT=$T/bin/vigilant; export VIGILANT
 
 # THROUGH A FILE, and called DIRECTLY rather than in a substitution. `OUT=...`
-# inside `$(_run)` is set in a subshell and never reaches the caller -- the
+# inside `$(_run)` is set in a subshell and never reaches the caller, the
 # same trap that once defeated a timeout bound here, and it cost a debugging
 # round again writing this.
 _run() {   # -> sets RC, output in $T/out
@@ -96,13 +96,13 @@ esac
 case "$(_out)" in
   *inhibitor*) ;;
   *) fail "the finding claimed a wedge as certain. An idle inhibitor produces
-identical silence, and vigilant cannot query one -- saying so is the honest
+identical silence, and vigilant cannot query one, so saying so is the honest
 shape when the evidence cannot separate two causes" ;;
 esac
 
 # --- 3. AT `lock` OR BELOW, SILENCE PROVES THE OPPOSITE ---------------------
 # The decisive exclusion. If the machine is locked, the idle timer demonstrably
-# worked -- that is how it got there -- and it is then correctly quiet because
+# worked: that is how it got there, and it is then correctly quiet because
 # nobody is present. Without this the check fires on every locked machine,
 # which is every machine overnight.
 for _d in lock sleep suspend; do
@@ -115,7 +115,7 @@ FAKE_DEPTH=open
 
 # --- 4. TOO EARLY TO JUDGE --------------------------------------------------
 # A box up ten minutes has no business being judged on four hours of quiet.
-# Driven by the UPTIME now, which is the variable that actually decides it --
+# Driven by the UPTIME now, which is the variable that actually decides it,
 # the old version moved the quiet window instead and so never exercised a
 # freshly booted machine, the case the VM tier found.
 _age 20000
@@ -130,7 +130,7 @@ printf '999999.00 999999.00\n' > "$T/uptime"
 # reporting one fault in different words teaches a reader to discount both.
 PGREP_FOUND=
 _run; [ "$RC" = 78 ] || fail "with swayidle not running the hook returned a
-verdict. That is report's finding; this tier owns exactly one question --
+verdict. That is report's finding; this tier owns exactly one question:
 it is running, but is it WORKING?"
 PGREP_FOUND=1
 
@@ -141,7 +141,7 @@ PGREP_FOUND=1
 # Caught by the case failing; it would have been invisible the other way round.
 mkdir -p "$T/min"
 # The hook needs date/cut/sed/head; the harness needs sh to invoke it and
-# rm/cat for its own cleanup. Omitting sh made the case fail with rc=127 --
+# rm/cat for its own cleanup. Omitting sh made the case fail with rc=127,
 # "command not found" wearing the costume of a declined hook.
 for _c in sh date cut sed head cat rm touch mkdir chmod grep printf; do
   ln -sf "$(command -v "$_c")" "$T/min/$_c" 2>/dev/null || true
@@ -164,7 +164,7 @@ expectation to compare against and 0 would be a false all-clear"
 # --- AN UNARMED TIMER CANNOT BE JUDGED -------------------------------------
 # A DAEMON PINS ITS ARGV AT START. The heartbeat is a timeout armed when the
 # idle timer launches, so an instance predating it emits nothing however
-# healthy it is -- and this hook would read the stale log as a wedge and say so
+# healthy it is, and this hook would read the stale log as a wedge and say so
 # once an hour about a timer working perfectly.
 #
 # It fired within a day of shipping: swayidle had been up four days, had no
@@ -174,7 +174,7 @@ expectation to compare against and 0 would be a false all-clear"
 _age 20000
 printf 'swayidle\0timeout\0480\0swayidle-mgr event idle-lock\0' > "$T/cmdline"
 _run; [ "$RC" = 78 ] || fail "a timer with no heartbeat in its argv was judged
-(rc=$RC). It emits nothing to watch, so silence proves nothing -- and calling
+(rc=$RC). It emits nothing to watch, so silence proves nothing, and calling
 that a wedge accuses a daemon that is working of the one fault it does not have"
 case "$(_out)" in
   *restart*) ;;

@@ -6,7 +6,7 @@
 # message counted upward and defeated its own dedup key; a save file written
 # once and then outliving the fix that would have prevented it, failing every
 # wake for days; a daemon's argv drifting from the code on disk. All three are
-# the same shape -- correct once, wrong after the hundredth time.
+# the same shape: correct once, wrong after the hundredth time.
 #
 # A SLOPE, NOT AN ENDURANCE RUN, and that is the whole design. "A thousand
 # cycles and see if it falls over" needs a thousand cycles AND a failure big
@@ -28,7 +28,7 @@ _n2=$(( CYCLES - _n1 ))
 # <count> [max rc] -> cross lock/unlock that many times.
 #
 # THE MAX RC IS NOT DECORATION. With a deliberately failing hook a crossing
-# returns 1 -- "it moved, and something is broken" -- which is the state phase 3
+# returns 1: "it moved, and something is broken", which is the state phase 3
 # is about. The first version treated that as fatal and stopped after ONE cycle,
 # and the log-growth precondition below is what caught it: 3 records where 30
 # crossings were claimed. An accumulation test that silently stops accumulating
@@ -46,8 +46,8 @@ _cycle() {
   done
 }
 
-# THE LOG IS EXPECTED TO GROW -- it is the record, and the audit tier reads
-# it -- so it is excluded here and asserted separately below. Everything else
+# THE LOG IS EXPECTED TO GROW: it is the record, and the audit tier reads
+# it, so it is excluded here and asserted separately below. Everything else
 # under the runtime dir is bookkeeping about NOW, and a count that tracks
 # the number of crossings means something is being kept that should have
 # been replaced.
@@ -81,7 +81,7 @@ is a measurement"
 # believed), which is the one tier watching a settled machine.
 [ ! -e "$VIGILANCE_RUN_DIR/crossing.lock" ] || fail "a crossing lock outlived
 $(( _n1 + _n2 )) completed crossings. It is fail-open so nothing stalls, but the
-standing recheck believes a marker while its writer is alive and young -- so the
+standing recheck believes a marker while its writer is alive and young, so the
 tier that watches a machine between edges quietly stops"
 
 # --- 3. A PERSISTENT FAULT DOES NOT STORM, AND IS STILL RECORDED ----------
@@ -100,7 +100,7 @@ printf '%s\n' "\$1" >> $T/notified
 EOF
 chmod +x "$VIGILANCE_HOOK_ROOT/alert.d/10-sink"
 # A FIXED message, because a duration in it would be a different finding every
-# time -- which is the bug, not the test.
+# time, which is the bug, not the test.
 printf '#!/bin/sh\necho "the peripheral is wrong"\nexit 1\n' \
   > "$VIGILANCE_HOOK_ROOT/lock.d/90-broken"
 chmod +x "$VIGILANCE_HOOK_ROOT/lock.d/90-broken"
@@ -110,7 +110,7 @@ _before=$(wc -l < "$VIGILANCE_LOG")
 # leaks into the rest of the file, which would leave the final case asserting
 # against a cooldown its neighbours set.
 VIGILANCE_ALERT_COOLDOWN=3600; export VIGILANCE_ALERT_COOLDOWN
-_cycle "$_n2" 1 || fail "a faulting crossing returned $? -- 1 is expected here
+_cycle "$_n2" 1 || fail "a faulting crossing returned $?, and 1 is expected here
 (it moved, a hook failed); anything else means it did not cross at all"
 VIGILANCE_ALERT_COOLDOWN=0; export VIGILANCE_ALERT_COOLDOWN
 _notified=$(wc -l < "$T/notified" | tr -d ' ')
@@ -121,7 +121,7 @@ across $_n2 crossings. That is the storm dedup exists to prevent, and it has a
 cost this project has already paid: a live box had its supervision timer stopped
 BY HAND to quiet one, and then stayed stopped with every later report green"
 [ "$_keys" -le 2 ] || fail "$_keys dedup keys for ONE repeated fault. A key per
-occurrence is a file leak AND a broken dedup -- the shape of a message with a
+occurrence is a file leak AND a broken dedup: the shape of a message with a
 measurement in it, which hashes fresh every pass"
 # THE LOG IS NEVER SUPPRESSED, which is the other half and the one that makes
 # throttling honest: the audit tier reads this file to say how long a fault

@@ -8,13 +8,13 @@
 # in this suite:
 #
 #   THE EDGE-LEVEL n/a HOLE. The not-applicable contract was closed at the HOOK
-#   level -- a hook declines with 78 and the runner counts it apart -- and left
+#   level: a hook declines with 78 and the runner counts it apart, and left
 #   open at the EDGE level. Every wired hook declining is a FAIL; NO hook being
 #   wired returned 0. Identical epistemic state, opposite verdict.
 #
 #   THE QUESTION WAS NEVER ASKED. `verify` and the standing recheck only ever
 #   ask about the rung the machine is at NOW. An edge with no verifier is
-#   therefore invisible until the machine happens to be there -- for `resume`,
+#   therefore invisible until the machine happens to be there: for `resume`,
 #   after an S3 cycle, which is the one moment nobody is watching.
 #
 # So the coverage check is STATIC and asks about every edge regardless of where
@@ -46,7 +46,7 @@ esac
 
 # --- 2. wire a verifier and the finding CLEARS ------------------------------
 # A check whose remedy does not move its own verdict is one you learn to
-# scroll past -- this suite has shipped that mistake once already, in the edge
+# scroll past: this suite has shipped that mistake once already, in the edge
 # budget, where the fix it recommended could never clear it.
 hook sleep.verify 10-confirm
 _out=$(_report)
@@ -65,7 +65,7 @@ _out=$(_report)
 case $(_section "$_out" coverage) in
   *"'sleep'"*) fail "an edge with NO actuators was reported as uncovered. There
 is nothing to check there, so this would fire on a stock install and be
-switched off within a day -- taking the real finding with it" ;;
+switched off within a day, taking the real finding with it" ;;
 esac
 
 # --- 4. MACHINE scope counts, because that is all a greeter has -------------
@@ -108,13 +108,13 @@ case $(_section "$_out" coverage) in
   *) printf '%s\n' "$_out" >&2
      fail "a NON-EXECUTABLE verify hook was counted as coverage. The runner
 lists only executables, so this certifies an edge as checked that nothing will
-ever check -- and a chmod is exactly what gets lost in a copy or a sweep" ;;
+ever check, and a chmod is exactly what gets lost in a copy or a sweep" ;;
 esac
 
 # --- 6. it is a WARN, not a FAIL -------------------------------------------
 # Severity, scoped to the LINE. A shell glob spans newlines, so matching
 # [WARN] and the edge name against the whole section would pass on an
-# unrelated warning elsewhere plus the word 'wake' later -- this suite has
+# unrelated warning elsewhere plus the word 'wake' later: this suite has
 # shipped that exact mistake once, in the budget check.
 _line=$(printf '%s\n' "$_out" | grep "edge 'wake'" | head -1)
 case "$_line" in
@@ -128,7 +128,7 @@ esac
 
 # --- 7. CAN AN OVERDUE EDGE BE DETECTED AT ALL? -----------------------------
 # The deadline that matters is expressed in IDLE time, and vigilant could not
-# read idle time, so `idle` was refused outright -- which made the SOON
+# read idle time, so `idle` was refused outright, which made the SOON
 # question unanswerable and a whole tier inert. A deadline nobody can measure
 # is not a deadline, it is a sentence in a config file, and nothing said so.
 _duehook() {   # edge name "<secs> <anchor>"
@@ -156,7 +156,7 @@ case $(_section "$_out" deadlines) in
      fail "an idle-anchored deadline with no idle source was not reported as
 unmeasurable. That is the live state of both boxes: a silently WEDGED idle
 timer is running, correctly armed, logs no event for audit to reconcile, and
-leaves the machine at a rung it genuinely matches -- so nothing in this suite
+leaves the machine at a rung it genuinely matches, so nothing in this suite
 can see it, and it is the failure this package was created for" ;;
 esac
 
@@ -177,7 +177,7 @@ esac
 
 # --- 8b. a source that DECLINES is not a clock ------------------------------
 # 78 means "I cannot tell". Treating it as an answer would be the exact
-# conflation the n/a contract exists to break -- and here the wrong answer is
+# conflation the n/a contract exists to break, and here the wrong answer is
 # worse than usual, because a missing number read as 0 means "input one second
 # ago", which silently resets every deadline forever.
 _idlesrc na
@@ -190,7 +190,7 @@ esac
 
 # --- 8c. A NUMBER IS NOT A CAPABILITY --------------------------------------
 # THE FALSE GREEN THIS CLOSES WAS LIVE ON A REAL BOX. Its keyboard reports to
-# itself every 25s, so the idle clock reset before it could ever reach 60s --
+# itself every 25s, so the idle clock reset before it could ever reach 60s,
 # against deadlines of 480s and 600s. It still returned a NUMBER, and report
 # stopped at "a clock answered" and called both measurable. The idle source had
 # been recording the longest quiet stretch it ever saw for exactly this reason,
@@ -226,7 +226,7 @@ anything reading the status is told the deadline is covered:
 $(printf '%s\n' "$_out" | grep -i 'never seen' | head -2)"
 
 # ...AND IT NAMES THE DEVICE. "Something talks to an input device on its own" is
-# true, unactionable and unable to say which -- and the remedy is AT the device,
+# true, unactionable and unable to say which, and the remedy is AT the device,
 # so a finding that cannot name it asks the operator to search their own
 # machine.
 case $(_section "$_out" deadlines) in
@@ -266,7 +266,7 @@ esac
 
 # --- 8c-bis. A MACHINE IN USE IS NOT A BROKEN CLOCK ------------------------
 # THE DEFECT 8c's FIRST VERSION SHIPPED. With the same short ceiling and the
-# same long watch, but the machine at a LIT rung -- somebody is using it --
+# same long watch, but the machine at a LIT rung (somebody is using it)
 # there is no evidence the seat was ever quiet, so there is nothing to have
 # missed. Observed live: [WARN] "the clock has NEVER seen over 518s quiet in
 # 819s of watching: something talks to an input device on its own", about a
@@ -292,7 +292,7 @@ esac
 # The guard that keeps 8c from crying wolf on every freshly booted machine: a
 # ceiling below the deadline means nothing until the clock has been watching
 # long enough to have seen such a stretch. Without this the fix for 8c is "warn
-# whenever the ceiling is short", which is red on every reboot -- and a warning
+# whenever the ceiling is short", which is red on every reboot, and a warning
 # that is always on is how a report stops being read.
 _idlesrc "42 ceiling=30 age=100"
 # the ladder evidence IS present; it is the CLOCK that is young

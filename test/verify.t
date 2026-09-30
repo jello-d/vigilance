@@ -2,7 +2,7 @@
 # test/verify.t - the verify tier, and the false green it used to be.
 #
 # `vigilant verify` returned 0 with ZERO verify hooks installed. "Clean" meant
-# "nothing was asked" and read exactly like "everything checked out" -- to
+# "nothing was asked" and read exactly like "everything checked out", to
 # vigilance-report, to a systemd timer, and to a human. That is the failure
 # this project exists to catch, reproduced inside the thing built to catch it,
 # and it printed a green line on manifestor for a week.
@@ -35,7 +35,7 @@ esac
 #
 # It also contradicted the sibling case: EVERY WIRED HOOK DECLINING is a FAIL
 # (below), while NO HOOK BEING WIRED was a pass. Identical epistemic state,
-# opposite verdict -- and that inconsistency is the tell.
+# opposite verdict, and that inconsistency is the tell.
 #
 # 78 is not an alarm, which is what makes this safe: it is the not-applicable
 # code, distinct from both 0 and failure, so a consumer asking "was this
@@ -52,7 +52,7 @@ _rc=0
 "$VIGILANT" verify lock >/dev/null 2>>"$T/stderr" || _rc=$?
 [ "$_rc" != 0 ] || fail "with no lock.verify.d wired, 'verify lock' returned
 success. That is the exact call lock-on-sleep.service makes as ExecStartPost
-before the box suspends -- so a swept or renamed verify tier, the failure mode
+before the box suspends, so a swept or renamed verify tier, the failure mode
 that already hit swayidle-mgr and 50-swaylock, would let the machine sleep with
 its lock verified by nothing and every tier green"
 
@@ -154,7 +154,7 @@ esac
 # lock and unlock must not ACT on brightness (locking leaves the screen on, and
 # wake already re-lit it; re-asserting would stomp a level set by hand), but the
 # lit assertion at those rungs is real and is the blackout check. One edge, two
-# answers, decided by VIGILANCE_KIND -- so pin both directions.
+# answers, decided by VIGILANCE_KIND, so pin both directions.
 . "$(dirname "$0")/../libexec/vigilance/hook_lib"
 for _e in lock unlock; do
   _a=$(VIGILANCE_KIND=act    hook_intent "$_e")

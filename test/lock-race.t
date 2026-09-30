@@ -12,7 +12,7 @@
 # Two lock requests arriving together is ordinary: a double hotkey press (the
 # user did exactly that when a lock seemed not to take), or a keybind and a
 # logind Session.Lock landing in the same second. Both then pass the
-# "is it already up?" check before either starts the unit -- a test-then-act
+# "is it already up?" check before either starts the unit: a test-then-act
 # whose comment claimed it was "racy-safe" because systemd arbitrates. systemd
 # DOES arbitrate, correctly, refusing the second with "unit already exists".
 # Treating that refusal as an error was the bug: the postcondition the hook
@@ -21,14 +21,14 @@
 # WHAT IS STUBBED AND WHY. `systemd-run` is the ACTUATOR that starts the
 # locker, and the suite already substitutes the locker itself
 # (VIGILANCE_LOCKER); making it fail is the realistic case. The TRUST-ROOT
-# question -- what state is the unit in -- comes from
+# question (what state is the unit in) comes from
 # VIGILANCE_LOCK_ACTIVE_FILE, a sanctioned probe override, because neither
 # substrate can answer it for real: the stub tier must not create transient
 # units on the developer's systemd, and the VM has no user bus at all.
 #
 # THE FIXTURE HOLDS A STATE, NOT A BOOLEAN, and that is not a detail. The first
 # version of this file modelled "up or not", so it could not express
-# ACTIVATING -- and the code it was testing could not either. Both agreed, the
+# ACTIVATING, and the code it was testing could not either. Both agreed, the
 # file passed, and a live box failed the same way four hours later. A fixture
 # that cannot represent the failing state cannot test for it.
 set -eu
@@ -50,7 +50,7 @@ export VIGILANCE_LOCK_UNIT=test-lock.service
 _runner() {
   case "$1" in
     # THE RACE: our start is refused because the unit already exists, and it
-    # exists because the OTHER request created it a moment ago -- so it is
+    # exists because the OTHER request created it a moment ago, so it is
     # ACTIVATING, not yet active. This is the case the shipped code got wrong.
     # ...and the winner's locker finishes coming up a moment later.
     settling) printf '#!/bin/sh\necho activating > %s\n%s\nexit 1\n' \
@@ -85,7 +85,7 @@ _hook
 # --- 2. ALREADY UP IS A NO-OP, WITHOUT ATTEMPTING A START -------------------
 # The unit is active and systemd-run would FAIL if reached. Exit status alone
 # cannot tell "never tried" from "tried, failed, then noticed the unit was up",
-# because the race branch returns 0 too -- so the MESSAGE is the assertion. It
+# because the race branch returns 0 too, so the MESSAGE is the assertion. It
 # also has to be right: claiming a concurrent start on an idle box would send a
 # reader looking for a second lock request that never happened.
 true > "$T/err"
@@ -103,7 +103,7 @@ _runner settling
 _hook
 [ "$RC" = 0 ] || fail "the hook returned $RC after losing a start race to a
 unit that was still ACTIVATING. systemctl reports a unit as inactive until it
-finishes coming up, so sampling once answers before the answer exists -- the
+finishes coming up, so sampling once answers before the answer exists, the
 same test-then-act shape as the pre-check, inside the code written to fix it.
 Seen on a live box four hours after the first fix deployed"
 [ "$(cat "$ACTIVE")" = active ] || fail "fixture: the settling runner never
@@ -143,7 +143,7 @@ which unit could not be started"
 
 # --- THE LOCKER IS SUBSTITUTABLE, argv AND UNIT TYPE INCLUDED ---------------
 # THE ARGV HELPER IS PINNED, because the first version of this case asserted
-# against the DEVELOPER's live `vigilance-lock-argv` and their shapes config --
+# against the DEVELOPER's live `vigilance-lock-argv` and their shapes config,
 # a host read, in the suite that ratchets against exactly that. It also records
 # the argument it was given, which is the contract being added here: the helper
 # is asked ABOUT THE LOCKER, because its output is inherently locker-specific.
@@ -160,7 +160,7 @@ chmod +x "$T/bin/vigilance-lock-argv"
 # `VIGILANCE_LOCKER` was a HALF PROMISE: the man page called it the locker
 # process name while `-f` (swaylock's --daemonize) and `Type=forking` were
 # hardcoded beside it. `VIGILANCE_LOCKER=i3lock` therefore resolved, passed the
-# `command -v` check, and was handed a flag i3lock does not have -- so the unit
+# `command -v` check, and was handed a flag i3lock does not have, so the unit
 # fails and the screen does not lock, on the one edge where that matters.
 #
 # Type is the same assumption one layer down: it asserts the locker DETACHES. A
@@ -185,7 +185,7 @@ esac
 [ "$(cat "$T/helper-arg" 2>/dev/null)" = swaylock ] || fail "the argv helper was
 not told which locker it is being asked about (got
 '$(cat "$T/helper-arg" 2>/dev/null)'). Its output is locker-specific, so a
-helper that cannot tell has to guess -- which is how i3lock was handed a
+helper that cannot tell has to guess, which is how i3lock was handed a
 swaylock config file"
 
 # ...and an X11-shaped locker gets ITS argv and ITS unit type.

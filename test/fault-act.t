@@ -8,7 +8,7 @@
 # is not first by accident: it is ordered first precisely so that a hook ahead
 # of it cannot stop the screen locking. Before that ordering existed, a hook
 # that hung blocked the traversal forever, `50-provider` never ran, the screen
-# never locked, nothing was logged and no alert fired -- and under
+# never locked, nothing was logged and no alert fired, and under
 # lock-on-sleep.service systemd then killed the unit and the box slept UNLOCKED,
 # because nothing can veto a suspend.
 #
@@ -36,7 +36,7 @@ wire lock .verify locker-up
 
 # --- 1. A HOOK THAT HANGS MUST NOT STOP THE LOCK ---------------------------
 # It IGNORES SIGTERM as well as hanging, because a hook that dies politely is
-# indistinguishable from a bounded one -- the distinction a mutation dropping
+# indistinguishable from a bounded one: the distinction a mutation dropping
 # the `-k` backstop once hid behind.
 _badhook 05-hang 'trap "" TERM; sleep 900'
 _t0=$(date +%s)
@@ -63,7 +63,7 @@ other names the bound that fired"
 
 # --- 2. A HOOK THAT FAILS MUST NOT STOP THE LOCK EITHER --------------------
 # The quieter half: a hook that returns 1 immediately. The edge must still
-# cross and the failure must be LOUD -- exit 1 from the runner means "crossed
+# cross and the failure must be LOUD: exit 1 from the runner means "crossed
 # but a hook failed", which is a different claim from "did not cross".
 session_reset
 wire lock ''      swaylock

@@ -3,7 +3,7 @@
 #
 # THE FAILURE THAT CREATED THIS PACKAGE. swayidle wedges on this Wayfire build:
 # it resumed a suspend UNLOCKED and silently dropped a Session.Lock that fired.
-# A wedged instance is alive -- correct argv, active unit, right cgroup -- and
+# A wedged instance is alive (correct argv, active unit, right cgroup) and
 # emits nothing. Every liveness check in this suite passes while the machine
 # never locks again.
 #
@@ -14,8 +14,8 @@
 # HOW SILENCE BECOMES EVIDENCE. Two pieces, neither of which is a clock:
 #
 #   THE HEARTBEAT. swayidle-mgr arms a short observational timeout, so a
-#   healthy timer logs on EVERY brief pause. That turns a rare event -- a full
-#   idle-lock, which can legitimately not happen all day -- into a frequent
+#   healthy timer logs on EVERY brief pause. That turns a rare event (a full
+#   idle-lock, which can legitimately not happen all day) into a frequent
 #   one. Without it, "no events today" is unremarkable.
 #
 #   THE INDEPENDENT OBSERVER. This hook is run by a systemd timer, not by
@@ -24,7 +24,7 @@
 #   looks at it.
 #
 # WHY IT IS NOT AN audit.d HOOK. That tier's contract is `<epoch> <edge> <note>`
-# and asks "this event happened, did its edge follow?" -- it is event-driven.
+# and asks "this event happened, did its edge follow?": it is event-driven.
 # There is no event here, and inventing one to fit would poison the forensic
 # tier with a record of something that did not occur.
 set -eu
@@ -64,12 +64,12 @@ fi
 #
 # A DAEMON PINS ITS ARGV AT START. The heartbeat is a timeout armed when the
 # idle timer launches, so an instance that predates it emits nothing however
-# healthy it is -- and this hook would read the stale log as a wedge and say
+# healthy it is, and this hook would read the stale log as a wedge and say
 # so once an hour, about a timer that is working perfectly.
 #
 # That is not hypothetical: it fired within a day of shipping. swayidle had
 # been up four days, had no `idle-tick` in its argv, and had fired an idle-lock
-# six hours earlier -- demonstrably alive, reported wedged.
+# six hours earlier: demonstrably alive, reported wedged.
 #
 # The expectation this hook compares silence against DOES NOT EXIST until the
 # unit is restarted, so saying "I cannot tell, restart it" is the only honest
@@ -105,7 +105,7 @@ _silent=$((_now - _last))
 # --- the SESSION must have been up long enough for silence to mean anything -
 # A box booted ten minutes ago has no business being judged on four hours of
 # quiet: it cannot have been silent for longer than it has existed. Uptime is
-# the whole of it -- an earlier draft of this comment claimed a fallback from
+# the whole of it: an earlier draft of this comment claimed a fallback from
 # the log's own start record, which the code never did.
 #
 # OVERRIDABLE, or the tier measures the DEVELOPER'S machine. That is the
@@ -128,7 +128,7 @@ fi
 
 # --- silence, and now the innocent explanations ------------------------------
 # THE RUNG IS THE FIRST ONE, and it is decisive. If the machine is at `lock` or
-# below, the idle timer demonstrably worked -- that is how it got there. Only a
+# below, the idle timer demonstrably worked: that is how it got there. Only a
 # machine sitting at `open` has a timer that should have fired and did not.
 _depth=$(${VIGILANT:-vigilant} status 2>/dev/null \
          | sed -n 's/^depth: *//p' | head -1)
@@ -139,12 +139,12 @@ esac
 
 # THE SECOND: an idle inhibitor legitimately suppresses every timer, and a
 # fullscreen video is the mechanism behaving correctly. vigilant cannot query
-# the inhibitor directly, so this is NOT claimed as a fault -- it is reported
+# the inhibitor directly, so this is NOT claimed as a fault; it is reported
 # as one explanation among two, which is the honest shape when the evidence
 # cannot separate them.
 echo "the idle timer has emitted nothing for ${_silent}s while the machine sat\
  at '${_depth:-open}'. A healthy timer logs on every brief pause, so this means\
- either it is WEDGED -- running, correctly armed, and firing nothing, which is\
+ either it is WEDGED: running, correctly armed, and firing nothing, which is\
  the failure this package exists for and which every other check here passes --\
  or an idle inhibitor has been held that whole time. Restart\
  vigilance-idle.service to clear a wedge."

@@ -2,9 +2,9 @@
 # screen-dark - VERIFY-ONLY: is the screen actually emitting at a dark rung?
 #
 # THE ONE CHECK THAT ASKS THE RUNG'S QUESTION rather than a device's. Every
-# other verifier in this suite asks about its own mechanism -- "did my I2C bus
+# other verifier in this suite asks about its own mechanism: "did my I2C bus
 # take the command", "is my sysfs backlight at 0", "are my compositor's outputs
-# off" -- and each is satisfied or n/a on its own terms. Nothing asserted the
+# off", and each is satisfied or n/a on its own terms. Nothing asserted the
 # thing the rung actually MEANS.
 #
 # That is not a theoretical gap. A lit screen survived four separate green
@@ -38,7 +38,7 @@
 #
 # So the backlight is consulted directly. A panel held dark by its backlight
 # emits nothing WHATEVER the framebuffer says, and that is an observation, not
-# an assumption. What remains genuinely blind is darkening by DDC -- ddc-
+# an assumption. What remains genuinely blind is darkening by DDC: ddc-
 # monitor's own verify owns that, and with lock-blank gated on the absence of a
 # backlight the two cases do not overlap: a box with no backlight paints the
 # surface black, which this CAN see.
@@ -61,7 +61,7 @@ edge=${1:-${VIGILANCE_EDGE:-}}
 _intent=$(hook_intent "$edge")
 
 # A LIT rung is deliberately NOT asserted. A legitimately black wallpaper, a
-# dark theme, a screen showing a mostly-black terminal -- none of those is
+# dark theme, a screen showing a mostly-black terminal, none of those is
 # drift, and failing on them would make this the crying-wolf check that gets
 # switched off. The claim worth making is one-directional: at a DARK rung the
 # screen must not be emitting.
@@ -99,6 +99,6 @@ fi
 
 echo "screen-dark: the machine is at a DARK rung ($edge) and the display is"\
 " still emitting (mean luminance $_l, want ~0). Whatever was supposed to"\
-" darken it did not -- and every per-device verifier can still be green while"\
+" darken it did not, and every per-device verifier can still be green while"\
 " this is true, because each one only knows about its own mechanism." >&2
 exit 1

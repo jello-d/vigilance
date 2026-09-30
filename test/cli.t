@@ -3,7 +3,7 @@
 # the exit codes units branch on.
 #
 # Everything else in this suite drives vigilant through the scenario helpers
-# (go/force/only), which is right -- they test BEHAVIOUR. But that left the
+# (go/force/only), which is right: they test BEHAVIOUR. But that left the
 # surface those helpers call through completely unasserted: `status` and `hooks`
 # had no direct test, and neither did the exit-2 usage contract, despite the
 # header declaring exit codes "a contract, because units and the patch branch on
@@ -11,7 +11,7 @@
 #
 # WHY THIS MATTERS HERE SPECIFICALLY: `check` shipped as a stub aliased to
 # `status` while three documents described it as a wiring audit. No test could
-# have caught that -- none of them asked what the verbs were.
+# have caught that: none of them asked what the verbs were.
 set -eu
 . "$(dirname "$0")/harness_lib"
 . "$(dirname "$0")/scenario_lib"
@@ -189,7 +189,7 @@ edge and nothing was traversed"
 # --- WIRED BUT UNRUNNABLE is named, not silently absent -------------------
 # _hooks_in lists a hook only `if [ -x ]`, which is right for RUNNING and wrong
 # for REPORTING: an entry present and not executable became indistinguishable
-# from one never wired. Three faults hide there, and all are silent -- a
+# from one never wired. Three faults hide there, and all are silent: a
 # dangling symlink, a forgotten chmod, and the one that prompted this: a
 # MACHINE-scope hook symlinked into a user's home, where the GREETER's uid
 # cannot traverse and the hook simply does not exist from its side.

@@ -59,7 +59,7 @@ expect_record "unlock lock 10-tell"
 
 # --- A MISSING timeout(1) is a DEGRADED guarantee, and must be said ---------
 # The hook bound is implemented with timeout(1). On a box without it, HOOK_TMO
-# is empty and every hook runs unbounded again -- the guarantee silently absent
+# is empty and every hook runs unbounded again: the guarantee silently absent
 # rather than merely unavailable. That is this project's whole subject: a thing
 # that cannot do its job reporting nothing at all.
 #
@@ -93,8 +93,8 @@ what teaches a reader to skip the line that matters" ;;
 esac
 
 # --- THE IDLE TIMER IS A MECHANISM, AND report MUST NOT KNOW WHICH ----------
-# The crossing machinery hardcodes no mechanism -- measured, zero references
-# across all nine of its functions -- but the OBSERVABILITY did, and that is
+# The crossing machinery hardcodes no mechanism: measured, zero references
+# across all nine of its functions, but the OBSERVABILITY did, and that is
 # the worse half of the two. Swap swayidle for xidlehook or hypridle and the
 # machine locks perfectly while report says "swayidle NOT running: nothing will
 # lock on idle": a false FAIL about a healthy box, from the tier whose whole
@@ -117,8 +117,8 @@ esac
 
 # NAMED BUT NOT RUNNING IS A FAILURE, and it is the other half of the
 # idle-timer-killed cell. The watchdog deliberately DECLINES when the timer is
-# absent -- it is not its finding, and two tiers accusing in different words
-# teaches a reader to discount both -- so if report is silent here as well then
+# absent: it is not its finding, and two tiers accusing in different words
+# teaches a reader to discount both, so if report is silent here as well then
 # nothing on the box reports a dead idle timer at all. That is the founding
 # failure of this package, undetected.
 #
@@ -137,7 +137,7 @@ watchdog declines in that case on purpose, so report is the only tier that can
 say it, and a box whose idle timer died would be told nothing at all" ;;
 esac
 # AND AS A FAIL, not an aside. The severity is what report's exit status is made
-# of, and a supervision timer reads the status and nothing else -- the same
+# of, and a supervision timer reads the status and nothing else: the same
 # reason `verify` had to stop returning 0 for "nothing was checked".
 printf '%s\n' "$_out" | grep -q '^ *\[FAIL\].*nosuchidled' \
   || fail "a dead idle timer was mentioned but not as a FAIL, so report still
@@ -168,7 +168,7 @@ esac
 # SCOPED TO THE IDLE LINES, not to the whole section. `machinery` reads the
 # real systemd, so in a VM its units are legitimately not enabled and it
 # carries FAILs that have nothing to do with this. Asserting on the section
-# made a correct VM fail the case -- the exact "one exit code for nine
+# made a correct VM fail the case: the exact "one exit code for nine
 # sections" trap this suite has already paid for twice.
 _idl=$(printf '%s\n' "$_out" | grep -i "idle timer" || true)
 case "$_idl" in

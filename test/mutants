@@ -3,7 +3,7 @@
 #
 # WHY THIS IS A FILE AND NOT A HABIT. Every defect this project has found was
 # found by someone remembering to apply a discipline, and the discipline that
-# matters most -- "confirm the guard actually bites" -- has failed repeatedly,
+# matters most ("confirm the guard actually bites") has failed repeatedly,
 # always in my own hands rather than the code's:
 #
 #   a search string that never matched, so the file was untouched and the test
@@ -29,7 +29,7 @@
 #
 # Matching is EXACT and whole-line, first occurrence: no regex, no delimiters,
 # nothing to clash with `||` or `*` or a slash. Two of the failures above were
-# pattern-syntax accidents, and an exact match can only be right or absent --
+# pattern-syntax accidents, and an exact match can only be right or absent,
 # and absent is a hard ERROR, never a silent skip. Leading whitespace after the
 # two-character prefix is significant and is preserved exactly.
 
@@ -760,8 +760,8 @@ t coverage
 = report-blames-the-device-for-our-own-traffic
 f bin/vigilant
 t coverage
-- " either it reports to itself, or something here talks to it -- a hook in"\
-+ " it reports to itself -- a hook in"\\
+- " either it reports to itself, or something here talks to it: a hook in"\
++ " it reports to itself: a hook in"\\
 
 = idle-clock-counts-our-own-pass
 f libexec/vigilance/hooks/input-counters
@@ -866,7 +866,7 @@ t claims
 
 # THE HISTORICAL REGRESSION, in its exact shape: a helper called once per HOOK
 # per EDGE that runs a program where the shell would do. Behaviour-preserving on
-# purpose -- no other test can tell, which is what makes perf.t the only guard.
+# purpose: no other test can tell, which is what makes perf.t the only guard.
 = intent-lookup-spawns-a-process-per-call
 f bin/vigilant
 t perf

@@ -3,8 +3,8 @@
 #
 # It was a bare `pkill -x swayidle`: kill every process of that name on the
 # box. That cannot tell ours from anyone else's, so it would silently take out
-# an unrelated instance -- including any independent idle client, which is
-# exactly the shape a second opinion on idle would take -- and leave no trace
+# an unrelated instance, including any independent idle client, which is
+# exactly the shape a second opinion on idle would take, and leave no trace
 # that it had.
 #
 # The sweep is KEPT, because leaving a foreign timer running would mean `stop`
@@ -24,13 +24,13 @@ PIDFILE=$T/run/swayidle.pid
 EVENT_LOG=$T/state/events.log
 : > "$EVENT_LOG"
 
-# A process whose comm really is "swayidle", so /proc agrees -- cmd_stop reads
+# A process whose comm really is "swayidle", so /proc agrees: cmd_stop reads
 # it to avoid signalling a RECYCLED pid, and a fake cannot exercise that.
 #
 # A PLAIN SCRIPT, which keeps comm from its own basename. Copying `sleep` does
 # not work here: it is a multi-call coreutils binary that dispatches on argv[0]
 # and exits with "unknown program 'swayidle'", so the fixture died instantly
-# and case 2 passed by accident. `exec sleep` is no good either -- that
+# and case 2 passed by accident. `exec sleep` is no good either: that
 # replaces the process and comm becomes "sleep". Running it as a CHILD keeps
 # the script itself alive under the name we need.
 printf '#!/bin/sh\nsleep 20\n' > "$T/bin/swayidle"
@@ -73,13 +73,13 @@ kill -0 "$_ours" 2>/dev/null \
        fail "the instance we started survived 'stop'. Killing it by pid is the
 whole point of recording one"; }
 [ ! -s "$PKILL_LOG" ] || fail "a by-name sweep ran even though our own pid was
-valid and killed. The blunt instrument must be the fallback, not the method --
+valid and killed. The blunt instrument must be the fallback, not the method,
 it is what would take out an unrelated idle client"
 
 # --- 2. A RECYCLED PID IS NOT SIGNALLED -------------------------------------
 # A pidfile outlives its process and the number gets reused. Signalling it
 # blind would kill whatever inherited the number, which on a busy box is a
-# coin flip -- and the failure would look like something else entirely.
+# coin flip, and the failure would look like something else entirely.
 "$T/bin/notswayidle" 60 &
 _other=$!
 printf '%s\n' "$_other" > "$PIDFILE"

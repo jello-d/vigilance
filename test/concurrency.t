@@ -18,7 +18,7 @@
 #
 # An empty read is not a harmless blip. `_depth` returns empty, `_depth_of ""`
 # fails, and every caller does `_dfrom=$(_depth_of "$(_depth)") || _dfrom=0`
-# -- and 0 is `open`. So a concurrent reader concludes the machine is UNLOCKED
+#, and 0 is `open`. So a concurrent reader concludes the machine is UNLOCKED
 # when it is actually at `sleep`, and a traversal from that false start crosses
 # the wrong edges: recorded at `lock` while the peripherals are dark and nothing
 # is armed to re-light them. That is the dark-with-no-way-back failure this
@@ -79,7 +79,7 @@ wait "$_w" 2>/dev/null || true
 
 [ "$_bad" = 0 ] || fail "a concurrent reader saw a non-rung depth $_bad times in
 4000 reads. Every caller turns that into 'open' via the _depth_of fallback, so
-the machine reports itself UNLOCKED while it is dark -- and a traversal from
+the machine reports itself UNLOCKED while it is dark, and a traversal from
 that false start leaves the record at 'lock' with the peripherals off and
 nothing armed to bring them back"
 

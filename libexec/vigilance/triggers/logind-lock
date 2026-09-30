@@ -17,7 +17,7 @@
 # `atleast`, NOT plain `go lock`. Session.Lock asks for the session to be
 # SECURED, which a machine already at `sleep` or below is; answering it with a
 # plain `go lock` made the ladder ASCEND and lit the panel on lid-close. See
-# the long note in cmd_go -- it was measured here, on this signal.
+# the long note in cmd_go: it was measured here, on this signal.
 set -eu
 
 # SELF-LOCATE vigilant; do NOT trust PATH. A systemd --user unit's PATH is

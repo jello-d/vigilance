@@ -1,5 +1,5 @@
 #!/bin/sh
-# vigilant -- cross an edge, and be vigilant that it took effect.
+# vigilant: cross an edge, and be vigilant that it took effect.
 #
 # vigilance's two pillars, in one command: make sure ALL the things go dark
 # when they should, and make sure the mechanism that does it is WORKING. See
@@ -174,8 +174,8 @@ HOOK_ROOT=${VIGILANCE_HOOK_ROOT:-$_cfg/vigilance/hooks}
 # FINDING THE WRONG RUNTIME DIR IS ANSWERING ABOUT A DIFFERENT MACHINE, and the
 # bare `${XDG_RUNTIME_DIR:-/tmp}` fallback did exactly that. The variable is
 # unset in a non-interactive ssh, in cron, and under `su`, so `vigilant status`
-# there read an empty /tmp/vigilance and reported `depth: open, since: unknown`
-# -- the SAME answer whether the machine was open, locked or dark. A tool whose
+# there read an empty /tmp/vigilance and reported `depth: open, since: unknown`,
+# the SAME answer whether the machine was open, locked or dark. A tool whose
 # subject is truthful state, confidently wrong about it, with nothing saying the
 # record it read was not the session's.
 #
@@ -214,8 +214,8 @@ IDLE_DEMO=$RUN_DIR/idle-demonstrated
 
 # --- THE LADDER, DECLARED ONCE ---------------------------------------------
 #
-# Five functions each knew the vocabulary by heart -- _is_descent, _is_ascent,
-# _intent_of, _verify_edge_for, _next_down -- plus five more lists scattered
+# Five functions each knew the vocabulary by heart: _is_descent, _is_ascent,
+# _intent_of, _verify_edge_for, _next_down, plus five more lists scattered
 # through plan, report and the fingerprint, and the rung list below written out
 # a second time. Eleven places to edit in step, with nothing to notice if one
 # was missed. That breaks the first house rule: ONE VALUE DRIVES ALL ITS
@@ -237,7 +237,7 @@ suspend suspend - dark'
 
 # POLICY, NOT STRUCTURE, and separate for that reason. `suspend` is a real rung
 # with a real edge; what it is not is an ENFORCEMENT target, because vigilant
-# does not suspend -- systemd does -- so forcing it would prepare peripherals
+# does not suspend; systemd does, so forcing it would prepare peripherals
 # and never cross. Structure describes the machine; this says what we are
 # willing to drive it to.
 NEVER_ENFORCED='suspend'
@@ -258,7 +258,7 @@ _all_edges() {   # every edge name, descents then ascents
 # The first cut ran an awk per call, and _intent_of is called once per HOOK per
 # edge: measured at 1210ms against 1128ms for a lock+unlock pair, ~7% on the
 # security path. Noise against a 25s budget, but it was a regression this
-# refactor had no business introducing -- single-sourcing is about where a fact
+# refactor had no business introducing: single-sourcing is about where a fact
 # is DECLARED, not about re-deriving it on every question.
 # ONE awk PASS for all four, because four spawns per invocation is most of
 # what the per-call version cost. The table is a literal in this file, so the
@@ -287,7 +287,7 @@ _is_ascent() {   # edge
 
 # GRACE: how far past a declared deadline an edge must be before supervision
 # calls it overdue. It exists so the PRIMARY mechanism wins the race in the
-# normal case -- vigilant is the backstop, not the timer, and acting on a tie
+# normal case: vigilant is the backstop, not the timer, and acting on a tie
 # would make it compete with the thing it is supervising.
 GRACE=${VIGILANCE_GRACE:-30}
 
@@ -373,7 +373,7 @@ EOF
 # storm and then simply stayed stopped, with every subsequent report green.
 #
 # So a repeat of the SAME alert within the cooldown is logged and not notified.
-# The LOG IS NEVER SUPPRESSED -- the forensic record has to stay complete, and
+# The LOG IS NEVER SUPPRESSED: the forensic record has to stay complete, and
 # it is the audit tier's input. Only the human-facing notification is throttled.
 #
 # Keyed on kind AND message, so a different fault about the same subsystem still
@@ -386,7 +386,7 @@ ALERT_COOLDOWN=${VIGILANCE_ALERT_COOLDOWN:-3600}
 # A WALL CLOCK IS NOT MONOTONIC, and every record in this package is stamped
 # with `date +%s` and compared later against `date +%s`. An NTP step, an RTC
 # left in local time after a dual boot, or a VM restore makes `now - then`
-# NEGATIVE -- and a negative satisfies every `-lt <bound>` and `-le <bound>`
+# NEGATIVE, and a negative satisfies every `-lt <bound>` and `-le <bound>`
 # here, so a bound meant to expire something never does.
 #
 # MEASURED, not feared: with a record stamped an hour ahead, phantom-guard
@@ -399,7 +399,7 @@ ALERT_COOLDOWN=${VIGILANCE_ALERT_COOLDOWN:-3600}
 # single safe clamp: clamping to 0 still satisfies a cooldown, which is exactly
 # the phantom-guard case. What every caller shares is that a record from the
 # future is NOT A MEASUREMENT, so each picks the answer that does not disable
-# itself -- the same fail-open-on-doubt rule those functions already state.
+# itself, the same fail-open-on-doubt rule those functions already state.
 _elapsed() {   # <epoch> -> prints seconds; non-zero when the clock disagrees
   case "${1:-}" in ''|*[!0-9]*) return 1 ;; esac
   _el_now=$(date +%s)
@@ -412,8 +412,8 @@ _alert_repeat() {   # kind message -> 0 if this is a suppressible repeat
   # DURATIONS ARE NORMALISED OUT OF THE KEY, or the dedup is defeated by the
   # very alerts that need it most. A watchdog message says "emitted nothing for
   # 45252s" and a minute later "45317s": same finding, different text, so every
-  # pass hashed as a fresh onset. Measured on a live box -- 39 notified, ZERO
-  # suppressed -- which is the storm this function exists to prevent and the
+  # pass hashed as a fresh onset. Measured on a live box: 39 notified, ZERO
+  # suppressed, which is the storm this function exists to prevent and the
   # documented reason an enforce timer once got stopped by hand.
   #
   # Only digit-runs followed by `s` are collapsed, so a measurement that
@@ -440,7 +440,7 @@ _alert_repeat() {   # kind message -> 0 if this is a suppressible repeat
 _alert() {   # kind message
   _log "ALERT [$1] $2"
   # DEFERRED, AND THE LOG IS STILL WRITTEN. The standing recheck owns the
-  # verdict for the verify it runs, so it must own the ALERT too -- a hook
+  # verdict for the verify it runs, so it must own the ALERT too: a hook
   # failing inside that verify is not an independent finding, it is the
   # evidence the recheck is about to weigh, and the recheck already carries the
   # hook's own words into its `drift` message.
@@ -453,7 +453,7 @@ _alert() {   # kind message
   #   17:51:21  enforce: an edge was crossed while verifying 'lock'; no verdict
   #
   # The first three lines are from the LOG; the fourth was in the journal only,
-  # which is why the discard is now logged too -- the log recorded a deferred
+  # which is why the discard is now logged too: the log recorded a deferred
   # hook failure and then never said what it had been deferred to.
   #
   # The recheck discarded its verdict exactly as designed. The toast had
@@ -521,7 +521,7 @@ _rung_at() {   # integer -> rung
 }
 
 # The depth file is "<rung> <epoch>": the rung, and WHEN it was entered.
-# The timestamp is what makes supervision possible at all -- without it there
+# The timestamp is what makes supervision possible at all: without it there
 # is no deadline to compute for a `due` hook to be measured against. A legacy
 # file holding only a rung reads back with epoch 0, which simply means "no
 # deadline can be computed yet" rather than an error.
@@ -535,7 +535,7 @@ _rung_at() {   # integer -> rung
 # of a session that is already one.
 # _depth_recorded: the raw first field of the record, or empty if there is none.
 # Separate from _depth so a diagnostic surface can tell "no record" from "a
-# record that is not a rung" -- two states _depth deliberately collapses.
+# record that is not a rung", two states _depth deliberately collapses.
 _depth_recorded() {
   [ -r "$DEPTH_FILE" ] || return 1
   cut -d' ' -f1 < "$DEPTH_FILE" 2>/dev/null || true
@@ -594,7 +594,7 @@ _depth_at() {   # epoch the current rung was entered, or 0
 # reads in 4000, reproducibly.
 #
 # An empty read is not a harmless blip. `_depth` returns nothing, `_depth_of ""`
-# fails, and every caller does `_dfrom=$(_depth_of "$(_depth)") || _dfrom=0` --
+# fails, and every caller does `_dfrom=$(_depth_of "$(_depth)") || _dfrom=0`,
 # and 0 is `open`. So a reader concludes the machine is UNLOCKED while it is at
 # `sleep`, and a traversal from that false start records `lock` while the
 # peripherals stay dark with nothing armed to re-light them.
@@ -626,7 +626,7 @@ _set_depth() {   # rung
 # order: a hook must be able to read the rung it is acting for, and a failure
 # to write a file must never suppress the lock. But it means that between the
 # commit and the provider finishing, `lock` is recorded while no locker is up
-# yet -- asserted-vs-actual drift that is CORRECT and transient.
+# yet: asserted-vs-actual drift that is CORRECT and transient.
 #
 # Measured on manifestor, on a hotkey press:
 #
@@ -647,8 +647,8 @@ _set_depth() {   # rung
 # settled machine. So the marker is only believed while its writer is ALIVE,
 # and capped in time as a backstop against a recycled pid.
 #
-# THE MARKER IS THE LOCK. One object answers both questions -- "may I cross?"
-# and "is it safe to judge?" -- because they are the same window, and the lock
+# THE MARKER IS THE LOCK. One object answers both questions: "may I cross?"
+# and "is it safe to judge?", because they are the same window, and the lock
 # is held from BEFORE the depth is read, which is strictly wider than the
 # marker used to be. That closes a gap the marker had: a recheck landing
 # between _set_depth and the marker write would still have misjudged.
@@ -692,7 +692,7 @@ RECHECK_GRACE=${VIGILANCE_RECHECK_GRACE:-300}
 #               exclusive 20/20. A lock built on a separate PROGRAM can be
 #               swapped for one with a TOCTOU inside it; a shell redirection
 #               cannot. `ln` tested clean too, and is rejected for the same
-#               reason -- it is another binary.
+#               reason: it is another binary.
 #   RE-ENTRANT  a hook that calls back into `vigilant go` would otherwise wait
 #               for its own parent. The token in the environment is how a
 #               nested call recognises itself; a SIBLING unit (the provider's
@@ -700,8 +700,8 @@ RECHECK_GRACE=${VIGILANCE_RECHECK_GRACE:-300}
 #   FAIL-OPEN   A MUTEX ON THE LOCK PATH MUST NEVER BE ABLE TO PREVENT A LOCK.
 #               A stale holder, a read-only runtime dir, a holder that outlives
 #               the wait: every one of them ends in crossing anyway. The worst
-#               case is exactly the old behaviour -- a race, not a dark machine
-#               -- so this can only ever be an improvement on it.
+#               case is exactly the old behaviour: a race, not a dark machine
+#              , so this can only ever be an improvement on it.
 #
 # The waiter does not merely wait: on acquiring it RE-READS the depth, so a
 # duplicate request whose work the holder already did becomes "already at 'X';
@@ -724,11 +724,11 @@ _crossing_stale() {   # 0 if the lock's holder is gone
       #
       # Age separates the two cases, because a claim takes microseconds and a
       # crash between the two steps leaves the directory forever. Unreadable
-      # mtime reads as 0, i.e. ancient, i.e. breakable -- the fail-open
+      # mtime reads as 0, i.e. ancient, i.e. breakable, the fail-open
       # direction, since the alternative is a lock nothing can clear.
       #
       # NOT `[ ... ] && return 0`. An AND-OR list whose test fails returns
-      # non-zero, and `set -e` kills the shell on it -- so a waiter reading a
+      # non-zero, and `set -e` kills the shell on it, so a waiter reading a
       # fresh claim would DIE here instead of waiting. The house rule this
       # stack has already been bitten by twice, and it only showed up at full
       # speed: under `sh -x` the pid was always written before the waiter
@@ -736,7 +736,7 @@ _crossing_stale() {   # 0 if the lock's holder is gone
       # THE AGE COMES FROM THE INODE HERE, not from the file's contents: the
       # whole point of this branch is that the contents are not written yet,
       # so reading a timestamp out of them gives nothing and "nothing" reads
-      # as epoch 0, i.e. ancient, i.e. break it -- which is the steal this
+      # as epoch 0, i.e. ancient, i.e. break it, which is the steal this
       # branch exists to prevent. Caught by the case below on its first run.
       #
       # `stat` is a pure read of an existing inode, so the uutils TOCTOU that
@@ -759,7 +759,7 @@ _crossing_stale() {   # 0 if the lock's holder is gone
 _crossing_begin() {
   # ALREADY INSIDE OUR ANCESTOR'S CRITICAL SECTION: a hook called back into
   # vigilant. The token is the HOLDER's pid, inherited through the
-  # environment, and it is compared against the pid IN THE LOCK -- not against
+  # environment, and it is compared against the pid IN THE LOCK, not against
   # our own `$$`, which is what the first version did and which could never
   # match, because a hook always runs as a different process. It failed
   # silently: every nested call simply paid the full wait and then crossed
@@ -772,7 +772,7 @@ _crossing_begin() {
   # THE RUNTIME DIR MUST EXIST BEFORE THE CLAIM. cmd_go creates it, but this
   # runs first, so on the first crossing after a boot the redirect failed with
   # ENOENT, the wait ran out, and the edge crossed unserialised while logging
-  # "crossing anyway" -- once per boot, on every box, looking like a fault.
+  # "crossing anyway", once per boot, on every box, looking like a fault.
   mkdir -p "$RUN_DIR" 2>/dev/null || true
   _cb_n=0
   while :; do
@@ -907,7 +907,7 @@ _hooks_for() {   # edge [suffix]
 # The mapping lives in hook_lib for the shipped plugins, but an INTEGRATOR
 # hook needs the identical table and getting it wrong is invisible. tackup's
 # kbd-rgb hand-rolled it, read `resume` as "coming back up, so light it", and
-# put a lit keyboard over a dark screen -- in the same pass as ddc-monitor,
+# put a lit keyboard over a dark screen, in the same pass as ddc-monitor,
 # which reads the real mapping and was powering the monitor down. Both hooks
 # "succeeded".
 #
@@ -932,7 +932,7 @@ _intent_of() {   # edge -> dark | lit | none
 #
 # vigilant runs from a keybind, a --user unit, a SYSTEM sleep unit and a greeter
 # launcher, and those have four different PATHs. The system manager's is
-# /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin -- no ~/.local/bin -- so a
+# /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin, no ~/.local/bin, so a
 # hook calling a user-installed command BY NAME finds nothing and, if it does
 # not check, reports success. That is exactly how tackup's kbd-rgb no-opped on
 # the suspend path while logging a clean crossing.
@@ -945,7 +945,7 @@ HOOK_PATH=${VIGILANCE_HOOK_PATH:-${XDG_BIN_HOME:-$HOME/.local/bin}:$HOME/bin:\
 
 # A HOOK MAY NOT HANG FOREVER, because hooks run in LEXICAL ORDER and the lock
 # provider is not first. Measured before this existed: a hook in lock.d that
-# slept blocked the traversal indefinitely and `50-provider` never ran -- the
+# slept blocked the traversal indefinitely and `50-provider` never ran: the
 # screen was never locked, with nothing in the log, no alert and no timeout.
 #
 # Under lock-on-sleep.service that IS the whole failure. The unit is a system
@@ -963,7 +963,7 @@ HOOK_PATH=${VIGILANCE_HOOK_PATH:-${XDG_BIN_HOME:-$HOME/.local/bin}:$HOME/bin:\
 # shipped provider starts swaylock with `systemd-run --user` and returns at
 # commit, so the locker is a SIBLING unit no timeout here can reach. Killing a
 # foreground locker mid-lock would leave a frozen abandoned ext-session-lock,
-# which is precisely why the architecture forbids running one as a child -- so
+# which is precisely why the architecture forbids running one as a child, so
 # this enforces that rule rather than fighting it.
 #
 # VIGILANCE_HOOK_TIMEOUT=0 disables it, for debugging a hook interactively.
@@ -973,7 +973,7 @@ HOOK_PATH=${VIGILANCE_HOOK_PATH:-${XDG_BIN_HOME:-$HOME/.local/bin}:$HOME/bin:\
 # Exit 0 used to mean BOTH "I did the work" and "not applicable here", so
 # nothing downstream could tell them apart. Measured consequence: on a desktop
 # whose monitor has no DPMS standby and no sysfs backlight, `verify sleep` said
-# OK while BOTH of its screen checkers had quietly declined -- ddc-monitor
+# OK while BOTH of its screen checkers had quietly declined: ddc-monitor
 # because the panel advertises no off code, panel-backlight because there is no
 # such device. The screen was verified by nothing and the tier whose whole job
 # is to catch that reported green.
@@ -989,12 +989,12 @@ HOOK_PATH=${VIGILANCE_HOOK_PATH:-${XDG_BIN_HOME:-$HOME/.local/bin}:$HOME/bin:\
 HOOK_NA=78
 
 # HOOK_SKIP: "I checked recently; not due". sysexits' EX_TEMPFAIL, which is
-# exactly the meaning -- a temporary condition, try again later.
+# exactly the meaning: a temporary condition, try again later.
 #
 # WHY IT CANNOT BE 78. "Everything declined" is a FAILURE: it means the rung was
 # verified by nothing, which is the conflation exit 78 exists to break.
-# "Everything was checked recently" is the opposite -- the machine IS covered,
-# just not by this pass -- so collapsing them would make a fully-throttled tier
+# "Everything was checked recently" is the opposite: the machine IS covered,
+# just not by this pass, so collapsing them would make a fully-throttled tier
 # read as a verify that nothing performed, and the coverage accounting would lie
 # in the safe-looking direction.
 #
@@ -1012,8 +1012,8 @@ if [ "$HOOK_TIMEOUT" != 0 ] && command -v timeout >/dev/null 2>&1; then
   HOOK_TMO="timeout -k 2 $HOOK_TIMEOUT"
 fi
 
-# The AUDIT tier gets its own, larger budget. It reads external event sources --
-# the shipped one runs journalctl over a day of records -- and a big journal
+# The AUDIT tier gets its own, larger budget. It reads external event sources:
+# the shipped one runs journalctl over a day of records, and a big journal
 # legitimately takes longer than anything on the lock path may. Nothing waits on
 # it (a daily timer), so latency is not what needs protecting here; only the
 # hang does.
@@ -1039,13 +1039,13 @@ _run_hooks() {   # edge from [suffix]
   # THE KIND STRING IS THE SAME FOR EVERY HOOK ON THIS EDGE, so it is computed
   # ONCE here rather than per hook. It was `printf | tr -d .` inside the loop:
   # two processes per hook per edge for a leading dot. Every value KINDS can
-  # hold has exactly one, so the expansion is equivalent -- `.` gives the empty
+  # hold has exactly one, so the expansion is equivalent: `.` gives the empty
   # string, which hooks already read as the act tier (`${VIGILANCE_KIND:-act}`).
   _kind=${_sfx:-.act}
   _kind=${_kind#.}
   # SO IS THE INTENT, for the same reason: the edge does not change inside the
   # loop. `_intent_of` is pure shell and forks no program, so no fork counter
-  # sees it -- but a command substitution is still a subshell per hook, and
+  # sees it, but a command substitution is still a subshell per hook, and
   # this is the loop where that is worth not paying. Hoisting it also puts the
   # one call in the same place as the kind it travels with.
   _intent=$(_intent_of "$_edge")
@@ -1073,8 +1073,8 @@ _run_hooks() {   # edge from [suffix]
       VIGILANCE_STATE_DIR="$_sd" \
       $HOOK_TMO "$_h" "$_edge" "$_from" || _hrc=$?
     if [ "$_hrc" = "$HOOK_NA" ]; then
-      # NOT APPLICABLE. Not a failure -- there is genuinely nothing here for
-      # this hook to do -- but emphatically not a success either, and the
+      # NOT APPLICABLE. Not a failure: there is genuinely nothing here for
+      # this hook to do, but emphatically not a success either, and the
       # difference is what `verify` reports.
       HOOKS_NA=$((HOOKS_NA + 1))
       HOOKS_NA_NAMES="$HOOKS_NA_NAMES $(basename "$_h")"
@@ -1098,7 +1098,7 @@ _run_hooks() {   # edge from [suffix]
       case "$_hrc" in
         124|137)
           log "HOOK TIMED OUT after ${HOOK_TIMEOUT}s (rc=$_hrc):"\
-" $_edge$_sfx $(basename "$_h") -- it held up every later hook on this edge" ;;
+" $_edge$_sfx $(basename "$_h"): it held up every later hook on this edge" ;;
         *) log "HOOK FAILED (rc=$_hrc): $_edge$_sfx $(basename "$_h")" ;;
       esac
       _fails=$((_fails + 1))
@@ -1141,7 +1141,7 @@ EOF
 # It still COMMITS the depth. A hook that changed hardware without the record
 # following is precisely the desync that left a monitor dark for two days, so
 # there is no "run the hooks but pretend nothing happened" mode.
-# ONE EDGE, crossed properly: ask, commit, act, announce -- in that order and in
+# ONE EDGE, crossed properly: ask, commit, act, announce, in that order and in
 # ONE place. `only` and the traversal loop both need this exact sequence and
 # each carried its own copy: two places to get a safety-critical ORDER right.
 #
@@ -1149,7 +1149,7 @@ EOF
 #   1. BLOCK is asked first, before anything is committed, so a refusal changes
 #      nothing at all (exit 3 means the machine did not move).
 #   2. DEPTH is committed before the actuators run, so a hook that fails cannot
-#      leave the record lying about where the machine is -- the ascent reads
+#      leave the record lying about where the machine is: the ascent reads
 #      that record to decide restore-versus-re-assert.
 #   3. REPORT runs after the actuators, so a reporter announces what is now TRUE
 #      rather than what was intended.
@@ -1165,15 +1165,15 @@ _cross_one() {   # edge leaving to [note]
   # debounce or an inhibitor is the mechanism behaving correctly.
   #
   # Refusing an ASCENT is the opposite in every respect. It leaves the machine
-  # in a DARK rung with the one path out of it vetoed -- "the screen is dark and
+  # in a DARK rung with the one path out of it vetoed: "the screen is dark and
   # nothing will bring it back", stated as a supported configuration. Measured,
   # before this guard: a block hook in wake.block.d made `force open` AND
   # `vigilant rescue` return 3 with the machine still at `sleep`. The panic key
   # is the last resort, pressed blind by someone who cannot see the screen, and
   # a plugin could disable it.
   #
-  # Nor is anything lost. This edge does not perform authentication -- swaylock
-  # does -- so blocking `unlock` never kept anyone out; it only stopped the
+  # Nor is anything lost. This edge does not perform authentication; swaylock
+  # does, so blocking `unlock` never kept anyone out; it only stopped the
   # RECORD and the restore hooks, desyncing the file from a machine the user has
   # already unlocked. An ascent block is all cost and no benefit, so it is
   # refused here and reported as a wiring error rather than honoured.
@@ -1232,7 +1232,7 @@ _cmd_go() {   # <state> [force|only|atleast]
   # `go <rung>` means "be AT this rung" and correctly travels in either
   # direction: the resume path relies on that, since `go lock` from `sleep` is
   # how a woken box comes back up. But a LOCK REQUEST is a different question
-  # wearing the same verb -- it asks to be AT LEAST this deep -- and answering
+  # wearing the same verb: it asks to be AT LEAST this deep, and answering
   # it by ascending turns the screen ON in response to the single most
   # unambiguous "I am leaving" gesture there is.
   #
@@ -1240,7 +1240,7 @@ _cmd_go() {   # <state> [force|only|atleast]
   # logind emit Session.Lock; the trigger ran plain `go lock`; the machine was
   # at `sleep`, so it crossed `wake` and lit the panel. Nothing brought it back
   # down, because swayidle had already spent its `timeout 600` and never saw a
-  # resume -- a lid switch is not seat input to the compositor. The box sat lit
+  # resume: a lid switch is not seat input to the compositor. The box sat lit
   # with the lid shut for 30 minutes, and the only thing that ended it was a
   # human opening the lid again.
   #
@@ -1254,7 +1254,7 @@ _cmd_go() {   # <state> [force|only|atleast]
     # STRICTLY DEEPER. `-ge` here emitted "already at 'lock', deeper than
     # 'lock'; not raising" on a live box: a sentence that contradicts itself
     # and describes a raise that was never on the table. The equal case needs
-    # no branch at all -- falling through reaches the shared "already at 'X';
+    # no branch at all: falling through reaches the shared "already at 'X';
     # nothing to do" that every other caller logs, which is the right words and
     # one less place for them to be written.
     if [ "$_dnow" -gt "$_dto" ]; then
@@ -1433,7 +1433,7 @@ _plan_edge() {   # edge
     else _pfirst=$_pu; _psecond=$_pm; fi
     _plan_row "$_plabel" "session:" "$_pfirst$_psecond"
     # THE GREETER LINE IS THE POINT. It has no user scope at all, so every
-    # user-scope hook is simply absent there -- invisible in any listing that
+    # user-scope hook is simply absent there, invisible in any listing that
     # shows one merged set, which is how a greeter with no way to blank its
     # screen looked identical to a session that had one.
     _plan_row "" "greeter:" "${_pm:- (nothing)}"
@@ -1475,7 +1475,7 @@ _plan_gaps() {   # -> 0 clean, 1 a wired machine hook is invisible to greeter
     echo ""
     echo "  These are listed above as if the greeter runs them. It does not:"
     echo "  _hooks_in tests [ -x ], which is FALSE for a uid that cannot"
-    echo "  traverse there, so the hook does not fail -- it does not exist."
+    echo "  traverse there, so the hook does not fail; it does not exist."
     echo "  A machine-scope target must live in a root-visible tree."
   fi
   return "$_pg"
@@ -1490,8 +1490,8 @@ _plan_gaps() {   # -> 0 clean, 1 a wired machine hook is invisible to greeter
 # nothing ever compared the results.
 #
 # CANONICAL, so equality means something: sorted, and built from scope + edge +
-# tier + hook name + the RESOLVED target. The target is included deliberately
-# -- two boxes agreeing on the name of a hook that points at different code is
+# tier + hook name + the RESOLVED target. The target is included deliberately:
+# two boxes agreeing on the name of a hook that points at different code is
 # precisely the drift worth catching, and it is the shape the shadowed
 # /usr/local binaries took.
 #
@@ -1569,7 +1569,7 @@ cmd_status() {
   # clock moved, and both alternatives lie: a negative announces that the
   # instrument is broken (status printed "since: -3600s ago", which is the two
   # commands an operator reads most), and clamping to zero claims the rung was
-  # entered just now. Name the anomaly instead -- this is a diagnostic surface,
+  # entered just now. Name the anomaly instead: this is a diagnostic surface,
   # so the honest answer is the useful one.
   if [ "$_at" -gt 0 ]; then
     if _st_e=$(_elapsed "$_at"); then _since="${_st_e}s ago"
@@ -1608,12 +1608,12 @@ KINDS=". .verify .report .due .block"
 # `audit.d`, `alert.d` and `idle.d` are not keyed by edge. An audit hook NAMES
 # the edge in its output (one journal source reports events for several
 # different edges), an alert is not about a single edge at all, and idle time
-# is a property of the SEAT rather than of any edge -- several deadlines on
+# is a property of the SEAT rather than of any edge: several deadlines on
 # different edges all read the same clock.
 #
 # THE BUG THIS FIXES WAS IN BOTH DIRECTIONS AT ONCE. `.audit` was in KINDS, so
 # `hooks` looked in `<edge>.audit.d` and cheerfully reported a hook there as
-# wired -- while cmd_audit reads plain `audit.d` and would never run it. And the
+# wired, while cmd_audit reads plain `audit.d` and would never run it. And the
 # real, working `audit.d` hook on the live box was reported by `hooks` as not
 # existing. So the inspector and the runner disagreed about where this tier
 # lives, in the one command whose entire purpose is showing what is wired, which
@@ -1744,7 +1744,7 @@ cmd_hooks() {   # [edge]
 #   sleep -> sleep (dark)  suspend -> suspend (dark)
 _verify_edge_for() {   # rung -> the edge whose verify tier asks about it
   # The DESCENT edge into the rung, or the ascent edge where nothing descends
-  # into it -- which is only `open`, the top of the ladder.
+  # into it, which is only `open`, the top of the ladder.
   _lt | awk -v r="$1" '$1 == r { print ($2 == "-" ? $3 : $2); exit }'
 }
 
@@ -1785,11 +1785,11 @@ cmd_verify() {   # [edge]
           echo "verify $_e: not due ($_vmsg)"
         elif [ "$_vck" -eq 0 ]; then
           # NOTHING COULD BE CHECKED, so this is not a verdict about the
-          # machine at all -- it is the absence of one, and it must not read as
+          # machine at all: it is the absence of one, and it must not read as
           # success. Exactly the state a desktop with no DPMS standby and no
           # sysfs backlight was in while `verify sleep` said OK and a lit
           # wallpaper sat on an OLED.
-          echo "verify $_e: NOTHING CHECKED -- ${HOOKS_NA:-0} hook(s) all"\
+          echo "verify $_e: NOTHING CHECKED: ${HOOKS_NA:-0} hook(s) all"\
 " declined (${HOOKS_NA_NAMES# }). This edge has no working verifier, so its"\
 " state is unknown rather than good"
           _vrc=1
@@ -1814,7 +1814,7 @@ cmd_verify() {   # [edge]
   done
   if [ "$_ran" = 0 ]; then
     # NAME the edge. "no verify hooks installed" sent vigilance-report to a
-    # flat [FAIL] on a machine that had three of them wired -- they were just
+    # flat [FAIL] on a machine that had three of them wired: they were just
     # on other edges than the one this rung asks about. An honest n/a has to
     # say WHICH question went unanswered, or the next layer up mis-reports it.
     echo "verify: n/a (no verify hooks for edge" \
@@ -1824,12 +1824,12 @@ cmd_verify() {   # [edge]
     # The n/a contract was closed at the HOOK level (a hook declines with 78)
     # and left open at the EDGE level: every wired hook declining is a FAIL,
     # while NO hook being wired returned 0. Identical epistemic state, opposite
-    # verdict -- the precise conflation this whole tier exists to break.
+    # verdict, the precise conflation this whole tier exists to break.
     #
     # It is load-bearing, not tidiness. lock-on-sleep.service runs
     # `vigilant verify lock` as ExecStartPost, and that is the suspend-time
-    # lock guarantee. With 0 here, emptying lock.verify.d -- a sweep, a
-    # rename, a wiring bug, exactly what hit swayidle-mgr and 50-swaylock --
+    # lock guarantee. With 0 here, emptying lock.verify.d (a sweep, a
+    # rename, a wiring bug, exactly what hit swayidle-mgr and 50-swaylock)
     # made the unit report success and the box suspend with the lock verified
     # by nothing, green all the way up.
     #
@@ -1857,7 +1857,7 @@ cmd_verify() {   # [edge]
 # The sysfs roots are OVERRIDABLE for one reason: otherwise report is untestable
 # without the developer's own hardware answering. A scenario that reads
 # /sys/class/backlight asserts on whatever the laptop happens to be doing, and
-# this suite already learned where that leads -- a test that reached the real
+# this suite already learned where that leads: a test that reached the real
 # brightnessctl blacked out a live screen twice. Production never sets these.
 SYS_BACKLIGHT=${VIGILANCE_SYS_BACKLIGHT:-/sys/class/backlight}
 SYS_DRM=${VIGILANCE_SYS_DRM:-/sys/class/drm}
@@ -1875,7 +1875,7 @@ _r_info() { printf '  [--]   %s\n' "$*"; }
 # ignore the line that matters. Session-scoped checks say n/a when absent.
 # IS A LOCKER UP? Overridable for the same reason as the sysfs roots: without
 # it a scenario's verdict depends on whether the DEVELOPER's screen happens to
-# be locked while the suite runs. That is not a hypothetical -- it failed here
+# be locked while the suite runs. That is not a hypothetical: it failed here
 # exactly that way, reading a real swaylock from inside a sandbox.
 _r_locker_up() {
   if [ -n "${VIGILANCE_LOCKER_UP+x}" ]; then
@@ -1889,7 +1889,7 @@ _r_session() {
   # Overridable so a scenario can exercise BOTH the session and no-session
   # paths. They behave differently (a fresh session makes the `open` default a
   # real claim; no session makes it a fiction), and without this the test would
-  # assert whatever the developer's box happens to be doing -- the same reach
+  # assert whatever the developer's box happens to be doing, the same reach
   # into the running system the sysfs roots are overridable to avoid.
   if [ -n "${VIGILANCE_SESSION+x}" ]; then printf '%s' "$VIGILANCE_SESSION"
     return 0
@@ -1924,7 +1924,7 @@ _rep_state() {
   # A DEFAULT IS NOT ALWAYS A CLAIM, and treating it as one cries wolf.
   #
   # _depth() answers `open` when no depth file exists. With a live session that
-  # is a fair claim -- a fresh login genuinely IS open, and the runtime dir is
+  # is a fair claim: a fresh login genuinely IS open, and the runtime dir is
   # cleared on logout, so a just-logged-in box legitimately has no record yet.
   # With NO session it is a fiction.
   #
@@ -1976,7 +1976,7 @@ _rep_state() {
   # A DOTFILE IS BOOKKEEPING, NOT A LEVEL, and this glob is what enforces that:
   # a POSIX pattern does not match a leading dot, so state that is not a
   # restorable level simply names itself with one and is invisible here.
-  # Load-bearing, not incidental -- adding a `.[!.]*` pass to "be thorough"
+  # Load-bearing, not incidental: adding a `.[!.]*` pass to "be thorough"
   # would reinstate a bug this has now had twice. "The content is a number" was
   # the rule, and an idle counter snapshot broke it once (a permanent FAIL at
   # every lit rung on two live boxes) and a verify throttle's epoch stamp broke
@@ -1991,7 +1991,7 @@ _rep_state() {
     # hook kept in its state dir, which was the same thing only while the sole
     # state anyone kept WAS a brightness save. An idle source keeps a counter
     # snapshot there permanently, and report called it an unrestored device at
-    # every lit rung -- a FAIL, forever, about a file working exactly as meant.
+    # every lit rung: a FAIL, forever, about a file working exactly as meant.
     #
     # Reading the content rather than the name because there is no naming
     # convention to lean on: the savers use `level`, and mute-leds uses the LED
@@ -2060,7 +2060,7 @@ _rep_coherence() {
       # locked state: it sits at this rung with no user session, no lock
       # provider and no locker, forever and correctly. Asserting one there made
       # report permanently RED on the one session nobody is present to watch,
-      # which is worse than silence -- a check that is always failing is a check
+      # which is worse than silence: a check that is always failing is a check
       # nobody reads.
       #
       # The provider is what decides. If no lock.d hook is wired, nothing in
@@ -2090,7 +2090,7 @@ _rep_coherence() {
 #
 # `verify` and the standing recheck only ever ask about the rung the machine is
 # at NOW, so an edge with no verifier is invisible until the machine happens to
-# be there. For `resume` that is after an S3 cycle -- the one moment nobody is
+# be there. For `resume` that is after an S3 cycle, the one moment nobody is
 # watching, on the edge with a history of failing.
 #
 # Found live on both boxes: `resume` fires four actuators and has no verify
@@ -2115,7 +2115,7 @@ _unverified_edges() {   # -> "edge:actcount" for each acting, uncheckable edge
 _rep_coverage() {
   # ITS OWN SECTION, so an assertion can be scoped to it. report has one exit
   # code for ten sections and several read the real host, so a test that keys
-  # on the whole output passes for free on any host that is red elsewhere --
+  # on the whole output passes for free on any host that is red elsewhere,
   # and keeps passing with the check it claims to cover deleted.
   echo "-- coverage --"
   _uo=$(_unverified_edges)
@@ -2168,7 +2168,7 @@ _rep_deadlines() {
     if [ -n "$_dclock" ]; then
       # A NUMBER IS NOT A CAPABILITY. This used to stop here and report
       # "measurable", which is precisely the false green the idle source's own
-      # ceiling was invented to expose -- and nothing read that ceiling, so the
+      # ceiling was invented to expose, and nothing read that ceiling, so the
       # tell existed only as a comment. MEASURED on a live box: the clock reset
       # every 25s, never reached 60, and both a 480s and a 600s deadline were
       # reported measurable.
@@ -2183,9 +2183,9 @@ _rep_deadlines() {
       case "${_dcm:-}${_dca:-}" in ''|*[!0-9]*) _dcm= ;; esac
       # A SHORT CEILING ON A MACHINE IN USE IS A PERSON, NOT A FAULT, and the
       # first version of this check could not tell the two apart. It went WARN
-      # on a laptop somebody was typing on -- "the clock has never seen over
+      # on a laptop somebody was typing on: "the clock has never seen over
       # 518s quiet in 819s of watching: something talks to an input device on
-      # its own" -- where the something was the user. A wrong cause is worse
+      # its own", where the something was the user. A wrong cause is worse
       # than no cause, and a warning that is always on is how a report stops
       # being read.
       #
@@ -2216,7 +2216,7 @@ _rep_deadlines() {
         # itself", and that cause was WRONG on the box it was written for.
         # Traced: the standing recheck runs `verify`, tackup wires kbd-rgb
         # there, kbd-rgb asks qmk-ripple for the board's RGB state, and that is
-        # a raw-HID exchange on the keyboard -- 6 URBs, three seconds after
+        # a raw-HID exchange on the keyboard: 6 URBs, three seconds after
         # every supervision pass, measured. The keyboard answers because we
         # ASKED. So vigilance was resetting its own idle clock and then telling
         # the operator to go and fix their firmware.
@@ -2230,7 +2230,7 @@ _rep_deadlines() {
         case "${_dcr:-}" in ''|-) _dcw="something on this machine talks to an"\
 " input device, and no source named it" ;;
           *) _dcw="$_dcr moved while the seat was quiet (label:seconds-ago):"\
-" either it reports to itself, or something here talks to it -- a hook in"\
+" either it reports to itself, or something here talks to it: a hook in"\
 " this machine's own verify tier counts, if one queries that device" ;;
         esac
         _r_warn "from '$_dr': '$_de' is ${_ds}s idle-anchored and the clock"\
@@ -2261,11 +2261,11 @@ _rep_verify() {
     _vout=$(cmd_verify 2>&1) && _vrc2=0 || _vrc2=1
     # FOUR OUTCOMES, and they are not interchangeable. The old matcher looked
     # for the substring "n/a" anywhere, which now also appears in a perfectly
-    # healthy "ok (3 checked, 1 n/a: ...)" -- so it has to match the SPECIFIC
+    # healthy "ok (3 checked, 1 n/a: ...)", so it has to match the SPECIFIC
     # claims instead of a word that shows up in several of them.
     case "$_vout" in
       *"NOTHING CHECKED"*)
-        # Every wired hook declined. Not drift -- there is no verdict at all,
+        # Every wired hook declined. Not drift: there is no verdict at all,
         # which is worse than drift because it reads as calm.
         _r_bad "$_vout" ;;
       *"verify: n/a"*)
@@ -2288,8 +2288,8 @@ _rep_verify() {
 # silent skip is how a cadence quietly becomes never.
 #
 # THE SNAPSHOT IS TAKEN BEFORE ANY SECTION RUNS, and that is load-bearing
-# rather than tidy. `_rep_verify` does NOT throttle -- an explicit verify never
-# does -- so it stamps every deferring hook on its way past, and stamps read
+# rather than tidy. `_rep_verify` does NOT throttle: an explicit verify never
+# does, so it stamps every deferring hook on its way past, and stamps read
 # afterwards would answer "checked just now" on every box, healthy or dead.
 # That is the observer effect in the tier whose job is to observe, which this
 # same command has already paid for once: running `report` to watch a fix land
@@ -2316,8 +2316,8 @@ _rep_cadence() {
   # THE AGES ARE EVIDENCE AND NOT A VERDICT, deliberately. Each hook chooses
   # its own window (it passes one to `hook_throttle`), so a number report
   # guessed at here would be one no hook uses; and the two things that could
-  # make a stamp stale -- the supervision timer not running, the hook no longer
-  # wired -- are already `machinery`'s finding and `wiring`'s. Two sections
+  # make a stamp stale (the supervision timer not running, the hook no longer
+  # wired) are already `machinery`'s finding and `wiring`'s. Two sections
   # accusing in different words teaches a reader to discount both.
   if [ -z "${CAD_SNAP:-}" ]; then
     _r_info "no verifier defers: every supervision pass checks everything"
@@ -2335,7 +2335,7 @@ _rep_cadence() {
     return 0
   fi
   # THE STAMP IS WRITTEN ONLY ON A VERDICT THE RECHECK KEPT, so this is a
-  # statement about a verify that really happened and was really believed --
+  # statement about a verify that really happened and was really believed,
   # not about one that ran and was then discarded for racing a crossing.
   _cd_seen=$(cat "$STATE_ROOT/recheck-verified" 2>/dev/null || true)
   case "${_cd_seen:-}" in ''|*[!0-9]*) _cd_seen=0 ;; esac
@@ -2376,7 +2376,7 @@ _rep_unit_runnable() {   # unit
     | sed -n 's/.*path=\([^ ;]*\).*/\1/p' | head -1)
   if [ -n "$_x" ] && [ ! -x "$_x" ]; then
     # Named, because "it failed" without the path sends you reading units.
-    _r_bad "$1 ExecStart is NOT executable: $_x -- it will 203/EXEC, and a"\
+    _r_bad "$1 ExecStart is NOT executable: $_x; it will 203/EXEC, and a"\
 " failed Before=sleep.target unit does not stop the sleep"
   fi
   # The LAST RESULT is the only direct evidence that it ever worked. A unit that
@@ -2413,8 +2413,8 @@ _rep_unit_runnable() {   # unit
 # THE IDLE TIMER IS A MECHANISM, AND report SHOULD NOT KNOW WHICH ONE.
 #
 # Everything below named `swayidle` outright. The crossing machinery hardcodes
-# no mechanism at all -- measured, zero references across all nine of its
-# functions -- but the OBSERVABILITY did, and that is the worse half: swap
+# no mechanism at all: measured, zero references across all nine of its
+# functions, but the OBSERVABILITY did, and that is the worse half: swap
 # swayidle for xidlehook or hypridle and the machine locks perfectly while
 # `report` says "swayidle NOT running: nothing will lock on idle". A false FAIL
 # about a healthy box, from the one tier whose entire job is not doing that.
@@ -2423,7 +2423,7 @@ _rep_unit_runnable() {   # unit
 # substitutes the cmdline SOURCE for tests while the process name stayed fixed.
 #
 # Set VIGILANCE_IDLE_PROCESS empty to say the box HAS no idle timer, and the
-# whole tier reports n/a rather than red -- a greeter-only or kiosk machine has
+# whole tier reports n/a rather than red: a greeter-only or kiosk machine has
 # nothing to idle.
 IDLE_PROCESS=${VIGILANCE_IDLE_PROCESS-swayidle}
 IDLE_UNIT=${VIGILANCE_IDLE_UNIT-vigilance-idle.service}
@@ -2454,7 +2454,7 @@ _rep_idle_armed() {
         *)  PATH="$HOOK_PATH" command -v "$_icmd" >/dev/null 2>&1 && continue ;;
       esac
       _r_bad "$IDLE_PROCESS is armed with a command that cannot run:"\
-" $_icmd -- that"\
+" $_icmd: that"\
 " timer fires into nothing, silently, and no other check can see it"
       _ibad=$((_ibad + 1))
       continue
@@ -2492,14 +2492,14 @@ _rep_machinery() {
   # Not hypothetical: the enforce timer was stopped BY HAND on a real box to
   # quiet an alert storm, and then simply stayed stopped, with every subsequent
   # report green. "A supervision loop nothing runs" is the dead tier this
-  # project keeps rediscovering -- `due.d` was designed, enumerated and read
+  # project keeps rediscovering: `due.d` was designed, enumerated and read
   # by nothing for a whole refactor. So its absence is a FAILURE, not silence.
   for _t in vigilance-enforce.timer vigilance-audit.timer; do
     if systemctl --user is-active --quiet "$_t" 2>/dev/null; then
       _r_ok "$_t active"
     elif [ -z "$_sess" ]; then _r_info "$_t n/a (no session)"
     else _r_bad "$_t NOT active: supervision is off, so a missed edge will go"\
-" unnoticed -- which is the one thing this suite exists to prevent"; fi
+" unnoticed, which is the one thing this suite exists to prevent"; fi
   done
   if [ -z "$IDLE_PROCESS" ]; then
     _r_info "idle timer n/a (VIGILANCE_IDLE_PROCESS is empty: this box"\
@@ -2515,7 +2515,7 @@ _rep_machinery() {
   #
   # Called UNCONDITIONALLY, and the function decides for itself whether it has
   # argv to read. Nesting it under the pgrep above made it unreachable whenever
-  # swayidle was not running -- which is harmless in production (there is no
+  # swayidle was not running, which is harmless in production (there is no
   # argv, and a dead swayidle already FAILS on the line above) but made the
   # check untestable in the VM substrate, where no session exists. The stub tier
   # passed only because the DEVELOPER's box happened to have swayidle running,
@@ -2525,7 +2525,7 @@ _rep_machinery() {
   # running. A bare swayidle works right up until it wedges, and wedging is the
   # original failure this entire suite was built around: one wedge-prone daemon
   # must not BE the guarantee. Running-but-unsupervised is degraded, not broken,
-  # so it warns rather than fails -- a dead timer already failed above.
+  # so it warns rather than fails: a dead timer already failed above.
   if [ -z "$IDLE_UNIT" ]; then
     _r_info "no idle supervisor declared (VIGILANCE_IDLE_UNIT is empty)"
   elif systemctl --user is-active --quiet "$IDLE_UNIT" 2>/dev/null; then
@@ -2542,14 +2542,14 @@ _rep_machinery() {
 # ACTUATOR WRITABILITY. hook_lib DECLARES that the login user must be in the
 # `vigilant` group for brightnessctl to drive these nodes, and nothing checked
 # it, so the requirement was a comment. On a real box the user was in none of
-# input/video/i2c and every write was denied -- and hook_dark/hook_lit swallow
+# input/video/i2c and every write was denied, and hook_dark/hook_lit swallow
 # brightnessctl failure by design (`|| true`), so vigilant logged clean
 # crossings while the hardware never moved. Asserted-versus-actual drift, in
 # the actuators this time rather than the record.
 #
 # Tests -w on the node rather than writing one: a report must change nothing,
 # and a permission bit answers the question without touching the device. A
-# node that does not EXIST is n/a, not drift -- a desktop has no panel
+# node that does not EXIST is n/a, not drift: a desktop has no panel
 # backlight and no hook should care.
 # THE EDGE BUDGET: hooks x bound, against the unit's own timeout.
 #
@@ -2562,7 +2562,7 @@ _rep_machinery() {
 # so every hook ordered ahead of the provider is a hook that can delay the lock
 # itself. Measured on a live box: block `10-phantom` and act `20-mute-on-lock`
 # both precede `50-swaylock`, so at the 10s default the provider can start at
-# 24s of a 25s budget -- systemd then kills the unit mid-lock and logind
+# 24s of a 25s budget: systemd then kills the unit mid-lock and logind
 # suspends anyway, because nothing can veto a suspend.
 #
 # The act tier is where the screen is locked, so (block + act) is the critical
@@ -2608,7 +2608,7 @@ _rep_hookcount() {   # <suffix>... -> how many hooks across those tiers
   printf '%s' "$_hc"
 }
 
-# WHICH act hook raises the locker, by POSITION -- because that, not the total,
+# WHICH act hook raises the locker, by POSITION, because that, not the total,
 # decides whether the screen is locked inside the unit's budget. Hooks ordered
 # after the provider can only cost the unit; hooks ordered before it can cost
 # the LOCK.
@@ -2616,7 +2616,7 @@ _rep_hookcount() {   # <suffix>... -> how many hooks across those tiers
 # Identified by CONVENTION rather than configuration: a lock provider resolves
 # into a `providers/` directory (vigilance ships its own at
 # libexec/vigilance/providers/swaylock and an integrator symlinks it into
-# lock.d). That keeps the fact in one place -- no second declaration to drift
+# lock.d). That keeps the fact in one place: no second declaration to drift
 # from the wiring, which is the failure this project keeps paying for.
 #
 # UNKNOWN IS PESSIMISTIC. A third-party provider that does not follow the
@@ -2676,7 +2676,7 @@ _rep_budget() {
       _r_warn "the LOCK itself can take ${_wcrit}s ($_ncrit block+act hooks x"\
 " ${_per}s) against lock-on-sleep's ${_bsec}s. No hook in lock.d resolves into"\
 " a providers/ directory, so every act hook is counted as running before the"\
-" lock -- the safe assumption, not a measurement. Lower"\
+" lock: the safe assumption, not a measurement. Lower"\
 " VIGILANCE_HOOK_TIMEOUT, drop a hook, or place the provider so it is"\
 " identifiable"
     fi
@@ -2685,7 +2685,7 @@ _rep_budget() {
     # the guarantee; what can be cut short is the verification after it. On a
     # normally-wired box the total exceeds the budget permanently (eight hooks
     # at the default bound is 96s against 25s) and no realistic wiring clears
-    # it, so a warning here would be a line that is always on -- which is how a
+    # it, so a warning here would be a line that is always on, which is how a
     # report teaches you to skip the line that matters.
     _r_info "the lock edge can take ${_wall}s total ($_nall hooks x ${_per}s)"\
 " against lock-on-sleep's ${_bsec}s. The lock itself fits (${_wcrit}s), so"\
@@ -2825,7 +2825,7 @@ cmd_report() {
   _rep_wiring
   # REPORT SETTLES TOO, because it runs hooks. `_rep_verify` re-asserts the
   # current rung, and a verify hook that queries an input device over USB is
-  # traffic on it -- so a human running `report` was poisoning the NEXT
+  # traffic on it, so a human running `report` was poisoning the NEXT
   # supervision pass, which would read that traffic as seat input.
   #
   # FOUND BY TRIPPING OVER IT: watching the fix land on a live box meant running
@@ -2833,8 +2833,8 @@ cmd_report() {
   # The observer effect, in the one tier whose job is to observe.
   #
   # Its OWN reading is still taken mid-report, before this, so report can show a
-  # number that includes its own traffic. That errs toward ACTIVE -- a smaller
-  # idle time, which suppresses a finding rather than inventing one -- and it is
+  # number that includes its own traffic. That errs toward ACTIVE: a smaller
+  # idle time, which suppresses a finding rather than inventing one, and it is
   # displayed rather than alerted on.
   _idle_phase=settle   # report ran hooks too
   _idle_secs >/dev/null 2>&1 || true   # re-baseline, report's own traffic
@@ -2882,7 +2882,7 @@ cmd_rescue() {
   _log "RESCUE pressed; evidence in $_rl"
   _rrc=0
   # THE PANIC KEY DOES NOT QUEUE. It is pressed blind by someone who cannot see
-  # the screen, so it tries the crossing lock once and crosses regardless --
+  # the screen, so it tries the crossing lock once and crosses regardless,
   # the fail-open rule taken to its limit, on the one path that exists to
   # escape a stuck machine. Anything it collides with is trying to bring the
   # machine to the same place or has already failed at it.
@@ -2926,7 +2926,7 @@ cmd_rescue() {
 # An idle-anchored deadline is NOT ENFORCEABLE here, because vigilant has no
 # idle-time source: logind reports IdleHint=no and IdleSinceHint=0 on this
 # stack, and wlroots exposes no CLI for it. Measured from rung entry instead,
-# `lock` read as 1616s overdue on a machine being actively typed on -- the
+# `lock` read as 1616s overdue on a machine being actively typed on, the
 # enforce timer would have alerted every minute, forever, about nothing.
 #
 # So an idle anchor is reported and deliberately NOT acted on. The forensic tier
@@ -2947,7 +2947,7 @@ _audit_covered() {   # -> 0 if ANY audit source is wired
 }
 # --- the idle clock --------------------------------------------------------
 # THE ONE MEASUREMENT THIS SUITE HAS NEVER HAD, and the reason a whole tier was
-# inert. The deadline that matters -- "the screen should have locked by now" --
+# inert. The deadline that matters ("the screen should have locked by now")
 # is expressed in IDLE time, and vigilant could not read idle time. The only
 # clock it had was time-since-entering-the-rung, which on an actively used
 # machine over-reports: measured from rung entry it once called `lock` 1616s
@@ -2964,7 +2964,7 @@ _audit_covered() {   # -> 0 if ANY audit source is wired
 # mechanism.
 #
 # CONTRACT: print seconds-idle on stdout and exit 0. Exit 78 for "I cannot
-# tell" -- which is NOT zero, because zero means "input one second ago" and is
+# tell", which is NOT zero, because zero means "input one second ago" and is
 # the single most dangerous wrong answer here: it would silently reset every
 # deadline forever and report a healthy machine.
 
@@ -3019,21 +3019,21 @@ _idle_parse() {   # <file> -> sets _iv _ic _ia _ir; empty means "no answer"
 
 # THE LADDER'S OWN RECORD IS A CEILING ON IDLE TIME, and a ceiling is NOT a
 # source: it bounds an answer, it cannot supply one. So the caller applies this
-# only when something actually answered -- a box with no idle source still
+# only when something actually answered: a box with no idle source still
 # reports nothing, which is what keeps `report` honest about the deadline being
 # unmeasurable. Its own function so that invariant has somewhere to be stated
 # rather than living as an indentation level.
 #
 # An ASCENT means something raised the machine, and whatever did also restarts
 # the clock of the mechanism being judged: swayidle rearms every timeout on a
-# resume. Our counters can miss the cause entirely -- a lid switch is not seat
+# resume. Our counters can miss the cause entirely: a lid switch is not seat
 # input, and `systemctl restart vigilance-idle.service` makes swayidle run its
 # pending resume commands on SIGTERM, which is documented behaviour and not a
 # bug. Both raise the ladder while /proc/interrupts sits perfectly still.
 #
 # Measured on manifold: a tackup run restarted the idle unit at 23:46:51, the
 # shutdown resume crossed `wake`, and the overdue detector then alerted once a
-# minute that `sleep` was 3000s late -- about a freshly armed timer that was
+# minute that `sleep` was 3000s late, about a freshly armed timer that was
 # going to fire on schedule. Without the ceiling the finding is not "the
 # mechanism is broken" but "our clock is older than the mechanism's".
 _idle_bound() {   # <seconds> -> the same, bounded by the last ascent
@@ -3071,8 +3071,8 @@ _idle_secs() {   # -> seconds since last seat input, or empty if unknowable
     # close rather than for the hook to exit, so a source leaving a child on
     # stdout defeats the bound entirely. Measured at 21s against a 2s timeout.
     # A STATE DIR AND A PATH, like every other tier. An idle source is
-    # inherently STATEFUL -- the only unprivileged way to read idle time is to
-    # sample a monotonic counter and remember what it said last time -- so a
+    # inherently STATEFUL: the only unprivileged way to read idle time is to
+    # sample a monotonic counter and remember what it said last time, so a
     # source with nowhere to remember is a source that can only ever decline.
     _isd=$STATE_ROOT/$(basename "$_ih")
     mkdir -p "$_isd" 2>/dev/null || true
@@ -3090,7 +3090,7 @@ _idle_secs() {   # -> seconds since last seat input, or empty if unknowable
     if [ -z "$_imin" ] || [ "$_iv" -lt "$_imin" ]; then _imin=$_iv; fi
     # WHAT THE SOURCE HAS DEMONSTRATED, carried alongside the answer. A source
     # may report a perfectly good number while being structurally incapable of
-    # ever observing the deadline it is being asked about -- measured on a box
+    # ever observing the deadline it is being asked about, measured on a box
     # whose keyboard reports to itself every 25s, where the clock resets before
     # it can reach 60s against deadlines of 480s and 600s. It still returns a
     # number, so `report` called both deadlines measurable.
@@ -3102,7 +3102,7 @@ _idle_secs() {   # -> seconds since last seat input, or empty if unknowable
     #
     # PUBLISHED THROUGH A FILE below, because this function is called inside a
     # command substitution and a variable set in a subshell never reaches the
-    # caller -- the trap that once defeated a timeout bound in this same file.
+    # caller, the trap that once defeated a timeout bound in this same file.
     #
     # The device NAME travels with the ceiling that won, not with the minimum:
     # the question it answers is "what is holding this clock down", which
@@ -3141,7 +3141,7 @@ _due_for() {   # edge from -> "seconds [anchor]", or empty for no opinion
     # Bounded: `enforce` runs this every minute forever, and a due hook that
     # hangs wedges the supervision loop that exists to notice things not
     # happening. These read a config file; they have no reason to be slow.
-    # Captured through a file rather than `$(...)` -- see _blocked for why a
+    # Captured through a file rather than `$(...)`: see _blocked for why a
     # substitution silently defeats the bound.
     mkdir -p "$RUN_DIR" 2>/dev/null || true
     _dcf=$RUN_DIR/.due.$$
@@ -3154,7 +3154,7 @@ _due_for() {   # edge from -> "seconds [anchor]", or empty for no opinion
     # (a missing deadline must not alarm), but they are not the same EVENT, and
     # the record is where that distinction has to survive. A due hook that
     # stopped being able to read its config degrades silently to "nothing to
-    # enforce" -- green, because nothing is overdue when no deadline exists.
+    # enforce": green, because nothing is overdue when no deadline exists.
     # Logging it is what makes that traceable later without changing the
     # verdict and spamming a timer.
     if [ "$_drc" -ne 0 ]; then
@@ -3257,14 +3257,14 @@ cmd_due() {   # [edge]
 # POLICY, and this is a deliberate narrowing of the plan. `report` (the default)
 # logs and alerts; `force` also crosses the edge. The plan's end state is
 # force, and its own safety constraint is "never force a descent without a
-# reliable ascent" -- vigilant cannot see input while locked, so a forced blank
+# reliable ascent": vigilant cannot see input while locked, so a forced blank
 # could land mid-password. The rescue key is that floor and now exists, but it
 # has been pressed in anger exactly never, so forcing stays opt-in until an
 # ascent has been proven on the box in question. An alert that names the failure
 # already buys the charter's goal; forcing buys convenience on top of it.
 # THE STANDING RE-CHECK. Verification used to happen only when an edge was
 # crossed, so a machine that reached a rung correctly and then DRIFTED out of it
-# went unnoticed until the next crossing -- which, at `sleep`, might be hours.
+# went unnoticed until the next crossing, which, at `sleep`, might be hours.
 # Worse, a mechanism that never worked at all was only ever asked once, at the
 # moment it was least likely to have failed yet.
 #
@@ -3273,7 +3273,7 @@ cmd_due() {   # [edge]
 # second, independent path to the same truth: the edge-time verify says a
 # crossing went well, this says the state is STILL true.
 #
-# Safe to run this often only because alerts now dedup on onset -- without that
+# Safe to run this often only because alerts now dedup on onset; without that
 # a persistent fault would notify every minute, and the enforce timer would be
 # switched off by hand exactly as it was once before.
 #
@@ -3295,11 +3295,11 @@ cmd_due() {   # [edge]
 #
 #   1. A HEARTBEAT IT CANNOT AVOID EMITTING WHEN HEALTHY. swayidle-mgr arms a
 #      short observational timeout, so a healthy timer emits on every brief
-#      pause -- turning a rare event (a full idle-lock, which can legitimately
+#      pause, turning a rare event (a full idle-lock, which can legitimately
 #      not happen all day) into a frequent one. Only then is silence evidence.
 #
 #   2. AN OBSERVER THAT CANNOT SHARE ITS FATE. That is the part people get
-#      wrong. The heartbeat SHOULD share fate with the thing under test -- that
+#      wrong. The heartbeat SHOULD share fate with the thing under test: that
 #      is exactly why it stops when the thing stops. What must be independent
 #      is whoever LOOKS at it, and we already have that: a systemd timer, which
 #      is the trust root this project already leans on everywhere else.
@@ -3349,7 +3349,7 @@ _run_watchdogs() {   # -> 0 healthy or unknown, 1 something is not doing its job
 # `log()` writes to stderr AND to the log file, so `cmd_verify 2>&1` captures
 # vigilant's own already-logged messages alongside the hook's. Feeding that
 # straight into _log wrote a record whose FIRST line carried a timestamp and
-# whose remaining lines carried none -- observed live:
+# whose remaining lines carried none, observed live:
 #
 #   2026-09-20T21:21:50 STILL-DRIFTED at 'sleep': expected dark, found 1/2
 #   vigilant: HOOK FAILED (rc=1): sleep.verify 30-kbd-backlight
@@ -3368,8 +3368,8 @@ _flatten() {   # multi-line transcript -> one line, vigilant's own echo removed
 _enforce_recheck() {   # from
   # A CROSSING IN FLIGHT IS NOT DRIFT.
   #
-  # The verify tier takes a second or more -- a ddcutil round trip, a screen
-  # capture -- and this runs on a one-minute timer, so a crossing can start and
+  # The verify tier takes a second or more: a ddcutil round trip, a screen
+  # capture, and this runs on a one-minute timer, so a crossing can start and
   # finish inside a single recheck. The verdict then describes a rung the
   # machine has already LEFT, with the hardware correctly matching the new one.
   #
@@ -3383,7 +3383,7 @@ _enforce_recheck() {   # from
   # The minute BEFORE was clean, which is what rules out genuinely-lit LEDs at
   # the sleep rung: the same question passed at 22:23 and failed one second
   # after the wake. A crossing takes a few seconds and the timer fires every
-  # sixty, so this misfires on a few percent of wakes -- often enough to train
+  # sixty, so this misfires on a few percent of wakes, often enough to train
   # a reader that drift alerts are noise, which is the one thing this tier
   # cannot afford.
   #
@@ -3395,7 +3395,7 @@ _enforce_recheck() {   # from
   # depth-moved check above cannot see: the depth is committed BEFORE the act
   # tier, so mid-crossing it is both correct and perfectly still. Asked before
   # the verify, not after, because the hook-failure alert is raised from INSIDE
-  # cmd_verify -- discarding the verdict afterwards would still have toasted.
+  # cmd_verify: discarding the verdict afterwards would still have toasted.
   # AND THE DISCARD GOES IN THE LOG, not only on stdout. Once the verify's own
   # alerts are DEFERRED "to the standing recheck's verdict", the log owes the
   # reader that verdict: otherwise a hook failure is recorded, marked as
@@ -3412,7 +3412,7 @@ _enforce_recheck() {   # from
   # becoming one. `_depth` answers `open` when no record exists, and asserting
   # from that that the screen must therefore be LIT is how `report` once
   # declared FAIL over a machine doing exactly the right thing: nobody logged
-  # in, and the greeter -- a different user, with its own record -- had
+  # in, and the greeter (a different user, with its own record) had
   # correctly put the monitor into DDC standby. Here it would ALERT rather than
   # merely print.
   #
@@ -3448,8 +3448,8 @@ _enforce_recheck() {   # from
   fi
   export VIGILANCE_RECHECK
   # ALERTS ARE THE RECHECK'S TO RAISE, not its verify's. Set across the call
-  # and cleared straight after, so an ordinary crossing-time verify -- which
-  # has no verdict to weigh and no chance to be invalidated -- still alerts
+  # and cleared straight after, so an ordinary crossing-time verify, which
+  # has no verdict to weigh and no chance to be invalidated, still alerts
   # immediately.
   ALERT_DEFER=1
   _rv=$(cmd_verify 2>&1) || _rvrc=$?
@@ -3469,7 +3469,7 @@ _enforce_recheck() {   # from
     0) return 0 ;;
     # NOT DRIFT. Drift means we looked and the machine was wrong; 78 means
     # nothing is wired to look. Raising it here would alert every minute about
-    # a static wiring fact -- and an alert that fires on a correct machine is
+    # a static wiring fact, and an alert that fires on a correct machine is
     # how the enforce timer got stopped by hand once already. `report` owns
     # this finding and states it ONCE, so it is neither lost nor a storm.
     "$HOOK_NA") return 0 ;;
@@ -3491,7 +3491,7 @@ cmd_enforce() {
   # and the keyboard answers because it was asked. Measured on a live box: 6
   # URBs three seconds after every pass, once a minute, for ever. The clock read
   # that as seat input, so it could never accumulate idle past one interval and
-  # `report` concluded the deadlines were unmeasurable -- while blaming the
+  # `report` concluded the deadlines were unmeasurable, while blaming the
   # device.
   #
   # So the reading is taken here, and the sources are told to re-baseline AFTER
@@ -3517,8 +3517,8 @@ cmd_enforce() {
   # THE UNATTRIBUTED WINDOW IS THE PASS ITSELF, about three seconds in sixty,
   # and real input inside it is missed. Stated with the arithmetic rather than
   # waved at: reaching a 480s deadline falsely needs EIGHT consecutive
-  # keystrokes each landing in that 5% window, about 4e-11. The alternative --
-  # counting our own traffic as input -- was not a small risk but a permanent
+  # keystrokes each landing in that 5% window, about 4e-11. The alternative (
+  # counting our own traffic as input) was not a small risk but a permanent
   # certainty.
   _idle_phase=settle   # past the traffic of the pass above
   _idle_secs >/dev/null 2>&1 || true   # re-baseline, the pass's own traffic
@@ -3527,7 +3527,7 @@ cmd_enforce() {
   #
   # This return used to sit at the top of the function, above the two calls
   # whose own comments say they are unconditional because "every early return
-  # below would skip it" -- so an early return ABOVE them skipped both, and
+  # below would skip it", so an early return ABOVE them skipped both, and
   # nothing said so. REPRODUCED before moving it: against an empty runtime dir
   # the watchdog hook ran zero times, and the clock was never sampled either.
   #
@@ -3554,7 +3554,7 @@ cmd_enforce() {
   _d=$(printf '%s' "$_draw" | awk '{print $1}')
   _anch=$(printf '%s' "$_draw" | awk '{print $2}')
   # An idle-anchored deadline starts at the last INPUT. vigilant could not read
-  # that, so "overdue" meant only "this rung has been held a while" -- which on
+  # that, so "overdue" meant only "this rung has been held a while", which on
   # an actively used machine is normal: measured from rung entry it called
   # `lock` 1616s overdue while the machine was being typed on, and the timer
   # would have alerted every minute, forever, about nothing.
@@ -3575,7 +3575,7 @@ cmd_enforce() {
       fi
       # THE FINDING THIS TIER EXISTS FOR, finally expressible: the seat has
       # been quiet past the deadline and the edge did not happen. A WEDGED
-      # idle timer is running, correctly armed and silent -- it passes the
+      # idle timer is running, correctly armed and silent: it passes the
       # argv check, logs no event for audit to reconcile, and leaves the
       # machine at a rung it genuinely matches. Nothing else here can see it,
       # and it is the failure that created this package.
@@ -3624,7 +3624,7 @@ cmd_enforce() {
 # chain above because the two halves answer different questions: everything
 # before this decides "is anything wrong?", and every one of its exits is a
 # HEALTHY state.
-# This decides "what, if anything, do we do about it?" -- and is the only part
+# This decides "what, if anything, do we do about it?", and is the only part
 # that can change the machine.
 # THE REPORTING HALF. It used to have an ACTING half too, behind
 # VIGILANCE_ENFORCE=force, and that is RETIRED (2026-09-20).
@@ -3632,7 +3632,7 @@ cmd_enforce() {
 # WHY IT WENT. It was unreachable by construction, and it had been superseded
 # without anyone noticing. Unreachable: only two edges are enforcement targets,
 # `sleep` is refused outright because a forced descent into a dark rung arms no
-# way back, and `lock` was refused because its deadline is idle-anchored -- so
+# way back, and `lock` was refused because its deadline is idle-anchored, so
 # the intersection of "forceable" and "measurable" was empty, and the force
 # path was tested code that could never run in production.
 #
@@ -3642,8 +3642,8 @@ cmd_enforce() {
 # provider by hook-failure alerting; a lock that did not take by `verify` and
 # locker-up; continuous drift by the standing recheck; the past by audit.
 #
-# What was left uncovered was one sliver -- the idle timer alive, correctly
-# armed, and silently not firing -- and that wants DETECTING, not forcing.
+# What was left uncovered was one sliver: the idle timer alive, correctly
+# armed, and silently not firing, and that wants DETECTING, not forcing.
 # Detection is now possible because the idle clock exists (see _idle_secs), and
 # forcing would have added an actuator on the security path driven by a
 # measurement, for nothing the alert does not already give.
@@ -3664,7 +3664,7 @@ _enforce_act() {   # edge elapsed deadline
 # Neither of the first two can see the failure that prompted this: logind slept
 # the machine, lock-on-sleep.service was asked to lock it first, the unit
 # 203/EXEC'd on a bad ExecStart, and systemd reached sleep.target and slept
-# anyway. Nothing was in a wrong state afterwards, and nothing was pending --
+# anyway. Nothing was in a wrong state afterwards, and nothing was pending,
 # an EVENT simply produced no EDGE, and only history shows that.
 #
 # It went unnoticed for a whole refactor because the unit was `enabled` and
@@ -3676,7 +3676,7 @@ _enforce_act() {   # edge elapsed deadline
 #     <epoch> <edge> [note]
 #
 # meaning "at <epoch> something happened that should have produced <edge>".
-# vigilant owns the reconciliation, so a hook never has to parse the edge log --
+# vigilant owns the reconciliation, so a hook never has to parse the edge log,
 # the same split as `due`, where the hook reports a deadline and vigilant does
 # the arithmetic. Mechanism knowledge (journalctl, logind, a timer) stays in the
 # plugin; vigilance's own record stays vigilance's to read.
@@ -3699,7 +3699,7 @@ AUDIT_WINDOW=${VIGILANCE_AUDIT_WINDOW:-120}
 #
 # The third was missing and the live journal found it. On resume, `go lock` is a
 # no-op only when the depth file survived at `lock`; when the box had descended
-# to `sleep` first -- the ORDINARY idle path -- it crosses `wake` to get back
+# to `sleep` first (the ORDINARY idle path), it crosses `wake` to get back
 # up. Both outcomes mean the session is locked, and only one of them was
 # being counted, so every resume from the normal idle path was reported as a
 # MISS. Same cries-wolf failure as the `due` anchor, one tier over.
@@ -3738,7 +3738,7 @@ cmd_audit() {
     mkdir -p "$_sd" 2>/dev/null || true
     _arc=0
     # Bounded, but on ITS OWN larger budget. An audit source reads an external
-    # event log -- the shipped one runs journalctl over a day of records -- and
+    # event log (the shipped one runs journalctl over a day of records), and
     # a big journal legitimately takes longer than anything on the lock path is
     # allowed to. Sharing the edge bound would turn a healthy slow read into
     # "audit BROKEN" and retire the forensic tier by crying wolf. Nothing waits
@@ -3755,13 +3755,13 @@ cmd_audit() {
     # hook that could not read its source (no journal access, a renamed unit, a
     # parse error) left audit printing "nothing to reconcile" and exiting 0: a
     # green forensic tier that had checked nothing. Precisely the false green
-    # the EMPTY VERIFY TIER was fixed for, reproduced one tier over -- and worse
+    # the EMPTY VERIFY TIER was fixed for, reproduced one tier over, and worse
     # here, because audit is the tier of last resort. If it is blind, nothing
     # else is looking.
     # A SOURCE THAT CANNOT LOOK IS NOT A BROKEN ONE. `journalctl` absent on a
     # non-systemd box, or a source whose event log was never created, has
     # nothing to reconcile and nothing wrong with it. Reporting that as BROKEN
-    # is the crying-wolf half of the same conflation 78 exists to break -- and
+    # is the crying-wolf half of the same conflation 78 exists to break, and
     # this tier is the last resort, so teaching a reader to discount it is
     # expensive.
     if [ "$_arc" = "$HOOK_NA" ]; then
@@ -3845,7 +3845,7 @@ case "$_sub" in
     fi
     # AN UNRECOGNISED MODE IS A USAGE ERROR, never something to drop. This arm
     # used to ignore everything after the state, so a caller asking for a mode
-    # would have silently got the DEFAULT -- and the default is the one that
+    # would have silently got the DEFAULT, and the default is the one that
     # raises. A safety qualifier that can be misspelt into nothing is not a
     # safety qualifier, and this stack has already paid for one dead config
     # word (`blank-after`) that nothing validated.

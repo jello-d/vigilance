@@ -18,7 +18,7 @@
 #                        keylogger-shaped however well intentioned
 #
 # So this reads MONOTONIC COUNTERS the kernel already maintains. They carry
-# COUNTS AND NOTHING ELSE -- no scancode, no button, no coordinate -- so the
+# COUNTS AND NOTHING ELSE: no scancode, no button, no coordinate, so the
 # mechanism is incapable of observing what was typed, which is a property of
 # its construction rather than a promise about its behaviour.
 #
@@ -30,7 +30,7 @@
 #   urbnum on the parent USB device        a USB input device. xHCI handles
 #                                          NAKs in hardware, so a URB only
 #                                          completes when the device actually
-#                                          sends a report -- measured FLAT at
+#                                          sends a report, measured FLAT at
 #                                          idle and climbing under use.
 #
 # Devices are found by walking UP from /sys/class/input, so only things that
@@ -38,14 +38,14 @@
 # instead would have picked up a YubiKey.
 #
 # NO DAEMON. The supervision timer already calls this once a minute, which IS
-# the sampling loop such a clock needs, and that timer is a systemd unit --
+# the sampling loop such a clock needs, and that timer is a systemd unit,
 # the independent observer this suite leans on everywhere else. Resolution is
 # therefore about a minute, which is ample against a 480s deadline.
 #
 # WHAT IT CANNOT DO, said plainly: anything that talks to an input device
 # increments its counter, so a tool that writes to a keyboard (qmk-ripple, via
 # the kbd-rgb hook) reads as input. That errs toward ACTIVE, which suppresses a
-# would-be finding rather than inventing one -- the safe direction, and the
+# would-be finding rather than inventing one: the safe direction, and the
 # only one acceptable for a clock that gates an alert.
 set -eu
 
@@ -97,8 +97,8 @@ done
 # button or coordinate, so this is the same content-free evidence the clock
 # itself rests on. The alternative considered was an evdev source, and it cannot
 # work: a hook can only observe during its own bounded window, and sampled
-# observation cannot prove absence BETWEEN samples, so it would over-report idle
-# -- the one unsafe direction for a clock that gates an alert. A counter
+# observation cannot prove absence BETWEEN samples, so it would over-report
+# idle, the one unsafe direction for a clock that gates an alert. A counter
 # accumulates between samples, which is exactly why it was chosen.
 _draw=${STATE}.raw
 true > "$_draw" 2>/dev/null || _draw=
@@ -154,7 +154,7 @@ MAXGAP=${VIGILANCE_IDLE_MAXGAP:-300}
 
 # THE SETTLE PHASE: take a reading, remember it, judge nothing. The supervision
 # pass calls this after its own hooks have run, because those hooks generate USB
-# traffic on the very devices this counts -- one of them queries a keyboard over
+# traffic on the very devices this counts: one of them queries a keyboard over
 # raw HID, and the keyboard answers because it was asked. Anything that moved
 # during our own pass is OURS, so the baseline advances while `last_change` does
 # not, and the window judged next time is the one in which vigilance did
@@ -169,8 +169,8 @@ else
 fi
 
 # THE CEILING, and it is not a statistic for its own sake. A counter can be
-# CHATTERED by a device that reports on its own -- measured on a QMK keyboard
-# that emits a burst every 40-60s with nobody present -- and a clock that
+# CHATTERED by a device that reports on its own, measured on a QMK keyboard
+# that emits a burst every 40-60s with nobody present, and a clock that
 # resets that often can never observe the 480s a lock deadline needs. It would
 # still return a NUMBER, so `report` would call the deadline measurable while
 # it was structurally unreachable: a green light meaning "nobody can check".
@@ -201,7 +201,7 @@ _recent_age=
 # attempt and it left the attribution fooled while the clock was fixed: the
 # counts stayed at their pre-pass values, so the next pass saw our own traffic
 # as a device moving and named the very keyboard WE talked to. Settle therefore
-# refreshes the counts and leaves the timestamps alone -- the same split the
+# refreshes the counts and leaves the timestamps alone, the same split the
 # clock itself makes.
 if [ -n "$_draw" ]; then
   _dnew=${STATE}.devices.new
@@ -210,7 +210,7 @@ if [ -n "$_draw" ]; then
       [ -n "${_dl:-}" ] || continue
       # `|| true` BECAUSE awk EXITS NON-ZERO ON A MISSING FILE, and under set -e
       # a failed assignment ends the hook. On the FIRST pass there is no devices
-      # file yet, so this killed it outright with rc=2 and no message -- the
+      # file yet, so this killed it outright with rc=2 and no message, the
       # convention two lines of this same file already follow for `cat`.
       _dp=$(awk -v l="$_dl" '$1 == l { print $2; exit }' "$_DEVS" \
             2>/dev/null || true)
@@ -277,8 +277,8 @@ if [ "$_gapped" = 1 ]; then
   # THE CEILING GOES WITH IT, which is what makes this self-healing. A value
   # accumulated by continuous sampling is legitimate; one that spans a gap is an
   # artifact, and a high-water mark never comes down on its own. Dropping it
-  # keeps the pair coherent -- ceiling and age then both describe the CURRENT
-  # unbroken watching period -- and it discards the poisoned 67-hour reading on
+  # keeps the pair coherent: ceiling and age then both describe the CURRENT
+  # unbroken watching period, and it discards the poisoned 67-hour reading on
   # an existing box exactly once, because a state file written before these
   # fields existed reads as a gap by construction.
   _pmax=0
@@ -296,9 +296,9 @@ if [ "$_gapped" = 1 ]; then
   exit 0
 fi
 
-# SETTLE: store the reading, leave the verdict alone. `last_change` is NOT moved
-# -- that is the entire point, since a change during our own pass is our own
-# traffic -- while `last_sample` advances, so the gap detection above stays
+# SETTLE: store the reading, leave the verdict alone. `last_change` is NOT
+# moved: that is the entire point, since a change during our own pass is our own
+# traffic, while `last_sample` advances, so the gap detection above stays
 # honest about when the clock was last watching. 78, because this is not an
 # answer: an idle time reported here would be measured from a baseline that is
 # about to change.
@@ -323,7 +323,7 @@ if [ "$_sig" != "$_psig" ]; then
 fi
 
 # Unchanged: idle since the last time it moved. The timestamp is NOT rewritten
-# here -- that is the whole clock, and touching it on a quiet pass would reset
+# here: that is the whole clock, and touching it on a quiet pass would reset
 # the interval on every sample and report 0 forever.
 _idle=$((_now - _pat))
 if [ "$_idle" -lt 0 ]; then _idle=0; fi

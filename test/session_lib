@@ -22,7 +22,7 @@
 # IT USES THE GUEST'S REAL PATHS, deliberately: the real log, the real
 # ~/.config/vigilance/hooks, the real units. Sandboxing them would put the
 # recorders back one layer down and test the sandbox instead of the system.
-# The throwaway VM is what makes that acceptable -- it is the whole reason
+# The throwaway VM is what makes that acceptable: it is the whole reason
 # there is a VM.
 #
 # SO IT REFUSES TO RUN WITHOUT AN EXPLICIT VM MARKER. `require` gates it on
@@ -80,7 +80,7 @@ list has regressed and this tier would pass against nothing"
 }
 
 # wire <edge> <tier> <hook>: symlink a REAL shipped hook, the way an integrator
-# does. BY SYMLINK, NEVER COPY -- a copied hook breaks the self-location that
+# does. BY SYMLINK, NEVER COPY: a copied hook breaks the self-location that
 # lets it find hook_lib, which is a live-box rule this tier should share.
 wire() {   # <edge> <tier ('' | .verify | .due | .block)> <hook-name>
   _wd=$HOOKS/$1$2.d
@@ -112,7 +112,7 @@ session_idle_start() {   # <lock-secs> <sleep-secs>
   # Wait for the daemon to actually be up. Asserting on a timer that has not
   # started yet is how a scenario measures nothing and calls it a pass.
   # `if`, NOT `pgrep && return`. An AND-OR list whose left side fails returns
-  # non-zero, and `set -e` kills the shell on it -- so the FIRST poll, before
+  # non-zero, and `set -e` kills the shell on it, so the FIRST poll, before
   # swayidle is up, killed the test silently: no output, no verdict, nothing
   # for test/run to print but a bare non-zero exit. Fourth time this stack has
   # paid for the shape, and I wrote it within an hour of documenting it.
@@ -184,7 +184,7 @@ will not lock"
 account needs the SHARED install, not the tier user's own prefix"
   # RENDERED AGAINST THE PUBLISHED TREE. The copy rendered for the tier's user
   # points into its home, which this account cannot read, so starting it there
-  # sits at `activating` for ever -- and a probe of mine "tested" the whole lid
+  # sits at `activating` for ever, and a probe of mine "tested" the whole lid
   # chain with exactly that unit before I noticed.
   mkdir -p /etc/systemd/user
   sed "s#@PLUGINS@#/opt/vigilance/libexec/vigilance#g" \
@@ -257,7 +257,7 @@ locker_up() { pgrep -x swaylock >/dev/null 2>&1; }
 # SILENT, UNCONDITIONALLY. This runs from the EXIT trap, i.e. AFTER `pass` has
 # printed, and test/run matches the LAST line of a test's output to decide its
 # verdict. So a single stray line from cleanup turns a passing test into "NO
-# VERDICT" -- observed, under `set -x`, where the trace alone was enough. Any
+# VERDICT": observed, under `set -x`, where the trace alone was enough. Any
 # teardown that can speak is a teardown that can invalidate a result.
 session_done() { _session_done_quiet >/dev/null 2>&1 || true; }
 
@@ -271,7 +271,7 @@ _session_done_quiet() {
 
 # session_reset: back to a known rung with a clean hook tree, WITHOUT
 # re-running session_init. Re-initing mid-file calls harness_init again, which
-# mints a second temp dir, leaks the first and clobbers the EXIT trap -- and it
+# mints a second temp dir, leaks the first and clobbers the EXIT trap, and it
 # renames the test, so the pass line reports whichever name ran last. The
 # "never swap a fixture mid-file, add a switch" rule, arriving as a fixture
 # that swaps itself.

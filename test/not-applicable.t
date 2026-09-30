@@ -7,7 +7,7 @@
 #
 # Measured on a real desktop: its monitor advertises no DPMS standby and it has
 # no sysfs backlight, so BOTH screen checkers on the `sleep` edge quietly
-# declined -- ddc-monitor because the panel offers no off code, panel-backlight
+# declined: ddc-monitor because the panel offers no off code, panel-backlight
 # because there is no such device. `verify sleep` reported OK. The screen was
 # verified by nothing, and the tier whose entire job is to catch that reported
 # green while a lit wallpaper sat on an OLED.
@@ -38,7 +38,7 @@ _vout() { "$VIGILANT" verify "$1" 2>>"$T/stderr" || true; }
 go lock
 
 # --- 1. a mix: the n/a ones are NAMED, the verdict still stands -------------
-# The point is not to fail here -- something WAS checked. It is that a reader
+# The point is not to fail here: something WAS checked. It is that a reader
 # can see at a glance which questions went unanswered.
 _mk lock.verify.d 10-real 0
 _mk lock.verify.d 20-declines 78

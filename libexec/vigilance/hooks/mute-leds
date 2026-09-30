@@ -8,7 +8,7 @@
 # They DO need a rule, just not a bespoke one per integrator: udev/
 # 99-vigilance.rules names these two LEDs exactly and grants the `vigilant`
 # group write. Relying on brightnessctl's own rule instead would mean joining
-# `input`, which also grants raw read on /dev/input/event* -- a keylogging
+# `input`, which also grants raw read on /dev/input/event*, a keylogging
 # capability in exchange for dimming an indicator LED.
 #
 # Deliberately INDEPENDENT of whatever drives the mute STATE (a sync daemon,
@@ -25,7 +25,7 @@ _self=$(readlink -f "$0")
 . "$(dirname "$_self")/../hook_lib"
 
 # 78, NOT 0. Without brightnessctl this hook drives nothing, and exit 0
-# would count it as a tier that CHECKED -- the conflation the n/a
+# would count it as a tier that CHECKED: the conflation the n/a
 # contract exists to break, in the tier where it was first measured.
 if ! hook_have_brightnessctl; then
   echo "mute-leds: brightnessctl is not installed; nothing to drive" >&2
@@ -40,7 +40,7 @@ if [ "$_intent" = none ]; then exit 0; fi
 # NOT DUE? Checked once per hook rather than once per LED, because the throttle
 # stamp is per hook: doing it inside the loop below would have the first device
 # stamp the file and every later one read itself as already checked. A
-# peripheral check earns an hour, not a minute -- the recheck forces a FULL
+# peripheral check earns an hour, not a minute: the recheck forces a FULL
 # verify on the first pass after the rung changes, which is when drift is
 # introduced, so this cadence is a backstop. Only the standing recheck offers
 # the skip.
@@ -55,7 +55,7 @@ for _l in $LEDS; do
   if [ "${VIGILANCE_KIND:-act}" = verify ]; then
     # COUNT n/a APART FROM FAILURE, the same way the runner does across
     # hooks. `|| _rc=1` collapsed them, so a device this hook DECLINED to
-    # judge -- one something else owns and keeps relighting -- was reported as
+    # judge (one something else owns and keeps relighting) was reported as
     # a failed check. That is the conflation the 78 contract exists to break,
     # reappearing inside a hook that drives two devices.
     _vrc=0

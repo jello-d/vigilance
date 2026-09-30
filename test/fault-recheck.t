@@ -12,7 +12,7 @@
 #   this     a crossing STARTS during the verify      -> defer the alert
 #
 # The third is the one no ordering of a state check can catch. The recheck
-# discarded its verdict exactly as designed, every time -- but the verify tier
+# discarded its verdict exactly as designed, every time, but the verify tier
 # raises `hook-failed` from INSIDE cmd_verify, so the toast had already reached
 # the user's screen before the verdict it belonged to was thrown away. Observed
 # on manifold at 2026-09-24T17:51:20 with both earlier guards deployed:
@@ -38,8 +38,8 @@ session_init fault-recheck
 trap 'session_done; rm -rf "$T"' EXIT INT TERM HUP
 
 # AN ALERT SINK OF OUR OWN, recording the KIND and the MESSAGE. The kind alone
-# cannot answer the question this file exists to ask -- whether deferring a
-# notification LOSES the finding -- and the shipped sinks notify a desktop
+# cannot answer the question this file exists to ask: whether deferring a
+# notification LOSES the finding, and the shipped sinks notify a desktop
 # rather than anything a test can read.
 mkdir -p "$HOOKS/alert.d"
 printf '#!/bin/sh\nprintf "%%s|%%s\\n" "$1" "$2" >> %s\n' "$T/alerts" \
@@ -47,7 +47,7 @@ printf '#!/bin/sh\nprintf "%%s|%%s\\n" "$1" "$2" >> %s\n' "$T/alerts" \
 chmod +x "$HOOKS/alert.d/10-sink"
 
 # DEDUP OFF. Both cases below raise findings about the same rung, so left on,
-# the second case's verdict would depend on what the first happened to emit --
+# the second case's verdict would depend on what the first happened to emit,
 # and a suppressed-as-repeat alert is indistinguishable from a deferred one,
 # which is precisely the distinction under test.
 VIGILANCE_ALERT_COOLDOWN=0; export VIGILANCE_ALERT_COOLDOWN
@@ -61,7 +61,7 @@ wire lock .verify locker-up
 
 # A SLOW VERIFIER AHEAD OF IT, so the crossing has a window to land in. It
 # announces itself first, which is what makes the overlap a FACT the test
-# checks rather than a race it hopes for -- the live window was one second and
+# checks rather than a race it hopes for: the live window was one second and
 # a sleep-and-hope version of this would pass on a machine where it never
 # overlapped at all.
 cat > "$HOOKS/lock.verify.d/01-slow" <<EOF
@@ -93,7 +93,7 @@ wait "$_erp" || true
 [ "$(depth)" = sleep ] || fail "the crossing did not take; depth is '$(depth)'.
 The fault was not injected and every assertion below passes for nothing"
 # IN THE LOG, not merely on stdout. The log is what the audit tier reads, and
-# it now records a DEFERRED alert -- so it owes the reader the verdict that
+# it now records a DEFERRED alert, so it owes the reader the verdict that
 # alert was deferred to, or the record stops mid-sentence.
 said "NO-VERDICT: an edge was crossed while verifying 'lock'" \
   || fail "the recheck did not record that an edge moved underneath it. Its
@@ -104,7 +104,7 @@ deferred hook failure with nothing ever saying what became of it"
 if grep -q '^hook-failed|' "$T/alerts" 2>/dev/null; then
   fail "a crossing landed inside the recheck's verify and hook-failed was
 NOTIFIED anyway. The verdict was discarded correctly and the toast had already
-gone out -- the user sees a lock failure for a lock that was coming up"
+gone out: the user sees a lock failure for a lock that was coming up"
 fi
 [ "$(_alerted)" = 0 ] || fail "the discarded pass notified anyway:
 $(cat "$T/alerts")"

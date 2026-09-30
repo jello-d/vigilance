@@ -4,7 +4,7 @@
 # THE FRAMEWORK'S RULE, applied to the actuator that matters most: for every
 # hook that acts, a paired hook asserting it took effect. The lock provider
 # brings a LOCKER up, and nothing asserted that it did. On a real box the `lock`
-# edge had three verify hooks -- dpms, ddc-monitor, panel-backlight -- each one
+# edge had three verify hooks (dpms, ddc-monitor, panel-backlight) each one
 # checks a PERIPHERAL. They assert the screen is lit. Not one asks whether the
 # session is secured, which is the whole point of the edge.
 #
@@ -100,14 +100,14 @@ _unit=$HERE/systemd/lock-on-sleep.service
 # AND IT MUST NOT PIN AN EDGE. This asked for `verify lock` until ExecStart
 # gained `atleast`, which may leave the machine at `sleep` rather than raising
 # it. `verify lock` there runs the lock rung's tier, whose peripheral hooks
-# assert the screen is LIT -- so a correctly dark box would fail this unit and
+# assert the screen is LIT, so a correctly dark box would fail this unit and
 # alert, moments before suspending. Bare `verify` asks about the rung the
 # machine is actually at, and the lock claim survives because `locker-up`
 # belongs in every verify tier at or below `lock`.
 grep -qE '^ExecStartPost=.*(@VIGILANT@|vigilant) verify[[:space:]]*$' "$_unit" \
   || fail "lock-on-sleep.service must run a bare 'verify' after crossing. Either
-it never verifies at all -- so a suspend can report success while the session is
-not secured -- or it pins an edge, which asks the wrong rung's question whenever
+it never verifies at all, so a suspend can report success while the session is
+not secured, or it pins an edge, which asks the wrong rung's question whenever
 ExecStart declines to raise a machine that was already deeper"
 # ...and it must come AFTER the crossing, or it verifies the previous state.
 awk '/^ExecStart=/{s=NR} /^ExecStartPost=/{p=NR}

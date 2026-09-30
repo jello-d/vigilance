@@ -13,7 +13,7 @@
 # something an operator would need to be told about. The responses are drawn
 # from the vocabulary the package already has:
 #
-#   ACT      the edge still happens -- the lock is never suppressed
+#   ACT      the edge still happens, the lock is never suppressed
 #   ALERT    a human is told (hook-failed, drift, overdue)
 #   DEGRADE  the tier reports n/a or declines, and says so
 #   RECOVER  the ladder returns to a coherent rung on its own
@@ -26,7 +26,7 @@
 # real process, mount over the real directory and cut the real power.
 #
 # THAT RULE IS ABOUT THE MACHINE, NOT ABOUT EXIT CODES. A hook that exits 78 IS
-# the fault -- there is no device being pretended at -- so a cell whose fault is
+# the fault: there is no device being pretended at, so a cell whose fault is
 # purely a hook's exit status is honestly covered in the stub tier, and saying
 # so beats writing a slower duplicate to look thorough. What may never be faked
 # is the MACHINE: a device, a process, a filesystem, a clock.
@@ -128,7 +128,7 @@ t session-ladder
 # variant in front of it: the depth moving, a crossing already running, and a
 # crossing that STARTS mid-verify. The last one is not a state the recheck can
 # check for at any point, because the alert has already left the process by the
-# time the state could be re-read -- so the response is DEGRADE (the verdict is
+# time the state could be re-read, so the response is DEGRADE (the verdict is
 # discarded and nothing is notified), and the log carries the whole finding.
 = crossing-during-a-recheck
 m the standing recheck
@@ -185,8 +185,8 @@ t depth-survives-suspend
 # THE ONLY CELL A DESK COULD NEVER TEST, and the only one that cannot be a
 # scenario: the guest is the thing being killed, so nothing inside it survives
 # to report and the driver runs on the host (a `/` in the test column marks
-# that). The kill is AIMED -- the guest announces the instant it is inside the
-# act tier with the depth committed and the crossing lock held -- because a
+# that). The kill is AIMED: the guest announces the instant it is inside the
+# act tier with the depth committed and the crossing lock held, because a
 # random kill lands between crossings and gives no way to know it did.
 = power-cut-mid-crossing
 m the depth record, the crossing lock and the log
@@ -227,7 +227,7 @@ t fault-clock
 # IT USED TO HANG THE GUEST, and the recorded diagnosis was WRONG. This
 # declaration said "the likely cause is that a backward step makes the user
 # manager stall". It did not: the scenario passes BYTE-IDENTICAL, three runs in
-# a row, with no change to it at all. What changed is the guest -- f0dabcc
+# a row, with no change to it at all. What changed is the guest: f0dabcc
 # stopped the setup's uinput probe suspending the machine that was running the
 # test (HandleLidSwitch defaulted to suspend). Same root cause as the lid cells,
 # which were also set aside as "cause unknown".
@@ -239,7 +239,7 @@ t fault-clock
 #
 # AND THE ALERT CASE WAS VACUOUS until a mutation said so. It armed its dedup
 # stamp AFTER stopping the locker, which crosses `unlock`, so the stamp was for
-# a drift at 'open' while the case raises one at 'lock' -- different key,
+# a drift at 'open' while the case raises one at 'lock', different key,
 # nothing suppressible, passes either way. It arms at the rung under test now
 # and asserts the alert that gets through IS the stamped finding.
 #

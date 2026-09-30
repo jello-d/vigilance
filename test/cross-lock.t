@@ -1,11 +1,11 @@
 #!/bin/sh
 # test/cross-lock.t - one crossing at a time, and it can never block a lock.
 #
-# THE ROOT RACE. `cmd_go` is a read-modify-write over shared state --
+# THE ROOT RACE. `cmd_go` is a read-modify-write over shared state:
 #
 #     read depth  ->  choose the edges  ->  commit depth  ->  actuate
 #
-# -- and nothing serialised it, so two `vigilant go lock` processes both read
+#, and nothing serialised it, so two `vigilant go lock` processes both read
 # `open`, both compute the same path, and both run the entire act tier at once.
 # Measured on manifold: the Super+L binding fired twice, `cross lock: open ->
 # lock` was logged twice in one second, and BOTH the locker provider and the
@@ -31,7 +31,7 @@ _crossings() {
 }
 
 # A hook slow enough that concurrent callers genuinely overlap. Without it the
-# processes serialise by luck and the file asserts nothing -- the same mistake
+# processes serialise by luck and the file asserts nothing, the same mistake
 # that made a first attempt to reproduce the mute-on-lock race find nothing in
 # eight trials.
 mkdir -p "$VIGILANCE_HOOK_ROOT/lock.d"
@@ -44,7 +44,7 @@ chmod +x "$VIGILANCE_HOOK_ROOT/lock.d/10-slow"
 
 # --- 1. FOUR CONCURRENT REQUESTS, ONE CROSSING ------------------------------
 # The whole point. The losers wait, re-read the depth, find the work already
-# done and become "already at 'lock'; nothing to do" -- so the act tier runs
+# done and become "already at 'lock'; nothing to do", so the act tier runs
 # ONCE, not four times.
 #
 # THE WAIT IS EXPLICIT AND GENEROUS HERE, because this case is about EXCLUSION
@@ -54,7 +54,7 @@ chmod +x "$VIGILANCE_HOOK_ROOT/lock.d/10-slow"
 # claiming to measure the lock. One assertion, one property.
 # EACH REQUEST IS BOUNDED, and that is about this test being able to FAIL. The
 # wait is fail-open, so a waiter that never gives up blocks `wait` below for
-# ever -- which is exactly what the corpus record removing the wait cap
+# ever, which is exactly what the corpus record removing the wait cap
 # produced: cross-lock.t blocked, the mutation driver sat on it with no output,
 # and a mutation whose whole point is a missing bound reached no verdict at all.
 # 30s is far past the 10s wait plus a 2s hook, so it is invisible to a correct
@@ -68,7 +68,7 @@ wait
 _n=$(_crossings)
 [ "$_n" = 1 ] || fail "four concurrent 'go lock' produced $_n crossings of the
 lock edge. Each one runs the whole act tier, and neither the locker provider
-nor the mute hook survives being run against itself -- which is exactly the
+nor the mute hook survives being run against itself, which is exactly the
 pair that failed on a live box"
 _ran=$(wc -l < "$T/ran" | tr -d ' ')
 [ "$_ran" = 1 ] || fail "the act tier ran $_ran times for one edge"
@@ -76,7 +76,7 @@ _rcs=$(sort -u "$T/rcs" | tr -d '\n')
 [ "$_rcs" = 0 ] || fail "a concurrent request exited non-zero ($_rcs). Losing a
 race is not failing: the machine reached the rung that was asked for"
 [ ! -e "$LOCK" ] || fail "the crossing lock was left behind. Stale-breaking
-hides this from every other case here -- the next crossing still happens, it
+hides this from every other case here: the next crossing still happens, it
 just pays a full wait and a break first, for ever"
 
 # BECAUSE THE MECHANISM IS FAIL-OPEN, THE OUTCOME CANNOT DISCRIMINATE ITS
@@ -89,7 +89,7 @@ _said() { grep -q "$1" "$T/vigilant.log"; }
 # --- 1b. THE FIRST CROSSING AFTER A BOOT MUST NOT PAY THE WAIT --------------
 # cmd_go creates the runtime dir, but the lock is claimed BEFORE that, so with
 # no runtime dir the claim failed with ENOENT, the wait ran out, and the edge
-# crossed unserialised -- once per boot, on every box, logging "crossing
+# crossed unserialised, once per boot, on every box, logging "crossing
 # anyway" as though something were wrong. Measured at 2s before the fix.
 _boot=$T/boot
 VIGILANCE_RUN_DIR=$_boot/run VIGILANCE_LOG=$_boot/log \
@@ -156,7 +156,7 @@ rm -f "$LOCK"
 
 # --- 5. A HOOK CALLING BACK IN MUST NOT WAIT FOR ITS OWN PARENT -------------
 # Re-entrancy. The lock is held for the whole command, so a hook that invokes
-# `vigilant` would deadlock against itself until the wait expired -- turning
+# `vigilant` would deadlock against itself until the wait expired, turning
 # every such crossing into a multi-second stall that only shows up in
 # production.
 "$VIGILANT" go open >/dev/null 2>&1
@@ -176,8 +176,8 @@ ${_el}s for the lock its own parent was holding"
 _said "crossing anyway" && fail "a hook calling back into 'vigilant go' did not
 recognise its own ancestor's lock: it waited the whole timeout and then crossed
 UNSERIALISED. The wait is short enough that a clock assertion alone passes
-either way, which is how the first version of the token -- comparing the
-holder's pid against the child's own \$\$, so it could never match -- shipped
+either way, which is how the first version of the token (comparing the
+holder's pid against the child's own \$\$, so it could never match) shipped
 without firing once"
 
 # --- 5b. A FRESH CLAIM IS NOT A DEAD HOLDER --------------------------------
@@ -193,7 +193,7 @@ VIGILANCE_CROSS_WAIT=1 timeout 15 "$VIGILANT" go lock \
   >/dev/null 2>>"$T/stderr" || true
 _said "breaking a crossing lock" && fail "a lock file with no pid yet was
 treated as a dead holder and broken. That is a claim microseconds old, and
-stealing it puts two writers in the critical section -- exactly the race this
+stealing it puts two writers in the critical section, exactly the race this
 mechanism exists to remove"
 _said "crossing anyway" || fail "fixture: the fresh-claim case did not reach
 the fail-open path, so it proved nothing"
@@ -208,12 +208,12 @@ rm -f "$LOCK"
 #   cmd_go wraps _cmd_go in the lock
 #
 # A future path that commits a depth or actuates an edge from somewhere else
-# would be unserialised, and every case above would still pass -- which is how
+# would be unserialised, and every case above would still pass, which is how
 # a proof by construction quietly becomes a proof of nothing.
 V=$HERE/bin/vigilant
 # LITERAL MATCHING, THROUGH ENVIRON. `awk -v` expands backslash escapes in the
 # assignment and `$0 ~ pat` is a regex, so `_run_hooks "$1" "$2" ||` arrived as
-# an alternation that matched every line -- the first run of this ratchet named
+# an alternation that matched every line: the first run of this ratchet named
 # eighty functions. Same trap the mutation driver already paid for; ENVIRON
 # does no processing and index() is a substring.
 _callers() {   # <literal> -> the functions containing it

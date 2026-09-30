@@ -123,7 +123,7 @@ case "$_vout" in
   *"NOTHING CHECKED"*)
     printf '%s\n' "$_vout" >&2
     fail "a greeter's sleep edge was verified by NOTHING. Every machine-scope
-hook declined, so the rung is a claim nobody checked -- on the one session with
+hook declined, so the rung is a claim nobody checked: on the one session with
 no human to notice" ;;
 esac
 [ "${_vrc:-0}" = 0 ] || { printf '%s\n' "$_vout" >&2

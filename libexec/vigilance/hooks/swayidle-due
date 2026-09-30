@@ -13,7 +13,7 @@
 # outside vigilance, so something that understands the mechanism reads it.
 #
 # Reports the deadline even when swayidle looks healthy, deliberately. Watching
-# is not "is the process alive" -- the failure this suite was built around was a
+# is not "is the process alive": the failure this suite was built around was a
 # swayidle that ran happily for weeks while silently not firing. A live process
 # with a declared timer and an edge that never arrives is exactly the case worth
 # catching, and it needs the declared timer to detect.
@@ -32,9 +32,9 @@ edge=${1:-${VIGILANCE_EDGE:-}}
 # it is a hook whose test measures the substrate.
 #
 # AND OUR OWN PID WHERE WE KNOW IT. `ps -C swayidle | head -1` takes whichever
-# instance is listed first, so a FOREIGN idle client -- the exact shape a second
+# instance is listed first, so a FOREIGN idle client (the exact shape a second
 # opinion takes, and something swayidle-mgr's own `stop` already has to reason
-# about -- would have its timeout reported as vigilance's deadline. A wrong
+# about) would have its timeout reported as vigilance's deadline. A wrong
 # deadline feeds the overdue detector directly.
 if [ -n "${VIGILANCE_IDLE_CMDLINE:-}" ]; then
   [ -r "$VIGILANCE_IDLE_CMDLINE" ] || exit 0
@@ -44,7 +44,7 @@ else
   _mpid=$(cat "$_pidf" 2>/dev/null || true)
   case "${_mpid:-}" in ''|*[!0-9]*) _mpid= ;; esac
   # A PIDFILE OUTLIVES ITS PROCESS and numbers get recycled, so confirm what the
-  # pid actually is before trusting it -- the same check swayidle-mgr makes
+  # pid actually is before trusting it, the same check swayidle-mgr makes
   # before killing it.
   if [ -n "$_mpid" ] &&
      [ "$(cat "/proc/$_mpid/comm" 2>/dev/null)" = swayidle ]; then

@@ -22,7 +22,7 @@
 # `dbus.socket` does NOT stop `systemd-run --user`: it reaches the user MANAGER,
 # and the socket is re-activatable on demand anyway, so the probe below found
 # the bus perfectly usable and the scenario refused to run. That is the
-# assert-the-precondition rule paying for itself -- without it, every assertion
+# assert-the-precondition rule paying for itself: without it, every assertion
 # here would have passed against a machine with nothing wrong.
 #
 # IT RESTORES THE BUS IN THE TRAP, on an abort too: this scenario shares
@@ -98,7 +98,7 @@ was logged. The audit tier reads that log and is the tier of last resort"
 # The provider explains its failure path rather than only reporting it, which is
 # right. But the explanation it had could only ever say one thing: it tested
 # `systemctl --user show-environment | grep WAYLAND_DISPLAY`, and with no bus
-# that command FAILS, produces nothing, and the grep therefore misses -- so a
+# that command FAILS, produces nothing, and the grep therefore misses, so a
 # dead bus was reported as a missing WAYLAND_DISPLAY.
 #
 # That is worse than no diagnosis. It sends an integrator to import an

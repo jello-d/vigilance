@@ -22,7 +22,7 @@
 # checkout is live. Set VIGILANCE_INSTALL_COPY=1 to COPY instead, which is what
 # a shared/system prefix needs: the clone lives under a user's home (0750, and
 # ~/.cache is 0700), so symlinks from /usr/local into it are unreadable by any
-# other user -- a greeter following one gets nothing. More generally a system
+# other user: a greeter following one gets nothing. More generally a system
 # binary must not depend on a user's home being present, mounted or unlocked.
 #
 # A copy can drift from the clone, so a copying install RE-COPIES every run.
@@ -34,7 +34,7 @@
 # so a host that wires systemd itself gets no duplicate unit.
 # The SYSTEM units (systemd/lock-on-sleep.service, vigilance-resume.service)
 # need root; place them under /etc/systemd/system yourself (or let a host do
-# it). They are @USER@/@UID@/@HOME@-templated -- and @HOME@ is NOT %h: in a
+# it). They are @USER@/@UID@/@HOME@-templated, and @HOME@ is NOT %h: in a
 # SYSTEM unit %h resolves to ROOT's home regardless of User=, which is exactly
 # how the suspend lock 203/EXEC'd on every sleep for a whole refactor.
 #
@@ -42,7 +42,7 @@
 # and it grants the `vigilant` group write on exactly the nodes the peripheral
 # hooks drive. WITHOUT IT those hooks silently no-op, because brightnessctl is
 # denied and hook_dark/hook_lit swallow the failure by design. The group must
-# exist and the users that run vigilance must be in it -- including the greeter
+# exist and the users that run vigilance must be in it, including the greeter
 # user, if greeter coverage is on. Deliberately NOT `input`: that group also
 # grants raw read on /dev/input/event*, i.e. every keystroke.
 set -eu
@@ -76,8 +76,8 @@ MACHINE_HOOK_ROOT=${VIGILANCE_MACHINE_HOOKS:-/etc/vigilance/hooks}
 _unit=$_root/systemd/vigilance-logind.service
 # External runtime deps. brightnessctl was MISSING from this list while three
 # shipped hooks (kbd-backlight, panel-backlight, mute-leds) called it by name,
-# so the one dependency whose absence is SILENT -- hook_dark/hook_lit swallow
-# its failure by design -- was the one `check` did not look for.
+# so the one dependency whose absence is SILENT (hook_dark/hook_lit swallow
+# its failure by design) was the one `check` did not look for.
 DEPS="swaylock swayidle wlopm ddcutil brightnessctl"
 
 # NAME THE CONSUMER, not just the package. "dep ddcutil absent" says nothing
@@ -160,7 +160,7 @@ _place() {
 # precedes ~/.local/bin on a default PATH, so a copy there SHADOWS the live pkg
 # symlink and then rots behind it. Observed on a real box: a system swayidle-mgr
 # dated a day earlier was winning `command -v`, so an idle-suspend seam added to
-# the package that morning was inert -- the tool that ran had never heard of it.
+# the package that morning was inert: the tool that ran had never heard of it.
 #
 # Keyed on COPY MODE, which is already defined as "what a shared/system prefix
 # needs" (see the header). A symlinking install to a user prefix is unaffected.
@@ -213,7 +213,7 @@ do_install() {
       # That is not untidiness once the tree is shared: the machine-scope hook
       # wiring symlinks into it, and a GREETER executes those hooks. A file the
       # unprivileged account can rewrite, executed by another security context,
-      # is the thing "Install placement" bans outright -- anything root reads or
+      # is the thing "Install placement" bans outright: anything root reads or
       # runs must be root-owned and not user-writable.
       #
       # Found on a real box after the migration: 19 entries under /opt/vigilance
@@ -241,7 +241,7 @@ do_install() {
 # installed plugin tree. Neither can be home-relative any more: `vigilant` is
 # classified as a SHARED command (one root-owned tree, one link on PATH), and
 # a unit that hardcoded ~/.local would break the moment a box installs in shared
-# mode -- which is precisely how the idle timer died once already, armed with a
+# mode, which is precisely how the idle timer died once already, armed with a
 # path that had been swept out from under it.
 #
 # Substituting at install is what keeps ONE fact in ONE place: the installer
@@ -259,7 +259,7 @@ _render_unit() {   # <src> <dst>
 # `systemctl --user enable` fails wherever there is no user systemd instance to
 # talk to: a provisioner, a container, an ssh session before the user bus
 # exists. Swallowing that and printing "enabled" anyway is the same false claim
-# this package keeps finding elsewhere -- and here it matters, because the
+# this package keeps finding elsewhere, and here it matters, because the
 # listener it names is what crosses the `lock` edge on logind's Session.Lock.
 # Believing it is armed when it is not is precisely the gap that leaves a
 # machine unlocked.
@@ -316,10 +316,10 @@ do_service() {
   echo "  systemctl --user start vigilance-idle.service from its autostart)"
   echo "  (supervision is report-only;"
   echo "  VIGILANCE_ENFORCE=force lets it cross an overdue edge)"
-  echo "$PKG: the SYSTEM units need root -- place lock-on-sleep.service and"
+  echo "$PKG: the SYSTEM units need root: place lock-on-sleep.service and"
   echo "  vigilance-resume.service from $_root/systemd under /etc/systemd/"
   echo "  system (they are @USER@/@UID@/@VIGILANT@-templated; render, do not"
-  echo "  symlink -- and point @VIGILANT@ at the SHARED copy, never a home)."
+  echo "  symlink, and point @VIGILANT@ at the SHARED copy, never a home)."
   echo "  Also root-only: $_root/udev/99-vigilance.rules under /etc/udev/"
   echo "  rules.d, plus a 'vigilant' group holding every user that runs"
   echo "  vigilance. Without it the peripheral hooks silently no-op."
@@ -360,7 +360,7 @@ do_uninstall() {
 }
 
 # DEVICE ACCESS, which this file's own header declares as a hard requirement and
-# nothing verified -- so the requirement was a comment. On a real box the user
+# nothing verified, so the requirement was a comment. On a real box the user
 # was in none of input/video/i2c, every brightnessctl write was denied, and
 # hook_dark/hook_lit swallow that failure BY DESIGN, so vigilant logged clean
 # crossings while the hardware never moved.
@@ -399,7 +399,7 @@ _check_access() {
 # and said nothing about the things that actually run them.
 #
 # Placement only. Whether a unit is ENABLED and whether its ExecStart RUNS are
-# `vigilant report`'s questions, asked against live systemd -- deliberately not
+# `vigilant report`'s questions, asked against live systemd, deliberately not
 # duplicated here.
 #
 # TWO LEGITIMATE LOCATIONS for a --user unit, mirroring the two hook scopes:
@@ -430,7 +430,7 @@ _check_units() {
 # ~/src/CLAUDE.md) bans a command being installed into two directories that are
 # both on PATH, because /usr/local/bin precedes ~/.local/bin and the system copy
 # then SHADOWS the live one and rots behind it. That is not theory here: it bit
-# twice in one day -- a stale system swayidle-mgr won `command -v` and made an
+# twice in one day: a stale system swayidle-mgr won `command -v` and made an
 # idle-suspend seam added that morning inert, then a stale system `vigilant`
 # outranked a current user install for three hours.
 #
@@ -484,8 +484,8 @@ _check_stale_trees() {
   # symlink into the SHARED tree even though setup.sh itself may be running
   # against the user prefix.
   #
-  # The first version assumed, and so named /opt -- the tree every hook actually
-  # resolves to -- as the suspicious one, while the genuinely unused ~/.local
+  # The first version assumed, and so named /opt (the tree every hook actually
+  # resolves to) as the suspicious one, while the genuinely unused ~/.local
   # copy went unmentioned. A warning that fingers the live tree is worse than no
   # warning: it sends you to delete the thing that is working.
   _inuse=
@@ -536,7 +536,7 @@ _check_root_inputs() {
   # SHARED one, not this install's prefix. _check_stale_trees resolved it from
   # the wiring just above; falling back to the local prefix only when nothing is
   # wired. Checking the prefix instead would have asserted ownership of a tree
-  # nothing executes while the executed one went unexamined -- which is how it
+  # nothing executes while the executed one went unexamined, which is how it
   # read "[OK] user-owned, correct for a user prefix" on a box whose live tree
   # was 19 files owned by the login user.
   _tree=${_inuse:-$_lib/$PKG}
@@ -559,7 +559,7 @@ _check_root_inputs() {
   esac
   # And the wiring that REACHES them. A machine-scope hook is executed by
   # sessions that are not the owner's, so its target must not be user-writable
-  # either -- the symlink being root-owned says nothing about what it points at.
+  # either: the symlink being root-owned says nothing about what it points at.
   _badtgt=
   for _mh in "$MACHINE_HOOK_ROOT"/*/*; do
     [ -e "$_mh" ] || continue
@@ -599,7 +599,7 @@ do_check() {
   # MAN PAGES, which `install` claims in its own success message ("+ man") and
   # nothing confirmed. Iterated as a glob rather than via _man_pages, because
   # that prints, and a `while read` over a pipe runs in a SUBSHELL where
-  # bad() could not raise RC -- a check that cannot fail is not a check.
+  # bad() could not raise RC: a check that cannot fail is not a check.
   for _m in "$_root"/man/man*/*.[0-9]; do
     [ -e "$_m" ] || continue
     _md=$_man/$(basename "$(dirname "$_m")")/$(basename "$_m")

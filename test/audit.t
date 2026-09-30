@@ -99,8 +99,8 @@ esac
 
 # --- ARRIVING at the rung by another edge satisfies it too ------------------
 # THE LIVE JOURNAL FOUND THIS. On resume, `go lock` is a no-op only when the
-# depth file survived at `lock`; when the box had descended to `sleep` first --
-# which is the ORDINARY idle path -- it crosses `wake` to climb back. Both
+# depth file survived at `lock`; when the box had descended to `sleep` first (
+# which is the ORDINARY idle path) it crosses `wake` to climb back. Both
 # outcomes mean the session is locked, and only one was being counted, so every
 # resume from the normal idle path was reported as a MISS. Two of them were
 # sitting in the real audit output, indistinguishable from the three genuine
@@ -212,7 +212,7 @@ _edges=$(VIGILANCE_AUDIT_SINCE='-30 days' "$_SRC" 2>/dev/null \
            | awk '{print $2}' | sort -u)
 if [ -z "$_edges" ]; then
   # NEVER SILENT. A host whose journal holds no sleeps has nothing to assert
-  # here, and a vacuous pass would read exactly like a verified one -- the same
+  # here, and a vacuous pass would read exactly like a verified one: the same
   # false green as the empty verify tier. Say what went unchecked.
   echo "  note: no sleep events in this journal; the shipped-hook edge" \
        "assertion had nothing to check" >&2
@@ -241,7 +241,7 @@ audited as a miss"
 # `journalctl` absent on a non-systemd box, or an event log that was never
 # created, means there is nothing to reconcile and nothing wrong. Reporting
 # that as BROKEN is the crying-wolf half of the same conflation 78 exists to
-# break -- and this is the tier of last resort, so teaching a reader to
+# break, and this is the tier of last resort, so teaching a reader to
 # discount it is expensive.
 rm -f "$VIGILANCE_HOOK_ROOT"/audit.d/*
 printf '#!/bin/sh\nexit 78\n' > "$VIGILANCE_HOOK_ROOT/audit.d/10-absent"

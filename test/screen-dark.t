@@ -27,7 +27,7 @@ mkdir -p "$T/bin"
 
 # THE BACKLIGHT ROOT IS PINNED AND EMPTY BY DEFAULT. Every case here is about
 # a box with no backlight; left unpinned they would read the HOST's, and on a
-# laptop at full brightness that happens to give the same answers -- a verdict
+# laptop at full brightness that happens to give the same answers: a verdict
 # about the substrate rather than the code.
 mkdir -p "$T/nobacklight"
 _run() {   # <edge> <luma|-> [kind]
@@ -48,9 +48,9 @@ _run() {   # <edge> <luma|-> [kind]
 # Each of these was a real green verdict with a lit screen behind it. The
 # luminance is the one measured on the live desktop.
 [ "$(_run sleep 0.2546)" = 1 ] || fail "a screen emitting 0.2546 at the SLEEP
-rung was accepted. That is the exact state that survived four green verdicts --
+rung was accepted. That is the exact state that survived four green verdicts:
 unimplemented D6, a vanished monitor, and two sessions with no darkening
-mechanism at all -- because every per-device check was satisfied on its own
+mechanism at all, because every per-device check was satisfied on its own
 terms while nobody asked what the rung actually claims"
 
 # ...and it is the same answer however the machine got there. The point of a
@@ -72,17 +72,17 @@ panel that is off"
 # switched off, and then the dark direction goes with it.
 [ "$(_run lock 0)" = 0 ] || fail "a black screen at a LIT rung was called drift.
 A dark wallpaper is not a fault, and a check that fires on one is a check that
-gets disabled -- taking the direction that matters with it"
+gets disabled, taking the direction that matters with it"
 [ "$(_run unlock 0)" = 0 ] || fail "same, on unlock"
 
 # AND THE ORDINARY CASE: a normally-lit screen at a lit rung. Testing only the
-# black-at-lit case above missed this entirely -- removing the lit guard still
+# black-at-lit case above missed this entirely: removing the lit guard still
 # passed, because a black screen reads as dark whichever rung you ask about.
 # This is the one that bites: every waking moment is a lit screen at a lit rung,
 # so a hook that judged that direction would fire constantly.
 [ "$(_run lock 0.2546)" = 0 ] || fail "a NORMALLY LIT screen at a lit rung was
 reported as drift. That is every waking moment of the machine, so this check
-would fire constantly and be switched off within a day -- taking the dark
+would fire constantly and be switched off within a day, taking the dark
 direction, the one that matters, with it"
 [ "$(_run open 0.44)" = 0 ] || fail "same at the open rung"
 
@@ -116,7 +116,7 @@ know, which is what lets it judge every mechanism impartially"
 # It looked correct only because lock-blank was painting the surface black on
 # that box. Gating lock-blank to the hardware that needs it removed the mask,
 # and this began reporting "still emitting, mean luminance 0.277" once a
-# minute at a rung where display-watch recorded bl=0 -- a panel that was
+# minute at a rung where display-watch recorded bl=0: a panel that was
 # genuinely, physically dark.
 #
 # Every case above passes with the bug present, because none of them models a
@@ -150,7 +150,7 @@ BL_ROOT=
 # --- SCIENTIFIC NOTATION IS A NUMBER --------------------------------------
 # THE BUG THAT FIRED 275 TIMES ON manifestor, on the box where the mechanism
 # was working BEST. hook_luma_is_dark matched strings (`0|0.00*`), and
-# ImageMagick emits an exponent for very small means -- which is precisely the
+# ImageMagick emits an exponent for very small means, which is precisely the
 # success case. A genuinely black lock surface measured 3.64999e-05, blacker
 # than the other box ever gets, and was reported as still emitting.
 #
@@ -158,8 +158,8 @@ BL_ROOT=
 # it teaches the reader that the tier is noise, on the one box whose OLED has
 # no other way to go dark.
 for _v in 3.64999e-05 3.44196e-05 1.0e-9 0E0; do
-  [ "$(_run sleep "$_v")" = 0 ] || fail "a luminance of $_v -- black to nine
-decimal places -- was reported as a lit screen. Comparing a number as a string
+  [ "$(_run sleep "$_v")" = 0 ] || fail "a luminance of $_v (black to nine
+decimal places) was reported as a lit screen. Comparing a number as a string
 cannot read an exponent, and an exponent is what a working blank produces"
 done
 

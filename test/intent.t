@@ -6,7 +6,7 @@
 # drift silently is worse than no fallback: this pins them equal.
 #
 # WHY THE EXPORT EXISTS: tackup's kbd-rgb hand-rolled the table, read `resume`
-# as "coming back up, so light it", and lit a keyboard over a dark screen -- in
+# as "coming back up, so light it", and lit a keyboard over a dark screen, in
 # the same pass as ddc-monitor, which read the real mapping and was powering the
 # monitor down. Both hooks reported success. An integrator hook needs the
 # identical table, and getting it wrong is invisible.
@@ -17,9 +17,9 @@ scenario_init intent
 
 . "$HERE/libexec/vigilance/hook_lib"
 # THE WHOLE LADDER REGION COMES WITH IT. _intent_of used to carry the entire
-# vocabulary in a case statement and could be lifted alone. It is DERIVED now
-# -- from LADDER_TABLE, through an eval that flattens the table into lookup
-# strings at startup -- so extracting the function without its data gives one
+# vocabulary in a case statement and could be lifted alone. It is DERIVED now,
+# from LADDER_TABLE, through an eval that flattens the table into lookup
+# strings at startup, so extracting the function without its data gives one
 # that answers "none" to everything, or fails outright on an unset variable.
 # Both happened here, once per refactor step.
 #
@@ -37,7 +37,7 @@ for _e in lock unlock sleep wake suspend resume; do
   _runner=$(_intent_of "$_e")
   _hook=$(VIGILANCE_KIND=verify hook_intent "$_e")
   [ "$_runner" = "$_hook" ] || fail "intent($_e): runner says '$_runner', the
-hook_lib fallback says '$_hook' -- the two copies have drifted"
+hook_lib fallback says '$_hook': the two copies have drifted"
 done
 
 # --- the exported value WINS, so the ladder is stated once -------------------
@@ -106,7 +106,7 @@ esac
 # --- the RESUME UNIT must come back to `lock`, never to `sleep` -------------
 # Its ExecStart used to be `go sleep`, on the premise that after S3 you are at
 # rung `sleep` until input. That assumes nobody is there. When a human woke the
-# machine -- or when the suspend was spurious -- it darkened the screen on an
+# machine, or when the suspend was spurious: it darkened the screen on an
 # ACTIVE user. Observed live: a 2-second s2idle entry/exit, after which the unit
 # re-asserted dark and the screen stayed off for 32 seconds.
 #

@@ -5,25 +5,25 @@
 # made `_intent_of` spawn an `awk` per call, and it is called once per HOOK per
 # edge: 1210ms against 1128ms for a lock+unlock pair, ~7% on the security path.
 # It was found by going looking during a debt review, months later. Nothing in
-# the suite could have seen it, and the reasoning that let it through -- "80ms
-# is noise against a 25s budget" -- is TRUE and is also exactly how a real
+# the suite could have seen it, and the reasoning that let it through ("80ms
+# is noise against a 25s budget") is TRUE and is also exactly how a real
 # regression ships.
 #
 # COUNTS, NOT MILLISECONDS, and that choice is what makes this worth having. A
 # wall-clock assertion on a shared developer box is flaky, and a flaky test is
 # one people re-run until it goes green; a fork count is deterministic
 # (measured: identical across repeated runs and both substrates) and it is
-# ALSO the actual defect -- the regression was a process spawned per hook, not
+# ALSO the actual defect: the regression was a process spawned per hook, not
 # a slow algorithm.
 #
 # HOW: every external the runner can reach is replaced by a counting shim, and
 # PATH is set to that dir ALONE. A command this file forgot to shim therefore
-# fails to resolve and the crossing breaks, which case 1 asserts against -- so
+# fails to resolve and the crossing breaks, which case 1 asserts against, so
 # an incomplete shim list is a loud failure rather than a silent undercount.
 #
 # WHAT IT CANNOT SEE: the hooks' own internals. A hook is exec'd directly, and
 # what it spawns is the integrator's business, not the runner's. That boundary
-# is the point -- `report`'s budget section already covers hook count x bound.
+# is the point: `report`'s budget section already covers hook count x bound.
 set -eu
 . "$(dirname "$0")/harness_lib"
 harness_init perf
@@ -85,14 +85,14 @@ _measure() {   # <hooks per edge> -> prints the total external count
 # --- 1. THE PRECONDITIONS, or every number below is about nothing -----------
 _n2=$(_measure 2) || fail "a crossing failed under the shimmed PATH. The usual
 cause is a tool this file does not shim: PATH is the shim dir ALONE, so an
-unshimmed command cannot resolve. Add it to _tools -- and note that the miss
+unshimmed command cannot resolve. Add it to _tools, and note that the miss
 was LOUD, which is why the list is exhaustive rather than trusted.
 $(tail -3 "$T/stderr" 2>/dev/null)"
 _ran=$(wc -l < "$T/m2/ran" | tr -d ' ')
 [ "$_ran" = 4 ] || fail "expected 4 hook runs (2 hooks x 2 edges), saw $_ran.
 The count below would be measuring a traversal that did not happen"
 # AND THE BOUND WAS IN FORCE. Without this the file would happily certify a
-# cheaper runner that had stopped wrapping its hooks in `timeout` -- a cost
+# cheaper runner that had stopped wrapping its hooks in `timeout`: a cost
 # reduction that is a safety regression, and the one this test could be read as
 # encouraging.
 _tmo=$(grep -c '^timeout$' "$T/calls" 2>/dev/null || echo 0)
@@ -105,9 +105,9 @@ bounding its hooks; the second is a security regression this must not pass"
 # see that (it moves with the fixed cost too), so the claim is the SLOPE:
 # measure at two hook counts and divide.
 #
-# Measured on 2026-09-29: 1.5 per hook run. It was 4 when this file was written
-# -- the state dir (`mkdir`), the kind string (`tr`), the hook name (`basename`)
-# and the bound (`timeout`) -- and writing the guard is what made the first
+# Measured on 2026-09-29: 1.5 per hook run. It was 4 when this file was written:
+# the state dir (`mkdir`), the kind string (`tr`), the hook name (`basename`)
+# and the bound (`timeout`), and writing the guard is what made the first
 # three visible as forks that the shell does for nothing. Only the bound is
 # unavoidable, and it is the one that must never be optimised away.
 _n8=$(_measure 8) || fail "the 8-hook crossing failed"
@@ -123,7 +123,7 @@ path where 24 is the measured budget. This is the exact shape of the regression
 this file exists for: a helper called once per hook per edge that runs a program
 instead of using the shell.
 
-If the cost is deliberate, re-derive the ceiling and say why in the commit --
+If the cost is deliberate, re-derive the ceiling and say why in the commit,
 do not nudge the number. n2=$_n2 n8=$_n8"
 
 # --- 3. AND THE FIXED COST, so startup cannot grow unwatched ---------------

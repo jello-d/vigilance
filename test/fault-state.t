@@ -11,7 +11,7 @@
 # aborted the hook before EITHER monitor was driven.
 #
 # A READ-ONLY MOUNT, NOT chmod. The guest runs as root and root ignores
-# permission bits entirely, so `chmod a-w` injects nothing at all -- the same
+# permission bits entirely, so `chmod a-w` injects nothing at all: the same
 # reason test/actuators declares `require unprivileged`. A read-only mount is
 # refused even for root, and it is also the realistic shape: a full or
 # remounted-read-only filesystem is how this happens to a real box.
@@ -34,7 +34,7 @@ mount -t tmpfs -o ro,size=1k tmpfs "$RUN" \
 injected on this substrate and the case would prove nothing"
 # STDERR REDIRECTED FIRST. Redirections apply left to right, so with `>` ahead
 # of it the failing output redirect is reported by the shell while stderr is
-# still the terminal -- and this probe is MEANT to fail, so it printed an
+# still the terminal, and this probe is MEANT to fail, so it printed an
 # alarming "Read-only file system" line on every successful run.
 if printf 'x' 2>/dev/null > "$RUN/canary"; then
   fail "the fault did not take: $RUN is still writable, so everything below
@@ -48,7 +48,7 @@ lock the screen. Bookkeeping is not the job: a record it cannot keep must never
 suppress the lock, which is what _set_depth's own comment says and what
 ddc-monitor once broke one layer out"
 
-# AND IT MUST SAY SO. Failing loudly is the other half of the rule -- a lock
+# AND IT MUST SAY SO. Failing loudly is the other half of the rule: a lock
 # that worked while the record silently did not is drift nobody was told about,
 # and drift nobody was told about is this package's whole subject.
 said "could not record depth" || fail "the depth record failed and nothing was

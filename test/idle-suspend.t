@@ -18,7 +18,7 @@ chmod +x "$T/bin/swayidle"
 #
 # VIGILANT_CMD IS A REAL EXECUTABLE (/bin/true), not /nonexistent as before.
 # _run now REFUSES to arm anything when `vigilant` cannot be resolved, because a
-# timer armed with a command that cannot run fails silently forever -- the exact
+# timer armed with a command that cannot run fails silently forever: the exact
 # 2026-09-12 idle-lock outage. That guard is the point, so the test must satisfy
 # it rather than route around it. _need_vigilant is extracted alongside _run for
 # the same reason: the function has to exist for the guard to be the thing under
@@ -41,7 +41,7 @@ _run"
 # A wedged swayidle is running with correct argv and emits nothing, so every
 # liveness check in this suite passes while the box never locks again. The
 # watchdog needs an expectation to compare silence against, and `idle-lock` is
-# far too rare to be one -- a whole day can pass without a single lock. This
+# far too rare to be one: a whole day can pass without a single lock. This
 # short observational timeout is what turns silence into evidence.
 out=$(run_run SUSPEND_TIMEOUT= SUSPEND_CMD=)
 echo "$out" | grep -q 'timeout 60 self event idle-tick' \
@@ -73,7 +73,7 @@ echo "$out" | grep -q '1200' \
 
 # --- AND IT REFUSES TO ARM AT ALL when vigilant cannot be resolved ----------
 # The guard that makes the rest of this file safe to trust. swayidle-mgr's one
-# job is the idle-LOCK timer, and without `vigilant` it cannot do it -- so it
+# job is the idle-LOCK timer, and without `vigilant` it cannot do it, so it
 # must abort LOUDLY rather than arm timers that fire into nothing.
 #
 # That is not a hypothetical failure mode, it is the 2026-09-12 outage: a sweep
@@ -101,7 +101,7 @@ echo "$_out" | grep -q 'timeout 480' \
 # --- `argv` PRINTS WHAT A FRESH LAUNCH WOULD ARM ---------------------------
 # A DAEMON PINS ITS ARGV AT START, so deploying new code does not reach a
 # RUNNING timer: every config-level check passes while the process keeps what
-# it resolved at launch. That has bitten three times here -- a swept binary a
+# it resolved at launch. That has bitten three times here: a swept binary a
 # running swayidle still pointed at, a heartbeat armed nowhere, and a watchdog
 # that then accused the healthy timer of being wedged.
 #
@@ -109,8 +109,8 @@ echo "$_out" | grep -q 'timeout 480' \
 # difference, so it has to come from the SAME code path that arms it. A second
 # function describing the argv would be a second source of truth for exactly
 # the thing not to have two of.
-# FLATTENED, because argv prints ONE ARGUMENT PER LINE -- which is what makes
-# it safe to consume -- so a grep for "timeout 480" can never match the raw
+# FLATTENED, because argv prints ONE ARGUMENT PER LINE, which is what makes
+# it safe to consume, so a grep for "timeout 480" can never match the raw
 # output. The integrator joins it the same way before comparing.
 out=$(run_run SUSPEND_TIMEOUT= SUSPEND_CMD= ARGV_ONLY=1 | tr '\n' ' ')
 echo "$out" | grep -q 'timeout 480' \
@@ -125,12 +125,12 @@ daemon is missing and therefore the whole reason to compare"
 # TOLD APART BY LINE COUNT, which is the only thing that distinguishes them
 # here: the stub prints every argument on ONE line, `argv` prints one PER line.
 # Flattening for the greps above erases exactly that difference, so this
-# assertion has to run on the raw output -- a mutation that ignored ARGV_ONLY
+# assertion has to run on the raw output: a mutation that ignored ARGV_ONLY
 # and exec'd the stub survived until it did.
 _raw=$(run_run SUSPEND_TIMEOUT= SUSPEND_CMD= ARGV_ONLY=1 | wc -l)
 [ "$_raw" -gt 1 ] || fail "argv produced $_raw line(s). That is what the stub
 prints when it is EXECUTED, so the query launched the timer instead of
-describing it -- on a real box, a second idle daemon on every apply"
+describing it: on a real box, a second idle daemon on every apply"
 
 # ...and the seam still appears when set, so argv reports the real list rather
 # than a hardcoded sketch of it.

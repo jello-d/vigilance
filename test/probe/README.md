@@ -12,7 +12,7 @@ versioning, and the reasoning in its header is worth more than the script.
 
 ## Run it from the checkout you just pulled
 
-A probe lives in `test/`, and an integrator installs `bin/` and `libexec/` --
+A probe lives in `test/`, and an integrator installs `bin/` and `libexec/`,
 not this. So on a provisioned box the package clone tracks head automatically
 and **the copy a human runs from is the one that goes stale.** That cost a live
 run: the dev checkout was one commit behind, the fix was sitting in the clone

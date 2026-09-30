@@ -25,7 +25,7 @@
 # (some sleep, some show "no signal", some stay backlit). This commands it.
 #
 # THE COROLLARY IS THE DANGEROUS PART. Because it is out-of-band, a keypress can
-# NEVER undo it -- the input never reaches the monitor. Wiring this means the
+# NEVER undo it: the input never reaches the monitor. Wiring this means the
 # ascent must be armed by something, or the screen stays dark and the user is
 # left pressing keys at a monitor that cannot hear them. Not theoretical: it is
 # how this suite's blackouts presented, every time.
@@ -59,14 +59,14 @@ esac
 #
 # The hardcoded 02 was WORSE than a no-op on the QD-OLED. Observed live: the
 # panel went dark at the `sleep` edge, stopped answering DDC entirely, and could
-# not be brought back -- `setvcp d6 01` returns "DDC communication failed", so
+# not be brought back: `setvcp d6 01` returns "DDC communication failed", so
 # there is no wake channel left. It needed a power cycle at the monitor.
 #
 # ONLY 02, AND THAT IS THE WHOLE SAFETY RULE.
 #
 # D6 is not a scale of "more off", it is a set of states with different WAKE
 # CHANNELS. 02 is DPMS STANDBY: shallow, the scaler stays listening, and 01
-# brings it back. 03/04/05 are suspend, full off, and "turn off display" -- none
+# brings it back. 03/04/05 are suspend, full off, and "turn off display", none
 # of them promises the monitor is still listening to I2C afterwards, and if it
 # is not there is NO WAY BACK over DDC.
 #
@@ -77,7 +77,7 @@ esac
 #
 # So a panel that offers no shallow standby is a panel with no DDC-recoverable
 # off state, and the absence of 02 is itself the signal. Leave it alone and let
-# the compositor-side true-black cover it -- on an OLED, black genuinely is off.
+# the compositor-side true-black cover it: on an OLED, black genuinely is off.
 #
 # This is the ladder's own invariant applied to a peripheral: nothing may be put
 # into a dark state unless its way back is armed. A deeper code is available
@@ -86,18 +86,18 @@ esac
 # cost of being wrong is a dark panel and a walk to the power button.
 #
 # NOT CACHED. `capabilities` measured 310ms per bus, the same as a getvcp, so
-# the whole pass stays around 2s against a 10s hook bound -- and a cached value
+# the whole pass stays around 2s against a 10s hook bound, and a cached value
 # that outlives a monitor swap would write the wrong code at exactly the moment
 # the hardware changed, which is the failure this is fixing.
 # HOW to darken this bus, not merely which D6 code. A monitor either implements
 # DPMS standby or it does not, and those two answers need DIFFERENT MECHANISMS,
-# so the choice belongs here -- in one place, in one hook.
+# so the choice belongs here, in one place, in one hook.
 #
 #   power:<code>  VCP D6, a real power state. Only 02 (standby) by default: it
 #                 is the one state that keeps the scaler listening.
 #   bright        VCP 10 (Luminance) driven to 0. NOT a power state, so it
 #                 triggers no OLED pixel-refresh and cannot wedge the panel.
-#                 The fallback for a monitor with no shallow standby -- exactly
+#                 The fallback for a monitor with no shallow standby, exactly
 #                 what panel-backlight does for a laptop eDP, over DDC rather
 #                 than sysfs.
 #   (empty)       nothing this monitor can do; leave it on and say so.
@@ -178,7 +178,7 @@ _bright_get() {   # bus -> current luminance, or empty
 # thing to maintain, and one implementation cannot drift from itself.
 #
 # THE ADAPTER CARRIES THE BUS in a variable rather than an argument, because
-# level_get and level_set take none by contract -- the same shape hook_lib's own
+# level_get and level_set take none by contract, the same shape hook_lib's own
 # brightnessctl adapters use for their selector.
 _bright_adapt() {   # bus
   _bl_bus=$1
@@ -217,7 +217,7 @@ _bright_lit() {   # bus
 
 # VERIFY reads VCP D6 back instead of writing it. This is precisely the check
 # that was run BY HAND to prove manifestor's monitor had been dark for two
-# days while everything else reported success -- so it is known to work and
+# days while everything else reported success, so it is known to work and
 # known to be the one that matters.
 _verify=0
 if [ "${VIGILANCE_KIND:-act}" = verify ]; then _verify=1; fi
@@ -225,7 +225,7 @@ if [ "${VIGILANCE_KIND:-act}" = verify ]; then _verify=1; fi
 # NOT DUE? A peripheral check earns an hour, not a minute. The standing recheck
 # forces a FULL verify on the first pass after the rung changes, which is when
 # drift is actually introduced, so this cadence is a backstop rather than the
-# primary mechanism -- and in the whole log history these verifiers have
+# primary mechanism, and in the whole log history these verifiers have
 # reported drift exactly never. Only the recheck offers the skip; an explicit
 # `vigilant verify` is always real.
 hook_throttle "${VIGILANCE_PERIPHERAL_EVERY:-3600}" && exit 75
@@ -234,7 +234,7 @@ hook_throttle "${VIGILANCE_PERIPHERAL_EVERY:-3600}" && exit 75
 #
 # THE TRAP THIS CLOSES, observed on manifestor. A monitor commanded into a power
 # state it does not implement stopped answering DDC. `ddcutil detect` then
-# reclassifies it from "Display N" to "Invalid display" -- and the map below
+# reclassifies it from "Display N" to "Invalid display", and the map below
 # deliberately EXCLUDES invalid displays, because that is where a non-DDC eDP
 # panel lives. So the dark monitor DROPPED OUT OF THE MAP: the ascent never sent
 # it 01, verify never checked it, the hook returned 0 because the one monitor it
@@ -242,11 +242,11 @@ hook_throttle "${VIGILANCE_PERIPHERAL_EVERY:-3600}" && exit 75
 # nothing left to bring it back.
 #
 # A monitor that vanishes from the map is indistinguishable from one that was
-# never there -- UNLESS we wrote down that we put it to sleep. So we do.
+# never there, UNLESS we wrote down that we put it to sleep. So we do.
 DARK_RECORD=${VIGILANCE_STATE_DIR:-/tmp}/dark-buses
 
 # BOOKKEEPING MUST NEVER SUPPRESS THE ACTUATOR. This hook runs under `set -eu`,
-# so a failed redirect aborts it outright -- and the record writes sit BEFORE
+# so a failed redirect aborts it outright, and the record writes sit BEFORE
 # the loop, which meant a state directory that could not be created stopped
 # every monitor from being driven at all. Observed: a run where the state dir
 # was unwritable left both panels untouched while the edge looked like it had
@@ -264,7 +264,7 @@ DARK_RECORD_OK=1
 _dark_record_reset() {
   mkdir -p "$(dirname "$DARK_RECORD")" 2>/dev/null || true
   # `true >`, NOT `: >`. `:` is a POSIX SPECIAL BUILTIN, and a redirection
-  # error on a special builtin makes the shell EXIT outright -- neither `if`
+  # error on a special builtin makes the shell EXIT outright: neither `if`
   # nor `set -e` protects it. Measured: `if : > BAD/f; then` kills dash and is
   # survived by bash, so this hook (#!/bin/sh -> dash here) died at the truncate
   # while the same line would have looked fine under bash. `true` is a regular
@@ -299,7 +299,7 @@ _map=$(ddcutil detect --brief 2>/dev/null | awk '
 
 _rc=0
 # How many buses this run actually ASSERTED something about. A verify that
-# checked nothing -- every monitor skipped by policy, silent, or write-only --
+# checked nothing (every monitor skipped by policy, silent, or write-only)
 # must not report the same as one that confirmed every panel. See HOOK_NA in
 # bin/vigilant: exiting 78 is how the runner is told the difference.
 _checked=0
@@ -310,7 +310,7 @@ _checked=0
 if [ "$_intent" = lit ] && [ -f "$DARK_RECORD" ]; then
   # FLATTENED, because _map is newline-separated (one bus per awk print) and a
   # `case` glob needs spaces around each entry to match one. Compared unflat it
-  # matched nothing and every restored monitor read as vanished -- a check that
+  # matched nothing and every restored monitor read as vanished: a check that
   # fires on the healthy path is worse than none, since it is the one people
   # switch off.
   _map_flat=" $(printf '%s ' $_map)"
@@ -329,7 +329,7 @@ if [ "$_intent" = lit ] && [ -f "$DARK_RECORD" ]; then
   done < "$DARK_RECORD"
   # THE RECORD OUTLIVES A FAILED ASCENT, and only a still-missing bus stays in
   # it. Clearing it here regardless would give the operator exactly ONE warning
-  # and then silence, while the panel stayed dark -- a thing that cannot report
+  # and then silence, while the panel stayed dark, a thing that cannot report
   # reporting clean, which is the failure mode this hook is fixing. A bus that
   # came back drops out, so a recovered monitor stops being mentioned.
   if [ "$_verify" != 1 ]; then
@@ -346,7 +346,7 @@ for _bus in $_map; do
   _meth=$(_dark_method "$_bus")
   # A monitor we cannot darken is skipped ON THE WAY DOWN only. Going UP it
   # still gets its 01: that write is cheap, universally implemented, and it is
-  # what recovers a panel something ELSE put to sleep -- its own button, a
+  # what recovers a panel something ELSE put to sleep: its own button, a
   # previous boot, a user poking the OSD. Skipping it on the ascent would have
   # been a silent narrowing of what the lit intent means.
   if [ -z "$_meth" ] && [ "$_intent" = dark ]; then

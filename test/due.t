@@ -89,7 +89,7 @@ _backdate lock 700
 grep -q "^overdue " "$T/alerts" || fail "an overdue edge raised no alert"
 
 # --- ENFORCE NEVER CROSSES AN EDGE ------------------------------------------
-# Forcing is RETIRED (2026-09-20), and this is the mechanical form of that --
+# Forcing is RETIRED (2026-09-20), and this is the mechanical form of that:
 # the same shape as dpms.t asserting no edge ever issues `wlopm --off`, because
 # a capitalised warning in a comment is not a guarantee.
 #
@@ -98,7 +98,7 @@ grep -q "^overdue " "$T/alerts" || fail "an overdue edge raised no alert"
 # back), and `lock` was refused because its deadline is idle-anchored. The
 # intersection of forceable and measurable was empty, so it was tested code
 # that could never run in production. And it had been superseded without
-# anyone noticing -- every failure it would have acted on is now caught closer
+# anyone noticing: every failure it would have acted on is now caught closer
 # to the cause, leaving one sliver (the idle timer alive, armed, and silently
 # not firing) that wants DETECTING rather than forcing.
 #
@@ -173,7 +173,7 @@ expect_depth sleep
 # machine being actively typed on, `lock` read 1616s OVERDUE and the enforce
 # timer would have alerted every minute, forever, about nothing.
 #
-# So an idle anchor was refused outright -- and refusing it made the SOON
+# So an idle anchor was refused outright, and refusing it made the SOON
 # question unanswerable, which left a whole tier inert. The answer is not to
 # guess, it is to MEASURE: an `idle.d` source reports seconds since last input,
 # and only when one exists does the deadline become a claim rather than a hope.
@@ -209,7 +209,7 @@ it cannot know whether the machine was busy"
 expect_depth open
 
 # A CLOCK THAT SAYS THE SEAT IS BUSY: still not overdue, however long the rung
-# has been held. This is the cry-wolf case, and it is the one that matters --
+# has been held. This is the cry-wolf case, and it is the one that matters:
 # 10s of idle against a 480s deadline on a machine somebody is using.
 _idle 10
 _out=$("$VIGILANT" enforce 2>>"$T/stderr") \
@@ -223,7 +223,7 @@ expect_depth open
 # armed and silent: it passes the argv check, logs no event for audit to
 # reconcile, and leaves the machine at a rung it genuinely matches. Nothing
 # else in this suite can see it, and it is the failure that created this
-# package -- "it WEDGES on this Wayfire build".
+# package: "it WEDGES on this Wayfire build".
 _idle 900
 _out=$("$VIGILANT" enforce 2>>"$T/stderr") \
   && fail "the seat was idle 900s against a 480s deadline and the edge had not
@@ -236,7 +236,7 @@ esac
 expect_depth open          # DETECTED, never acted on: forcing is retired
 
 # ...and a source that DECLINES is not a clock. 78 means "I cannot tell", and
-# reading it as a number would mean 0 -- "input one second ago" -- which is the
+# reading it as a number would mean 0: "input one second ago", which is the
 # single most dangerous wrong answer here: it silently resets every deadline
 # forever and reports a healthy machine.
 _idle na
@@ -375,13 +375,13 @@ $(cat "$T/eout")"
 [ -s "$T/sampled" ] || fail "THE CLOCK WAS NOT SAMPLED at a rung with nothing to
 enforce. The supervision pass is the sampling loop for every idle.d source, so
 skipping it here leaves the clock unsampled for as long as the machine sits at a
-dark rung -- and its next reading is wall time since somebody ran report, not
+dark rung, and its next reading is wall time since somebody ran report, not
 idle time. The recheck and watchdogs are unconditional for this same reason."
 
 # AND THE READING IS TAKEN BEFORE ANY HOOK RUNS, then re-baselined after. The
-# pass generates traffic on the very devices a counter clock watches -- a wired
+# pass generates traffic on the very devices a counter clock watches: a wired
 # verify hook queries a keyboard over raw HID and it answers because it was
-# asked -- so a source must be able to tell our own pass apart from the seat.
+# asked, so a source must be able to tell our own pass apart from the seat.
 # Measured before this: 6 URBs three seconds after every pass, once a minute,
 # which pinned the clock at one interval for ever.
 : > "$T/phases"

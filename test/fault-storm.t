@@ -25,7 +25,7 @@
 # and would hammer the lock path.
 #
 # THE SIGNALS ARE REAL. `loginctl lock-session` against a session logind will
-# actually lock, delivered to vigilance's own trigger unit -- not the trigger
+# actually lock, delivered to vigilance's own trigger unit, not the trigger
 # invoked directly, which would test the ladder while skipping the listener that
 # has to survive the burst.
 set -eu

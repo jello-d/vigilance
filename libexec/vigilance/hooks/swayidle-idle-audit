@@ -12,7 +12,7 @@
 #           while", which on a machine in use is normal. It cried wolf that way
 #           once: `lock` 1616s overdue while the box was being typed on.
 #
-# That left the forensic tier, which is the right home for it -- and which had
+# That left the forensic tier, which is the right home for it, and which had
 # no source for these events, so due/enforce said "audit covers it" while
 # nothing did. This is that source.
 #
@@ -37,7 +37,7 @@
 # more than it is: if swayidle cannot EXEC the command at all, this log is never
 # written either, and there is no event to reconcile. That is precisely the 2026
 # failure above. The live guard for it is the armed-command check in `vigilant
-# report`, which reads swayidle's argv and asserts each command is executable --
+# report`, which reads swayidle's argv and asserts each command is executable,
 # the same "enabled is not working" lesson the system units already learned.
 # Forensics answers "did a fired timer produce its edge"; only the live check
 # answers "can the timer fire at all".
@@ -50,7 +50,7 @@ LOG=$_dir/events.log
 [ -r "$LOG" ] || exit 0
 
 # Bound the window LEXICOGRAPHICALLY first, then convert only the survivors.
-# ISO-8601 sorts as text, so this needs no `date` per line -- the same trick
+# ISO-8601 sorts as text, so this needs no `date` per line, the same trick
 # vigilant's own _log_has_edge uses. Without it a long-lived log would fork
 # `date` once per entry forever.
 _cut=$(date -d "$SINCE" '+%Y-%m-%dT%H:%M:%S' 2>/dev/null) || exit 0

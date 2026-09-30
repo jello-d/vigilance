@@ -54,7 +54,7 @@ done
 
 # --- 2. THE RATCHET: no host read outside a declared-live function ----------
 # These functions read the real system ON PURPOSE. The suite's own rule is that
-# actuators may be stubbed but the TRUST ROOT may not -- a stubbed `systemctl`
+# actuators may be stubbed but the TRUST ROOT may not: a stubbed `systemctl`
 # lies, and a lying stub is how a green test coexists with a broken box. So
 # systemd, logind and the process table are read for real here, and scenarios
 # scope around these sections rather than faking them.
@@ -100,7 +100,7 @@ case "$_out" in
 override exists but the code still read the real /sys" ;;
 esac
 
-# The locker probe flips the coherence verdict, so it is observable -- but only
+# The locker probe flips the coherence verdict, so it is observable, but only
 # where a lock PROVIDER is wired. report deliberately says "no locker expected"
 # when nothing could raise one, because a greeter sits at this rung forever with
 # no provider and demanding a locker made its report permanently red. So wire a
@@ -134,7 +134,7 @@ the operator's own record"
 # SUITE, and it is a distinct failure with the same cause.
 #
 # `report` has ONE exit code for nine sections, and some of them ask the real
-# machine -- machinery queries the live systemd about whether vigilance's units
+# machine: machinery queries the live systemd about whether vigilance's units
 # are enabled. So:
 #
 #   _out=$("$VIGILANT" report) && fail "it should have failed"
@@ -157,7 +157,7 @@ the operator's own record"
 #
 #   _rep() { "$VIGILANT" report 2>>"$T/stderr" || true; }
 #
-# which discards the code exactly as intended -- a false positive on the helper
+# which discards the code exactly as intended: a false positive on the helper
 # form, in a checker whose whole value is that its verdicts are trusted.
 #
 # PROSE IS SKIPPED, and it caught this scanner on its first run: the comment
@@ -175,7 +175,7 @@ if [ -n "$_branchers" ]; then
 sections which read the real host, so the assertion is partly about the machine
 running the suite: it passes for free wherever the host is already red, and goes
 on passing with the check it claims to cover removed. Assert on the owning
-section instead -- _fail_in / _no_fail_in -- which reads the same on every
+section instead: _fail_in / _no_fail_in, which reads the same on every
 substrate. Discarding the code with '|| true' and grepping the output is fine"
 fi
 

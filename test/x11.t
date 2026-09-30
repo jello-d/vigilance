@@ -4,7 +4,7 @@
 #
 # WHY X11 AT ALL, when nothing in this fleet runs it. Not portability for its
 # own sake: a second platform is the only thing that can TEST the claim this
-# package makes about itself -- that the framework owns the ladder and nothing
+# package makes about itself: that the framework owns the ladder and nothing
 # else. The framework audit measured zero mechanism references across the nine
 # crossing functions, which says the code contains no Wayland; it cannot say the
 # CONTRACTS are free of it. Adding a platform is how you find out, and it found
@@ -86,7 +86,7 @@ not 78"
 printf 'DPMS is Enabled\n  Monitor is On\n' > "$XSET_Q"
 
 # ...AND WITH xset GENUINELY ABSENT. A MINIMAL PATH, because moving the stub
-# aside does not remove a real binary two entries later -- the fourth instance
+# aside does not remove a real binary two entries later: the fourth instance
 # of that shape in this suite. `sh` stays on it deliberately: omitting it once
 # made rc=127 wear the costume of a declined hook.
 mv "$T/bin/xset" "$T/bin/xset.off"
@@ -109,7 +109,7 @@ mv "$T/bin/xset.off" "$T/bin/xset"
 # --- 3. DPMS DISABLED AT THE SERVER IS A REFUSAL, not a no-op ---------------
 # `xset dpms force off` with DPMS disabled returns 0 and the screen stays lit.
 # That is asserted-versus-actual drift living in the actuator, which is how a
-# monitor sat dark for two days behind a green light -- so a dark rung must not
+# monitor sat dark for two days behind a green light, so a dark rung must not
 # be entered on the strength of it.
 printf 'DPMS is Disabled\n  Monitor is On\n' > "$XSET_Q"
 : > "$XSET_LOG"
@@ -128,7 +128,7 @@ printf 'DPMS is Enabled\n  Monitor is On\n' > "$XSET_Q"
 # its first day: Xvfb reports no DPMS block whatever, even started with
 # `+extension DPMS`, and the first version of this hook read that as "disabled"
 # and FAILED every dark edge. A cry-wolf on every sleep, on a server where there
-# is nothing to fix and no remedy to name -- which is the one thing a check must
+# is nothing to fix and no remedy to name, which is the one thing a check must
 # never do, because it teaches a reader to discount the tier.
 #
 # The two answers differ because only "Disabled" has a remedy (`xset +dpms`) and
@@ -247,7 +247,7 @@ it overflows the shell's arithmetic, which is how an idle source once leaked
 #
 #     x11-idle -> 306s     ... 3 seconds later ...     x11-idle -> 2s
 #
-# So a deadline longer than that timeout can never be witnessed here -- which is
+# So a deadline longer than that timeout can never be witnessed here, which is
 # precisely the question `ceiling=` answers, and why the counter clock has
 # carried one since a chattering keyboard capped it at 74s. `age` is reported
 # equal to the ceiling because the cap is STRUCTURAL and known at the first
@@ -257,7 +257,7 @@ printf 'Screen Saver:\n  timeout:  600    cycle:  600\n' > "$XSET_Q"
 _a=$(env DISPLAY=:0 XPI_MS=5000 PATH="$PATH" sh "$IDLE")
 [ "$_a" = "5 ceiling=600 age=600" ] || fail "with the server's screensaver at
 600s the source answered '$_a'. It must report that cap, or report calls a 480s
-deadline measurable on a clock that resets before it -- the exact false
+deadline measurable on a clock that resets before it: the exact false
 green the ceiling field was invented for"
 
 # ...AND NO CEILING WHEN THE SCREENSAVER IS OFF, because then the answer really

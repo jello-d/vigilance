@@ -20,7 +20,7 @@
 #
 # THE SECOND BUG, WHICH THE FIRST FIX HID. Three of those tiers capture the
 # hook's output, and they did it with `_out=$(... hook ...)`. A command
-# substitution waits for the PIPE to close, not for the hook to exit -- so a
+# substitution waits for the PIPE to close, not for the hook to exit, so a
 # hook that leaves a child holding stdout blocks the substitution for as long as
 # the CHILD lives, with the bound not in force at all. Measured at 21s against a
 # 2s bound, with timeout(1) having correctly killed the hook at 4s.
@@ -75,7 +75,7 @@ _bounded block "$(( $(date +%s) - _s ))"
 [ -e "$T/provider-ran" ] || fail "the lock provider never ran because a BLOCK
 hook hung. block.d is consulted before the depth is committed and before any
 actuator, so it is the earliest point at which a plugin can stop the screen
-locking -- and under lock-on-sleep the box then suspends unlocked"
+locking, and under lock-on-sleep the box then suspends unlocked"
 
 # A timed-out block must ALLOW, never block. The tier fails OPEN by design:
 # suppressing a lock is a security failure, allowing a redundant one is noise.

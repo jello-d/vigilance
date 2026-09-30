@@ -9,7 +9,7 @@
 #
 # on EVERY wake, three times that day, alerting each time.
 #
-# /sys/class/backlight was empty -- correct for a desktop -- but the hook passed
+# /sys/class/backlight was empty, correct for a desktop, but the hook passed
 # NO selector to brightnessctl, and with no backlight device brightnessctl falls
 # back to the `leds` class and takes whatever comes first. On that box it was a
 # keyboard kana LED. So a hook named panel-backlight silently drove an unrelated
@@ -33,7 +33,7 @@ HOOK=$HERE/libexec/vigilance/hooks/panel-backlight
 mkdir -p "$T/bin" "$T/state"
 
 # A brightnessctl that models a machine with NO backlight device and one leds
-# device -- exactly manifestor. It records every call, so "which device did the
+# device, exactly manifestor. It records every call, so "which device did the
 # hook touch" is answerable rather than inferred.
 cat > "$T/bin/brightnessctl" <<'EOF'
 #!/bin/sh
@@ -89,7 +89,7 @@ _run sleep || fail "the hook FAILED on a machine with no panel backlight. That
 is every desktop; it is n/a, not drift, and it alerts on every edge"
 [ ! -s "$T/touched" ] || fail "the hook reached a LEDS device on a machine with
 no panel backlight. brightnessctl falls back to the leds class when given no
-selector, so a hook named panel-backlight drove a keyboard LED -- which it
+selector, so a hook named panel-backlight drove a keyboard LED, which it
 cannot write, so it then failed every ascent and alerted each time"
 
 # ...and it must not leave a save file, or the next ascent has something to
@@ -105,7 +105,7 @@ _run wake || fail "the ascent FAILED with no panel backlight present"
 
 # --- 3. verify says n/a as well, rather than reporting drift ---------------
 # 78 (n/a), NOT 0. There is no panel backlight here, so this verifier checked
-# NOTHING -- and exiting 0 for that is precisely what let an edge where every
+# NOTHING, and exiting 0 for that is precisely what let an edge where every
 # screen checker had declined read exactly like one where every check passed.
 _vrc=0
 _run lock verify || _vrc=$?
@@ -133,8 +133,8 @@ brightnessctl will again fall back to the leds class and pick a keyboard LED"
 export BC_NO_BACKLIGHT=1 BC_FALLBACK=1
 rm -f "$T/state/level"
 
-# EVERY TIER, not just the act one. The hook asks brightnessctl in three places
-# -- dark, lit and verify -- and each carries its own selector. Scoping two of
+# EVERY TIER, not just the act one. The hook asks brightnessctl in three places:
+# dark, lit and verify, and each carries its own selector. Scoping two of
 # them and missing the third leaves the same bug on the tier that runs on the
 # lock and unlock edges too; a mutation dropping the selector from verify alone
 # passed until this loop existed.
@@ -152,19 +152,19 @@ fallback-capable brightnessctl" ;;
   esac
   [ ! -s "$T/touched" ] || fail "reproduced the manifestor bug on the $1 edge
 ($2 tier): the hook fell through to the leds class and drove a keyboard LED.
-That is the failure that alerted on every wake for days, and it is per-tier --
+That is the failure that alerted on every wake for days, and it is per-tier,
 each of dark, lit and verify carries its own selector"
 done
 
 # --- 6. THE STUCK STATE, which is what was actually on the live box --------
 # hook_lit returns early when there is no save file, so every case above skips
-# it entirely -- a mutation unscoping the `lit` tier passed until this existed.
+# it entirely: a mutation unscoping the `lit` tier passed until this existed.
 # Reaching it needs a save file present, which is precisely manifestor's
 # condition: one written 2026-09-14 by an older hook_lib that swallowed the
 # failed dim, still there days later.
 #
 # It could not clear itself, and that is the trap. hook_dark short-circuits on
-# the save file's existence, so every descent was a silent no-op returning 0 --
+# the save file's existence, so every descent was a silent no-op returning 0,
 # which is why the log showed clean `sleep` crossings and a FAILED `wake`, every
 # single time, for days.
 printf '42\n' > "$T/state/level"

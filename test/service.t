@@ -3,8 +3,8 @@
 #
 # setup.t deliberately covers install -> check -> uninstall and stops there,
 # because `service` touches systemd. So the verb that places EVERY unit in the
-# package -- the Session.Lock listener, the supervision timer, the forensic
-# timer, the idle supervisor -- had no coverage at all.
+# package (the Session.Lock listener, the supervision timer, the forensic
+# timer, the idle supervisor) had no coverage at all.
 #
 # systemctl is STUBBED, and the distinction from the suite's no-stubbing rule
 # matters. That rule exists because a stubbed systemctl LIES about system state
@@ -15,8 +15,8 @@
 #
 # WHAT THIS CAUGHT. `do_service` ran `systemctl --user enable ... || true` and
 # then printed "rendered + enabled" unconditionally. On any box without a user
-# systemd instance -- a provisioner, a container, an ssh session before the user
-# bus exists -- it claimed to have armed the listener that crosses the `lock`
+# systemd instance (a provisioner, a container, an ssh session before the user
+# bus exists) it claimed to have armed the listener that crosses the `lock`
 # edge on logind's signal, while arming nothing. Believing that listener is up
 # when it is not is exactly the gap that leaves a machine unlocked.
 set -eu

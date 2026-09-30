@@ -6,7 +6,7 @@
 # silently reset every deadline for ever and report a healthy machine.
 #
 # WHY THIS IS THE INTERESTING ONE. On Wayland there is no unprivileged way to
-# ask, so `input-counters` samples kernel counters and infers -- which works,
+# ask, so `input-counters` samples kernel counters and infers, which works,
 # and carries two costs the shipped clock has to state: it can only observe what
 # happened BETWEEN samples, and ANYTHING that talks to an input device moves it
 # (a QMK keyboard reporting to itself every 60s pinned a live box's clock at
@@ -17,7 +17,7 @@
 #
 # SO IT IS NOT A BETTER GUESS, IT IS A DIFFERENT KIND OF ANSWER: continuous
 # rather than sampled, and about INPUT EVENTS rather than about bus traffic.
-# Different, not unbounded -- see the ceiling below, which is the correction the
+# Different, not unbounded: see the ceiling below, which is the correction the
 # real server forced.
 #
 # IT REPORTS A CEILING, AND THE FIRST VERSION DID NOT. That version said the X
@@ -28,7 +28,7 @@
 #
 # THE SERVER'S OWN SCREENSAVER RESETS IT. XScreenSaverQueryInfo reports idle
 # time WITHIN the current screensaver state, so when the saver activates at its
-# timeout the counter starts again -- and a seat that has been quiet for an hour
+# timeout the counter starts again, and a seat that has been quiet for an hour
 # reports seconds. That is the safe direction for an alert (it suppresses a
 # finding rather than inventing one) and it is fatal to the question report
 # asks: a deadline longer than the screensaver timeout can never be
@@ -36,8 +36,8 @@
 #
 # Which is EXACTLY what `ceiling=` exists for. The counter clock carries it
 # because a chattering keyboard caps what it can observe; this one carries it
-# because the screensaver does. The cap is STRUCTURAL rather than accumulated --
-# known from the server's own configuration at the first call, not learned -- so
+# because the screensaver does. The cap is STRUCTURAL rather than accumulated (
+# known from the server's own configuration at the first call, not learned), so
 # `age` is reported equal to it: report's "the clock is too young to have seen
 # that yet" exemption must not apply to a hard limit.
 #
@@ -46,7 +46,7 @@
 # opinion" and report reads as measurable.
 #
 # CONTENT: none. The reply is a duration; no scancode, no button, no coordinate.
-# That is the same property that makes the counter sources admissible -- the
+# That is the same property that makes the counter sources admissible: the
 # mechanism is INCAPABLE of observing content rather than merely unwilling.
 set -eu
 
@@ -70,7 +70,7 @@ esac
 # MILLISECONDS IN, SECONDS OUT. The unit mismatch is the whole risk in this
 # file: reporting milliseconds as seconds would make the seat look idle for a
 # thousand times longer than it is, which is the one direction that INVENTS a
-# finding -- a false overdue on a machine somebody is sitting at, which is the
+# finding, a false overdue on a machine somebody is sitting at, which is the
 # documented reason a live box had its supervision timer stopped by hand.
 #
 # 11+ digits would overflow the shell's arithmetic, and the runner rejects such
@@ -82,7 +82,7 @@ fi
 # `xset q`, in the Screen Saver block; the DPMS block spells its own thresholds
 # Standby/Suspend/Off, so there is nothing to confuse it with. An `xset` we
 # cannot run leaves the cap unknown, and unknown is reported as no opinion
-# rather than as unbounded -- the same direction every other doubt in this
+# rather than as unbounded, the same direction every other doubt in this
 # package takes.
 _cap=
 if command -v xset >/dev/null 2>&1; then

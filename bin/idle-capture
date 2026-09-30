@@ -1,9 +1,9 @@
 #!/bin/sh
-# idle-capture -- TEMP root-cause probe, REAL-LOCK variant. The fake-lock test
+# idle-capture: TEMP root-cause probe, REAL-LOCK variant. The fake-lock test
 # falsified swayidle self-re-run (idled -> cmd -> done -> no re-idled), and the
 # compositor source is clean, so the phantom needs the REAL lock/unlock path.
 # Runs a short-timeout swayidle (-d) that crosses the REAL lock edge, tagged
-# LOCK_SOURCE=idle so the live cooldown suppresses any re-lock (NO loop -- the
+# LOCK_SOURCE=idle so the live cooldown suppresses any re-lock (NO loop: the
 # screen locks ONCE). Captures swayidle's own idle/active/register decisions and
 # the raw ext-idle-notify traffic across a genuine lock/unlock.
 #
