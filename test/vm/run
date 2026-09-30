@@ -450,17 +450,54 @@ runcmd:
       # split is supposed to prevent for vigilance's code and did not for a
       # package's unit. Anything the per-run phase configures must be RESTARTED,
       # not merely enabled.
+      # AND IT IS A STOP, A SETTLE, AND A START, not a restart. MEASURED across
+      # consecutive runs of an identical tree, which is how the problem showed
+      # at all: one run claimed the wayfire capability and the next did not, so
+      # a scenario requiring it SKIPPED at random. An intermittently absent
+      # capability is the same defect as a falsely claimed one, because both
+      # make a line of output mean something it does not.
+      #
+      # THE CAUSE IS THE VT, and the evidence is what changed the order here.
+      # greetd is configured for `vt = 1` and is ALREADY RUNNING the package's
+      # own default config out of the preserved image, so a restart takes VT1
+      # from a greeter killed a moment earlier. Measured:
+      #
+      #   restart              2 runs: one came up UNSEATED, one not at all
+      #   stop, settle, start  3 runs: every one up, every one WITH seat0
+      #
+      # So the stop is not merely more reliable, it produces a strictly better
+      # session: the seated one the lock path needs. One of those three was
+      # obtained by neutering the first attempt deliberately, since a retry
+      # nothing exercises is a guard nobody has tested, and the other two came
+      # up on attempt 1 in half a second.
+      #
+      # ONE RETRY REMAINS, for genuine slowness rather than for the VT, and the
+      # attempt number is REPORTED so a future intermittency is visible in the
+      # log instead of inferred from a capability that quietly went missing.
       systemctl reset-failed greetd >/dev/null 2>&1 || true
       systemctl enable greetd >/dev/null 2>&1 || true
-      systemctl restart greetd >/dev/null 2>&1 || true
-      _n=0
-      while [ "$_n" -lt 24 ]; do
-        if ls "$_vrun"/wayland-* 2>/dev/null | grep -qv '\.lock$'
-        then break; fi
-        sleep 0.5; sleep 0; _n=$((_n + 1))
+      _wfsock=
+      _try=1
+      while [ "$_try" -le 2 ]; do
+        [ "$_try" = 1 ] || echo "  wayfire did not appear; attempt $_try"
+        systemctl stop greetd >/dev/null 2>&1 || true
+        sleep 3
+        systemctl reset-failed greetd >/dev/null 2>&1 || true
+        systemctl start greetd >/dev/null 2>&1 || true
+        _n=0
+        while [ "$_n" -lt 40 ]; do
+          if ls "$_vrun"/wayland-* 2>/dev/null | grep -qv '\.lock$'
+          then break; fi
+          sleep 0.5; sleep 0; _n=$((_n + 1))
+        done
+        _wfsock=$(ls "$_vrun"/wayland-* 2>/dev/null \
+          | grep -v '\.lock$' | head -1)
+        if [ -n "$_wfsock" ]; then
+          echo "  wayfire came up on attempt $_try after ${_n} polls (0.5s ea)"
+          break
+        fi
+        _try=$((_try + 1))
       done
-      _wfsock=$(ls "$_vrun"/wayland-* 2>/dev/null \
-        | grep -v '\.lock$' | head -1)
       _wayfire=
       if [ -n "$_wfsock" ]; then
         echo "  wayfire up as vig: $(basename $_wfsock)"
