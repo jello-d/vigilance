@@ -385,9 +385,13 @@ On top of that:
    the host, and a record whose named test SKIPS there is refused rather than
    scored, which is correct. But it means every guard covered only by a session
    or fault scenario is outside the corpus: "N records all killed" is a claim
-   about the stub tier, not about the suite. Measured: of the tests named by the
-   103 records, none is VM-only. Such guards have to be proven to bite by hand,
-   by running the scenario against the unfixed code once, and saying so.
+   about the stub tier, not about the suite. RE-MEASURED at 142 records: they
+   name 36 distinct tests and exactly one of those gates on a capability
+   (`actuators`, on `unprivileged`), which the HOST has and the root guest does
+   not, so nothing the corpus names is VM-only and the claim still holds. Such
+   guards have to be proven to bite by hand, by running the scenario against the
+   unfixed code once, and saying so: invariant 30 and the sway-dpms drift path
+   were both closed that way.
 
 ## 6. Rules of thumb that earned their place
 
