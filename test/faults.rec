@@ -293,3 +293,15 @@ m the ladder
 f N lock/unlock cycles, and the SLOPE between two counts (default 40)
 e ACT: state flat, no leaked lock, one dedup key, the log still complete
 t soak
+# TWO ACTUATORS, ONE DEVICE, which is the class that cost twelve hours once:
+# mute-leds darkened an LED at `sleep` while the audio driver relit it, and
+# vigilance raised 278 drift alerts about a fight it could not win. The rival
+# here is REAL (a process driving the same compositor sway-dpms drives), and it
+# is deliberately NOT an X11 power manager: the guest's X servers have no DPMS
+# extension and `xset s` is silently ignored, so an X-side rival would have no
+# device to contend for and the cell would pass vacuously.
+= competing-actuator
+m the peripheral actuators and the standing recheck
+f a second process re-asserts `dpms on` while the rung is dark
+e ALERT: the drift is named once, the edge still crosses, and it clears
+t fault-actuator
