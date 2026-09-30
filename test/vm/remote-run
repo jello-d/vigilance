@@ -1,0 +1,54 @@
+#!/bin/sh
+# test/vm/remote-run - the remote half of test/vm/remote. Not run by hand.
+#
+# WHY IT IS A FILE IN THE REPO rather than a shell snippet passed over ssh.
+# `ssh host <words>` concatenates its argv and hands the result to a remote
+# shell, which re-parses it: that is a quoting layer, and a quoting layer is
+# the single most expensive thing in this harness's history. Five separate
+# bugs came from one (an unquoted heredoc running backticks on the developer's
+# box, twice; a YAML literal block ended by a column-0 delimiter; an
+# apostrophe closing an awk program; a triple-quote swallowing a quote). So
+# the only thing sent over the wire is a list of space-free words, and every
+# decision that needs quoting lives here, where `dash -n` can see it and the
+# conventions check applies.
+#
+# ITS ONE JOB IS TO RECORD A VERDICT THE CALLER CAN TRUST. The rc file is
+# written AFTER the run and only then, so its presence means "this finished"
+# and its absence never has to be interpreted. That is what lets the caller
+# tell a run still going from one that was killed, which systemd alone cannot
+# say: `systemctl is-active` reports "inactive" for a unit that completed and
+# for one that never existed, the same absent-versus-stopped ambiguity this
+# project has already been caught by once.
+set -u
+
+OUT=${VIG_REMOTE_OUT:?remote-run: VIG_REMOTE_OUT is not set}
+HERE=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
+cd "$HERE" || exit 1
+
+[ -d "$OUT" ] || mkdir -p "$OUT" || exit 1
+
+# THE RC FILE IS REMOVED FIRST, not by the caller alone. If it survived from a
+# previous run the caller would read a stale verdict the instant it looked, and
+# report the last run's result as this one's.
+rm -f "$OUT/rc"
+
+{
+  echo "remote-run: $(date '+%Y-%m-%d %H:%M:%S') on $(hostname)"
+  echo "remote-run: tree $HERE"
+  echo "remote-run: args $*"
+  echo ""
+} > "$OUT/log" 2>&1
+
+_rc=0
+sh test/vm/run "$@" >> "$OUT/log" 2>&1 || _rc=$?
+
+{
+  echo ""
+  echo "remote-run: finished rc=$_rc at $(date '+%Y-%m-%d %H:%M:%S')"
+} >> "$OUT/log" 2>&1
+
+# LAST, AND ONLY HERE. Everything above may fail; this line is what the caller
+# waits for, so writing it early would hand out a verdict about work that had
+# not happened.
+printf '%s\n' "$_rc" > "$OUT/rc"
+exit "$_rc"

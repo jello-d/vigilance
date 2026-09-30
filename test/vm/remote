@@ -1,0 +1,232 @@
+#!/bin/sh
+# test/vm/remote - run the VM tier on another box, detached.
+#
+# WHY. The VM tier is the expensive one and it is about to get more so: one
+# guest per desktop flavour is minutes of boots. A laptop is the wrong host for
+# that, because it sleeps, it moves, and its network drops while moving. A box
+# that is always on, with 20 cores and 143G of scratch, runs the same sweep as
+# a background job rather than as an event.
+#
+# THE SSH IS A CONTROL CHANNEL, NOT A LIFELINE. The run goes into a transient
+# `--user` unit, so it survives this connection dropping, the laptop
+# suspending, and this session ending. PROVEN before any of it was built,
+# rather than taken from the property: a probe unit was launched over one
+# non-interactive ssh, the connection closed, and its output collected over a
+# second connection 30 seconds later. `Linger=yes` for the account is what
+# makes the user manager outlive the session; without it this whole approach
+# would be a slower way to hold a connection open.
+#
+# A SCRATCH TREE, NEVER A CHECKOUT, which is the load-bearing decision:
+#
+#   NOTHING ON THE REMOTE CAN DRIFT. It is not a checkout, so it cannot be
+#   pulled, committed to, or left a commit behind while reading as current.
+#   That asymmetry (a deploy copy that moves on its own beside a checkout that
+#   moves only when a human pulls) is the single most expensive recurring trap
+#   in these notes, and the cheapest way to be immune to it is to have no
+#   second checkout at all.
+#
+#   AND UNCOMMITTED WORK STAYS TESTABLE. The guest's repo ISO is packed from
+#   the WORKING TREE, so rsync carries edits that are not committed yet and the
+#   edit-run-iterate loop survives going remote. Pulling from origin instead
+#   would force commit-before-test. That is a deploy gate worth CHOOSING
+#   deliberately, not one to be handed by an implementation detail.
+#
+# THE VERDICT IS A FILE, and it is three-way on purpose. `systemctl is-active`
+# cannot tell a unit that finished from one that never existed, which is the
+# absent-versus-stopped ambiguity this project has already been caught by. So
+# the remote half writes its exit status AFTER the run and only then:
+#
+#     rc present                  finished, with that status
+#     rc absent, unit active      still running
+#     rc absent, unit gone        DIED without recording (killed, OOM, reboot)
+#
+# The third is a finding rather than silence. Reporting it as "still running"
+# would wait for ever; reporting it as a pass would be a false green from no
+# evidence at all.
+#
+# Usage:  sh test/vm/remote [args for test/vm/run ...]   sync, launch, follow
+#         sh test/vm/remote --status                     state plus a tail
+#         sh test/vm/remote --log                        the whole log
+#         sh test/vm/remote --follow                     re-attach to a run
+#         sh test/vm/remote --stop                       stop it
+#         sh test/vm/remote --sync                       sync only
+set -eu
+
+HERE=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
+HOST=${VIGILANCE_REMOTE_HOST:-manifestor}
+RBASE=${VIGILANCE_REMOTE_BASE:-/var/tmp/vig-remote}
+POLL=${VIGILANCE_REMOTE_POLL:-10}
+
+_die() { echo "remote: $*" >&2; exit 1; }
+
+TMP=$(mktemp -d) || _die "mktemp failed"
+trap 'rm -rf "$TMP"' EXIT INT TERM HUP
+
+# BatchMode so a missing credential FAILS rather than hanging on a prompt this
+# shell has no terminal to answer. Connection reuse because the follow loop
+# would otherwise pay a fresh handshake several times a poll.
+#
+# BUILT BY APPENDING, NEVER AS ONE WRAPPED STRING, and this cost a run to
+# learn. rsync RE-PARSES its `-e` argument with its own word splitting, so an
+# embedded newline from wrapping the assignment across two source lines is a
+# third parsing layer: rsync mis-split it, `ControlPersist=30` arrived as a
+# positional argument, and ssh reported "Could not resolve hostname
+# controlpersist=30". That is the fifth distinct quoting layer to bite this
+# harness, in the file whose own header lists the other four.
+SSHOPT="-o BatchMode=yes -o ControlMaster=auto"
+SSHOPT="$SSHOPT -o ControlPath=$TMP/c-%r@%h -o ControlPersist=30"
+# shellcheck disable=SC2086
+_rsh() { ssh $SSHOPT "$HOST" "$@"; }
+
+_state() {
+  if _rsh test -f "$ROUT/rc"; then
+    printf 'done:%s' "$(_rsh cat "$ROUT/rc")"
+  elif ! _rsh test -f "$ROUT/started"; then
+    printf 'none'
+  elif _rsh systemctl --user is-active --quiet "$UNIT.service"; then
+    printf 'running'
+  else
+    printf 'lost'
+  fi
+}
+
+# Incremental, so re-attaching to a run in progress prints only what is new.
+# `tail -c +N` is 1-based, and the offset advances by the bytes actually
+# received rather than by anything the remote reports, so a truncated transfer
+# cannot make the next poll skip a region.
+_off=1
+_pull() {
+  _rsh tail -c "+$_off" "$ROUT/log" > "$TMP/chunk" 2>/dev/null || true
+  if [ -s "$TMP/chunk" ]; then
+    cat "$TMP/chunk"
+    _off=$((_off + $(wc -c < "$TMP/chunk")))
+  fi
+}
+
+_sync() {
+  case "$(_state)" in
+    running) _die "a run is ACTIVE on $HOST. Syncing now would rewrite the
+tree that run is packing its guest ISO from, and the corruption would present
+as a product failure. Wait for it, or --stop it first." ;;
+  esac
+  echo "remote: syncing $HERE/ to $HOST:$RTREE/ (flavour $FLAVOUR)"
+  _rsh mkdir -p "$RTREE" "$ROUT"
+  # ARCHIVE PLUS DELETE, so the remote is a faithful copy and not an
+  # accumulation. .git is carried on purpose: the conventions check in the
+  # guest needs a repository, and the ISO is packed from this tree.
+  # CLAUDE.md STAYS A SYMLINK, which matters: rsync does not follow it without
+  # -L, so the private notes it points at are never transmitted.
+  rsync -a --delete -e "ssh $SSHOPT" "$HERE/" "$HOST:$RTREE/" \
+    || _die "rsync to $HOST failed"
+}
+
+_launch() {
+  _sync
+  _rsh mkdir -p "$ROUT"
+  _rsh rm -f "$ROUT/rc" "$ROUT/log"
+  # A transient unit that FAILED holds its name until it is reset, so a second
+  # launch would be refused for the previous run's reason.
+  _rsh systemctl --user reset-failed "$UNIT.service" 2>/dev/null || true
+  _rsh touch "$ROUT/started"
+  echo "remote: launching on $HOST (detached; this ssh is not a lifeline)"
+  # shellcheck disable=SC2086
+  _rsh systemd-run --user --unit="$UNIT" \
+    --setenv=VIG_REMOTE_OUT="$ROUT" \
+    /bin/sh "$RTREE/test/vm/remote-run" $ARGS \
+    || _die "systemd-run failed on $HOST"
+}
+
+_follow() {
+  echo "remote: following (Ctrl-C leaves the run going; --follow re-attaches)"
+  while :; do
+    _pull
+    _st=$(_state)
+    case "$_st" in
+      done:*)
+        _pull            # once more, for anything written since the last pull
+        _rc=${_st#done:}
+        echo "remote: finished on $HOST rc=$_rc"
+        return "$_rc" ;;
+      lost)
+        _pull
+        _die "the run DIED without recording a verdict: no rc file and the
+unit is gone. Killed, out of memory, or the host rebooted. The log above is
+everything it managed to write; nothing here is a pass." ;;
+      none)
+        _die "nothing has ever been launched on $HOST" ;;
+    esac
+    sleep "$POLL"
+  done
+}
+
+_status() {
+  _st=$(_state)
+  echo "remote: host=$HOST flavour=$FLAVOUR unit=$UNIT.service"
+  echo "remote: tree=$RTREE out=$ROUT"
+  case "$_st" in
+    done:0)  echo "remote: state=finished rc=0 (PASSED)" ;;
+    done:*)  echo "remote: state=finished rc=${_st#done:} (FAILED)" ;;
+    running) echo "remote: state=RUNNING since $(_rsh date -r \
+               "$ROUT/started" '+%H:%M:%S' 2>/dev/null || echo '?')" ;;
+    lost)    echo "remote: state=LOST (no verdict recorded, unit gone)" ;;
+    none)    echo "remote: state=never launched" ;;
+  esac
+  _rsh tail -n "${VIGILANCE_REMOTE_TAIL:-20}" "$ROUT/log" 2>/dev/null || true
+}
+
+ACTION=run
+ARGS=
+# THE FLAVOUR IS READ HERE AS WELL AS PASSED THROUGH, because every path and
+# the unit name are keyed on it: a four-flavour sweep is the point of flavours
+# existing, and sharing one tree would mean each launch's `rsync --delete`
+# rewriting the tree another flavour's guest was packing its ISO from. Per
+# flavour, two runs cannot see each other at all.
+FLAVOUR=${VIGILANCE_VM_FLAVOUR:-lean}
+while [ $# -gt 0 ]; do
+  case $1 in
+    --host=*) HOST=${1#*=} ;;
+    --status) ACTION=status ;;
+    --log)    ACTION=log ;;
+    --follow) ACTION=follow ;;
+    --stop)   ACTION=stop ;;
+    --sync)   ACTION=sync ;;
+    -h|--help) ACTION=help ;;
+    *)
+      # REFUSED RATHER THAN QUOTED. Everything after this travels through
+      # ssh's argv concatenation and a remote shell's re-parse, so a word
+      # containing whitespace would silently become two arguments. Since no
+      # argument test/vm/run takes has a space in it, refusing is honest and
+      # costs nothing; quoting it into safety would invite the case where the
+      # quoting is one layer short.
+      case $1 in
+        *[!-A-Za-z0-9_=./]*) _die "argument '$1' has a character this path
+cannot carry (it crosses ssh argv and a remote shell). Set the knob in the
+environment on $HOST instead." ;;
+      esac
+      case $1 in --flavour=*) FLAVOUR=${1#*=} ;; esac
+      ARGS="$ARGS $1" ;;
+  esac
+  shift
+done
+
+# KEYED ON THE FLAVOUR, and computed after the argument scan so the flag can
+# set it. The out dir is a SIBLING of the tree rather than inside it: rsync runs
+# with --delete, so artifacts kept under the tree would be destroyed by the next
+# launch, including the log of the run that had just failed and the evidence for
+# why it did.
+RTREE=$RBASE/$FLAVOUR/tree
+ROUT=$RBASE/$FLAVOUR/out
+UNIT=vig-vm-$FLAVOUR
+
+case $ACTION in
+  run)    _launch; _follow ;;
+  follow) _follow ;;
+  status) _status ;;
+  log)    _rsh cat "$ROUT/log" ;;
+  sync)   _sync ;;
+  stop)
+    _rsh systemctl --user stop "$UNIT.service" 2>/dev/null || true
+    echo "remote: stopped $UNIT.service on $HOST (no verdict was recorded)" ;;
+  help)
+    sed -n '/^# Usage:/,/^set -eu/p' "$0" | sed 's/^# \{0,1\}//; /^set -eu/d' ;;
+esac
