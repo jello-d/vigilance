@@ -96,21 +96,16 @@ wishes are visible.
         perf.t, which counts forks rather than milliseconds
     28  nothing accumulates per crossing, and one fault is one alert
         soak.t, asserted as a slope so forty cycles can see a leak
+    29  a tier that DEFERS is checked again once its interval elapses
+        cadence.t case 6, through the real runner with the stamp backdated
+    30  a hook that ACTS survives being run twice in sequence
+        level-rules.t for the level keepers, session-repeat.t for the rest
 
-### Invariants with no enforcing check
+### Why the peripheral cadence is an hour, and what makes that safe
 
-Stated plainly rather than implied:
+ENFORCED, by invariants 25 and 29; kept here because the REASONING is
+what a reader needs before changing the number.
 
-- **A hook must survive being run twice in sequence.** The crossing lock
-  serialises concurrent requests; it does nothing about a second press five
-  seconds later. A generic ratchet over every hook is still rejected for the
-  same reason: in a sandbox most hooks correctly decline (78), so it would pass
-  vacuously and read as coverage it does not have. **Narrowed, not closed:**
-  every actuator that keeps a LEVEL is now covered, because that is where
-  repeat-safety actually failed: twice, as the identical silent no-op. See
-  `test/level-rules.t`, whose `second-descent-re-asserts` case runs against the
-  generic rules and each shipped adapter. A hook with no level to restore is
-  still discipline only.
 - **A peripheral verifier is checked hourly, not every minute.** Cadence
   follows consequence: `locker-up` answers "is the session secured" and earns a
   minute, while "is the keyboard's RGB still off" does not. What makes that
@@ -126,20 +121,48 @@ Stated plainly rather than implied:
   pass to the lock path. **The cadence is now observable**, which it was not
   when it shipped: report's `cadence` section names when each deferring tier
   last genuinely looked and whether the transition has fired for the rung the
-  machine is on (invariant 25). What remains discipline is the hourly interval
-  itself: nothing asserts that a tier deferring for an hour is checked within
-  the hour, because only the wall clock could say so.
-- **A counter clock is blind during vigilance's own supervision pass.** The
-  pass reads the clock before any hook runs and tells its sources to
-  re-baseline afterwards, so traffic our own hooks generate on an input device
-  is not counted as seat input, which it was, once a minute, for ever. What
-  remains unattributed is the pass itself, about three seconds in sixty, and
-  real input inside that window is missed. Stated with the arithmetic rather
-  than waved at: falsely reaching a 480s deadline needs EIGHT consecutive
-  keystrokes each landing in that 5% window, about 4e-11. The alternative,
-  counting our own traffic, was not a small risk but a certainty.
-- **`enforce` has never acted in production.** The forcing half is retired and
-  the detection half has produced exactly one true positive so far.
+  machine is on (invariant 25). **And the interval itself is enforced now**
+  (invariant 29): the sentence here used to say only the wall clock could
+  measure it, and the wall clock is a FILE. `hook_throttle` compares a stamp
+  under the hook's own state dir, so backdating that stamp is an injected clock
+  rather than a fixture standing in for one, and cadence.t case 6 drives a real
+  hook through the real runner: it checks once, defers on the next pass, and is
+  checked AGAIN once the stamp is older than the interval.
+
+### Why "run every hook twice" is a real check here and not a vacuous one
+
+A GENERIC RATCHET WAS REJECTED FOR A GOOD REASON and the reason had to be
+answered rather than ignored: in a sandbox most hooks correctly decline with 78,
+so "run them all twice" passes over an empty set and reads as coverage it does
+not have.
+
+Two things answer it. The SESSION TIER has real devices, so a decline there
+means something is genuinely absent rather than stubbed out. And
+session-repeat.t carries a DENOMINATOR: it counts the rows that actually acted
+and FAILS if that count is zero, so a run which proved nothing says so instead
+of printing a green line. Same move as test/faults.rec for the fault space.
+
+THE DISTURBANCE IS THE HOOK'S OWN VOCABULARY, which is what makes it generic
+without needing per-hook knowledge of how to break a device:
+
+    act dark -> act lit -> act dark AGAIN -> is the device really dark?
+
+The ascent puts the device in the wrong state for the second descent, so a hook
+that short-circuits on its own state no-ops that descent, returns 0, and is
+caught by a readback taken INDEPENDENTLY of the hook. That is exactly the shape
+that shipped twice: hook_dark returned 0 outright when its save file existed,
+and ddc-monitor's hand-written copy did it again three weeks later.
+
+PROVEN TO BITE BY HAND, which is what the corpus limit prescribes for a VM-only
+guard: reintroducing that short-circuit in sway-dpms turned the scenario red on
+precisely the second-descent readback, while the other row still passed, so the
+failure was attributable. The stub tier's own sway-dpms.t stayed green in the
+same run, which is the argument for the scenario existing.
+
+### Invariants with no enforcing check
+
+Stated plainly rather than implied:
+
 - **The greeter's sleep path is observed only in the guest.** session-greeter.t
   drives the real machine hook set at the `lock` rung against a real sway and
   reads output dpms back with swaymsg independently of the hook, so the edge is
@@ -172,6 +195,19 @@ So the remedy for a contaminated counter is not a second clock. It is to NAME
 the device that chatters, which the counters can already do and which needs no
 privilege, no evdev and nothing to opt into. What remains outside vigilance is
 the device's own firmware.
+
+**THE PASS'S OWN BLIND WINDOW IS THE SAME DECISION, not a shortfall.** The
+supervision pass reads the clock before any hook runs and tells its sources to
+re-baseline afterwards, so traffic our own hooks generate on an input device is
+not counted as seat input, which it was, once a minute, for ever. What stays
+unattributed is the pass itself, about three seconds in sixty. Stated with the
+arithmetic rather than waved at: falsely reaching a 480s deadline needs EIGHT
+consecutive keystrokes each landing in that 5% window, about 4e-11, against the
+alternative of counting our own traffic, which was not a risk but a certainty.
+Closing it would take continuous observation, i.e. the daemon ruled out above,
+and production must not carry one for this. A continuous observer would only
+ever be a SCENARIO instrument, so if it is ever built it belongs in the guest
+and never in the shipped set.
 
 ## 3. What is assumed about the world
 

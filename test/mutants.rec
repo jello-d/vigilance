@@ -889,3 +889,15 @@ f bin/vigilant
 t soak
 -   if [ "$ALERT_COOLDOWN" = 0 ]; then return 1; fi
 +   return 1
+
+# THE HOURLY INTERVAL ITSELF, which was discipline only until cadence.t case 6.
+# With any past stamp counting as recent, a tier that defers once defers FOR
+# EVER and report keeps saying "not due", which a reader takes for covered.
+# hook_lib.t catches this too, at the helper; naming cadence is the point,
+# because the RUNNER is in the loop there and a green helper never proved the
+# chain.
+= throttle-never-elapses
+f libexec/vigilance/hook_lib
+t cadence
+-      && [ "$(( _ht_now - _ht_at ))" -lt "$_ht_every" ]; then
++      && [ "$(( _ht_now - _ht_at ))" -ge 0 ]; then

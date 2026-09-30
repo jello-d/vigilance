@@ -152,5 +152,66 @@ case "$_sec" in
 VIGILANCE_RECHECK_GRACE is not being read and a slower timer cannot be
 accommodated" ;;
 esac
+# --- 6. THE INTERVAL ITSELF: a deferred tier IS checked once it elapses ------
+# THEORY.md carried this as discipline only, on the grounds that "only the wall
+# clock could say so". THE WALL CLOCK IS A FILE: `hook_throttle` compares a
+# stamp under the hook's own state dir, so backdating that stamp is an injected
+# clock and not a fixture standing in for one.
+#
+# WHAT WAS AND WAS NOT COVERED BEFORE. hook_lib.t drives the helper directly and
+# proves it returns "run" for a stamp older than the interval; case 4 above
+# proves report READS the stamp without re-stamping it first. Neither says the
+# RUNNER then actually performs the check: a tier could answer 75 for ever with
+# both of those green, which is precisely "a silent skip is how a cadence
+# quietly becomes never".
+#
+# A REAL HOOK OVER THE SHIPPED HELPER, and it records its own executions:
+# the question is how many times the CHECK BODY ran rather than what the
+# runner printed about it.
+mkdir -p "$VIGILANCE_HOOK_ROOT/sleep.verify.d"
+cat > "$VIGILANCE_HOOK_ROOT/sleep.verify.d/10-interval" <<EOF
+#!/bin/sh
+set -eu
+. "$HERE/libexec/vigilance/hook_lib"
+hook_throttle 3600 && exit 75
+printf 'ran\n' >> $T/interval-runs
+EOF
+chmod +x "$VIGILANCE_HOOK_ROOT/sleep.verify.d/10-interval"
+: > "$T/interval-runs"
+_iruns() { grep -c . "$T/interval-runs" 2>/dev/null || true; }
+# RECHECK MODE, which is the only mode that may skip at all: an explicit verify
+# is always real, and driving this through a plain `verify` would test nothing.
+_iv() { VIGILANCE_RECHECK=1 "$VIGILANT" verify sleep 2>&1 || true; }
+
+_out=$(_iv)
+[ "$(_iruns)" = 1 ] || fail "the FIRST recheck-mode verify did not run a hook
+that has never been checked. A hook with no stamp has no recent verdict to lean
+on, so this is the cadence swallowing the very first check: $_out"
+
+_out=$(_iv)
+[ "$(_iruns)" = 1 ] || fail "a second pass moments later ran the check again, so
+the hourly cadence saves nothing and the measurement that justified it (2.0s a
+pass, 48 minutes of work a day) is not being acted on: $_out"
+case "$_out" in
+  *"not due"*) ;;
+  *) fail "the throttled pass did not report 'not due'. That word is how a
+reader tells a tier that deferred from one that was never wired, which is the
+75-versus-78 distinction the contract exists to draw: $_out" ;;
+esac
+
+# ...AND THE HOUR ELAPSES. The one claim nothing made before.
+printf '%s\n' "$(( $(date +%s) - 4000 ))" > "$SR/10-interval/.last-checked"
+_out=$(_iv)
+[ "$(_iruns)" = 2 ] || fail "with its stamp 4000s old under a 3600s cadence, the
+tier was STILL not checked. A verifier that defers once and then for ever is
+worse than one that never ran: report says 'not due' and a reader reads that as
+covered. This is the whole of the hourly interval, and it was discipline only
+until this case: $_out"
+case "$_out" in
+  *"1 checked"*) ;;
+  *) fail "the check ran (the hook recorded it) but the runner did not count it
+as checked, so report's cadence section and the hook disagree: $_out" ;;
+esac
+rm -f "$VIGILANCE_HOOK_ROOT/sleep.verify.d/10-interval"
 
 pass
