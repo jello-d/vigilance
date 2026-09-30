@@ -50,7 +50,8 @@ RELEASE=${VIGILANCE_VM_RELEASE:-resolute}
 # hours of drift alerts about a fight that cannot be won). That is a scenario
 # worth having, and it is a different question from whether the hooks work.
 PKGS='dash util-linux sway swaylock swayidle dbus-user-session wayfire git
-greetd xvfb x11-xserver-utils xprintidle i3lock imagemagick'
+greetd xvfb x11-xserver-utils xprintidle i3lock imagemagick
+xserver-xorg-core xserver-xorg-video-dummy'
 IMG=$VM/$RELEASE-server-cloudimg-amd64.img
 URL=https://cloud-images.ubuntu.com/$RELEASE/current/${IMG##*/}
 CONSOLE=$VM/console.log
@@ -586,6 +587,91 @@ runcmd:
         echo "  no Xvfb or xset; X11 scenarios will SKIP"
       fi
 
+      # A REAL X SERVER WITH A REAL DPMS, on :98, beside the Xvfb on :99.
+      #
+      # WHY BOTH. Xvfb is compiled WITHOUT the DPMS extension (it answers
+      # "Server does not have the DPMS Extension" even when asked for
+      # +extension DPMS, and Xephyr is the same), so on :99 the only thing
+      # x11-dpms can do is decline 78. That is a real and valuable case, and
+      # session-x11.t asserts it, so :99 stays exactly as it was. What :99
+      # cannot do is exercise the hook's ACT and VERIFY paths at all: until now
+      # they had never run against a real DPMS anywhere, on any machine in this
+      # fleet or in this guest.
+      #
+      # THE DRIVER REGISTERS DPMS, NOT THE SERVER, which is what the first
+      # attempt here got wrong. With `Driver "dummy"` the log said
+      #
+      #   (WW) DUMMY(0): Option "DPMS" is not used
+      #   (II) Initializing extension DPMS
+      #
+      # both at once: the EXTENSION initialises and then no screen is
+      # DPMS-capable, so `xset q` prints no DPMS block and there is nothing to
+      # drive. `Option "DPMS" "true"` does not help; the driver simply has no
+      # such hook. So this uses the guest's REAL DRM device (qemu gives it
+      # /dev/dri/card0) through `modesetting`, where DPMS goes to DRM. NO
+      # HEREDOC, because this block is a YAML literal scalar first and shell
+      # second: a delimiter at column 0 would end the runcmd and truncate
+      # everything after it, which is how this file lost its tail once already.
+      _x11dpms=
+      if command -v Xorg >/dev/null 2>&1 && command -v xset >/dev/null 2>&1
+      then
+        {
+          printf 'Section "Device"\n'
+          printf '  Identifier "kms"\n  Driver "modesetting"\n'
+          printf '  Option "kmsdev" "/dev/dri/card0"\nEndSection\n'
+          printf 'Section "Monitor"\n  Identifier "mon"\n'
+          printf '  HorizSync 5.0 - 1000.0\n  VertRefresh 5.0 - 200.0\n'
+          printf '  Option "DPMS" "true"\n'
+          printf 'EndSection\n'
+          printf 'Section "Screen"\n  Identifier "scr"\n'
+          printf '  Device "kms"\n  Monitor "mon"\n  DefaultDepth 24\n'
+          printf '  SubSection "Display"\n    Depth 24\n'
+          printf '    Modes "1024x768"\n  EndSubSection\nEndSection\n'
+          printf 'Section "ServerLayout"\n  Identifier "layout"\n'
+          printf '  Screen "scr"\nEndSection\n'
+        } > /etc/X11/xorg-dummy.conf
+        Xorg :98 -config /etc/X11/xorg-dummy.conf -logfile /tmp/xorg98.log \
+          -noreset -nolisten tcp >/tmp/xorg98.out 2>&1 &
+        _n=0
+        while [ "$_n" -lt 30 ]; do
+          if DISPLAY=:98 xset q >/dev/null 2>&1; then break; fi
+          sleep 0.5; sleep 0; _n=$((_n + 1))
+        done
+        if DISPLAY=:98 xset q >/dev/null 2>&1; then
+          echo "  Xorg dummy up on :98"
+          _xd=$(DISPLAY=:98 xset q | sed -n 's/.*DPMS is //p' | head -1)
+          echo "  :98 DPMS is ${_xd:-<no DPMS block>}"
+          echo "  :98 xorg log on DPMS: $(grep -ci dpms /tmp/xorg98.log \
+            2>/dev/null || echo 0) line(s)"
+          grep -i dpms /tmp/xorg98.log 2>/dev/null | head -3 \
+            | sed 's/^/    /' || true
+          echo "  drm devices in the guest: $(ls /dev/dri 2>/dev/null \
+            | tr "\n" " ")"
+          DISPLAY=:98 xset +dpms >/dev/null 2>&1 || true
+          DISPLAY=:98 xset dpms force off >/dev/null 2>&1 || true
+          _off=$(DISPLAY=:98 xset q | sed -n 's/.*Monitor is *//p' | head -1)
+          DISPLAY=:98 xset dpms force on >/dev/null 2>&1 || true
+          _on=$(DISPLAY=:98 xset q | sed -n 's/.*Monitor is *//p' | head -1)
+          echo "  :98 force off -> ${_off:-<none>}, on -> ${_on:-<none>}"
+          # THE CAPABILITY IS THE ROUND TRIP, not the extension's presence. A
+          # server that reports DPMS and then ignores `force off` would let a
+          # scenario assert against a fixture again, which is the whole thing
+          # this tier exists to stop.
+          if [ "${_on:-}" = On ] && [ -n "${_off:-}" ] && [ "${_off:-}" != On ]
+          then
+            _x11dpms=x11dpms
+          else
+            echo "  :98 DPMS does not round-trip; x11dpms scenarios will SKIP"
+          fi
+        else
+          echo "  Xorg dummy did NOT come up; x11dpms scenarios will SKIP"
+          tail -5 /tmp/xorg98.log 2>/dev/null | sed 's/^/    /' || true
+          tail -3 /tmp/xorg98.out 2>/dev/null | sed 's/^/    /' || true
+        fi
+      else
+        echo "  no Xorg; x11dpms scenarios will SKIP"
+      fi
+
       # ASSEMBLED AFTER EVERY PROBE, which is the only place it can be. It
       # used to sit beside the compositor probe, so the capabilities discovered
       # LATER (the integrator and uinput) were empty when the list was
@@ -594,6 +680,7 @@ runcmd:
       # reverse: both make a scenario report something that is not true.
       SCENARIO_CAPS_EXTRA="$_compositor $_userbus $_wayfire"
       SCENARIO_CAPS_EXTRA="$SCENARIO_CAPS_EXTRA $_tackup $_uinput $_x11"
+      SCENARIO_CAPS_EXTRA="$SCENARIO_CAPS_EXTRA $_x11dpms"
       echo "  capabilities: $SCENARIO_CAPS_EXTRA"
 
       echo "=== scenarios (VM substrate) ==="
