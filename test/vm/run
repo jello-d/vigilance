@@ -157,6 +157,19 @@ runcmd:
       cp -a /mnt/repo/. /root/vigilance/
       cd /root/vigilance
       chmod +x bin/* setup.sh test/run libexec/vigilance/hooks/* || true
+      # THE COPY IS A GIT REPO THAT GIT REFUSES TO OPEN. The ISO carries `.git`,
+      # and `cp -a` preserves the developer's uid on every file, so a guest
+      # running as root meets git's dubious-ownership guard. Measured rather
+      # than reasoned about:
+      #
+      #   fatal: detected dubious ownership in repository at '/root/vigilance'
+      #
+      # test/conventions.t reads the file list through `git rev-parse`, with
+      # stderr discarded, so it reported "not a git repo" -- true about what it
+      # could establish, and silent about why. Without this the whole-tree
+      # conventions check fails in the guest and passes on the desk, which is a
+      # verdict about the substrate rather than about the tree.
+      git config --global --add safe.directory /root/vigilance
 
       echo "=== from-scratch install ==="
       sh setup.sh install
