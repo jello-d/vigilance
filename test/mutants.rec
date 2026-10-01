@@ -107,8 +107,8 @@ t plan
 = screen-dark-accepts-lit
 f libexec/vigilance/hooks/screen-dark
 t screen-dark
-- if hook_luma_is_dark "$_l"; then
-+ if true; then
+- if ! hook_luma_is_dark "$_l"; then
++ if false; then
 
 = screen-dark-judges-lit-rungs
 f libexec/vigilance/hooks/screen-dark
@@ -962,3 +962,57 @@ f libexec/vigilance/hooks/lock-blank
 t proc-identity lock-blank
 - if ! hook_proc_signal "$_sig" "$LOCKER"; then
 + if ! pkill -"$_sig" -x "$LOCKER" 2>/dev/null; then
+
+# A THRESHOLD THAT ACCEPTS EVERYTHING. A white cursor peaks at 1.0, so a cut
+# above that certifies the exact state this statistic was added for: a black
+# OLED with a bright spot held still on it.
+= luma-peak-threshold
+f libexec/vigilance/hook_lib
+t screen-dark hook_lib
+-   awk -v v="$1" 'BEGIN { exit !(v + 0 <= 0.02) }' 2>/dev/null
++   awk -v v="$1" 'BEGIN { exit !(v + 0 <= 1.01) }' 2>/dev/null
+
+# awk TURNS GARBAGE INTO 0 AND 0 IS DARK, the one wrong answer that switches
+# the tier off rather than merely annoying it. Shared by both thresholds, so
+# this one record covers the mean's guard and the peak's.
+= luma-number-guard
+f libexec/vigilance/hook_lib
+t screen-dark hook_lib
+-     ''|*[!0-9.eE+-]*) return 1 ;;
++     XX-no-such-case) : ;;
+
+# THE WHOLE POINT OF THE SECOND STATISTIC. Dropping it returns the hook to
+# measuring the mean alone, which calls a white cursor on black DARK by a
+# factor of 22.
+= screen-dark-ignores-the-peak
+f libexec/vigilance/hooks/screen-dark
+t screen-dark
+- if ! hook_luma_peak_is_dark "$_p"; then
++ if false; then
+
+# THE COMPATIBILITY PROMISE. Without the split a caller handing over the whole
+# answer gets `0 peak=0`, the number guard rejects it, and a pitch-black
+# screen reads as LIT. lock-blank did exactly that and its test caught it.
+= luma-is-dark-takes-field-1
+f libexec/vigilance/hook_lib
+t lock-blank screen-dark
+-   set -- "${1%% *}"
++   set -- "$1"
+
+# grim OMITS CURSORS WITHOUT -c, so the peak statistic would have nothing to
+# measure and the pointer on a black lock surface stays invisible to it. Two
+# independent blindnesses: either one alone still certifies the state.
+= luma-capture-omits-the-cursor
+f libexec/vigilance/hook_lib
+t screen-dark
+-     _slg="timeout 25 grim -c -s 0.05 -"
++     _slg="timeout 25 grim -s 0.05 -"
+
+# AN ABSENCE OF EVIDENCE RENDERED AS CONFIRMATION. With no backlight device the
+# loop body never runs, and this printed "matches dark hardware" having
+# examined nothing. Measured: that is manifestor's state on every pass.
+= coherence-claims-dark-with-no-device
+f bin/vigilant
+t report
+-       elif [ "$_seen" = 0 ]; then
++       elif false; then

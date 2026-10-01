@@ -116,13 +116,21 @@ fi
 # `grim` cannot see an X server and `import` cannot see a Wayland output, so the
 # grabber is the platform and the MEASUREMENT is not. This is the only place the
 # X11 branch of hook_screen_luma runs for real.
-_luma=$(env -u WAYLAND_DISPLAY sh -c \
+_ans=$(env -u WAYLAND_DISPLAY sh -c \
   '. "$1"/hook_lib; hook_screen_luma' _ "$PLUGINS")
+[ -n "$_ans" ] || fail "the luma probe returned NOTHING against a live X server.
+The probe found import capturing the root window, so either the grabber choice
+is not reaching the X11 branch or the capture itself failed"
+
+# THE ANSWER IS TWO FIELDS NOW, mean then `peak=`, and this case asserted the
+# whole string was a number. It duly failed on '0 peak=0', with a message
+# confidently blaming the grabber choice: a wrong diagnosis that would have sent
+# a reader to the WAYLAND_DISPLAY tie-break, which was working perfectly. The
+# lesson this file already carries about instruments, charged to its own text.
+_luma=${_ans%% *}
 case "$_luma" in
-  ''|*[!0-9.e+-]*) fail "the luma probe returned '$_luma' against a live X
-server. The probe found import capturing the root window, so the X11 branch is
-not being taken, most likely the grabber choice, which prefers grim whenever
-WAYLAND_DISPLAY is set" ;;
+  ''|*[!0-9.e+-]*) fail "the MEAN field of '$_ans' is not a number, so the
+measurement is wrong before any threshold is applied" ;;
 esac
 # AND IT IS IN RANGE. `%[fx:mean]` is normalised 0..1, and a value outside that
 # was once the first clue that a reading had been truncated by a grep: the
@@ -130,6 +138,30 @@ esac
 awk -v v="$_luma" 'BEGIN { exit !(v + 0 >= 0 && v + 0 <= 1) }' \
   || fail "luma $_luma is outside the 0..1 that fx:mean is defined on, so the
 measurement is wrong before any threshold is applied"
+
+# THE PEAK MUST BE THERE, AND ON THIS PATH THAT IS THE ONLY PLACE IT IS PROVEN.
+# A mean cannot see a small bright region: a white cursor on a black surface
+# lifts it 22x less than the dark threshold, so the peak is what makes "nothing
+# is emitting" answerable at all. The stub tier supplies it through an override,
+# which short-circuits the pipeline, so only a real capture shows that
+# ImageMagick actually produces it.
+_peak=$(env -u WAYLAND_DISPLAY sh -c \
+  '. "$1"/hook_lib; hook_luma_peak "$2"' _ "$PLUGINS" "$_ans")
+case "${_peak:-}" in
+  ''|*[!0-9.e+-]*) fail "the real X11 capture produced no usable peak
+(answer '$_ans'). Without one screen-dark cannot ask whether ANYTHING is
+emitting and falls back to the mean, which certifies a cursor on a black
+surface as dark" ;;
+esac
+awk -v v="$_peak" 'BEGIN { exit !(v + 0 >= 0 && v + 0 <= 1) }' \
+  || fail "peak $_peak is outside the 0..1 fx:maxima is defined on"
+# AND THE PEAK IS NEVER BELOW THE MEAN, which is what a maximum means. Cheap,
+# and it is the one assertion that catches the two statistics being swapped:
+# both are plausible numbers in range, so no bounds check could tell.
+awk -v m="$_luma" -v p="$_peak" 'BEGIN { exit !(p + 0 >= m + 0) }' \
+  || fail "the peak ($_peak) is BELOW the mean ($_luma), which no maximum can
+be. The two statistics are swapped, and both being in range is exactly why
+nothing else here would notice"
 
 # --- 5. x11-dpms DECLINES HONESTLY WHERE THE EXTENSION IS ABSENT ----------
 # THE FOURTH FINDING, asserted here because the stub tier cannot produce a real

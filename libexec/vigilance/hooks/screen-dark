@@ -79,26 +79,69 @@ for _sb in "${VIGILANCE_SYS_BACKLIGHT:-/sys/class/backlight}"/*; do
   [ "$_sbm" -gt 0 ] || continue
   # The same "dark is not exactly 0 on every device" threshold hook_lib uses,
   # so the two tiers cannot disagree about what dark means.
+  #
+  # AND THIS IS A DIFFERENT CLAIM FROM THE ONE BELOW, which is the distinction
+  # this hook used to blur. A backlight at zero means the panel EMITS NOTHING
+  # whatever is drawn on it, and nothing else drawing can change that. Black
+  # CONTENT on a powered panel is a much weaker guarantee: the display is on and
+  # scanning out, and it holds only while nothing brighter appears. The capture
+  # path below therefore has to ask a second question that this branch does not.
   if [ "$_sbc" -le $((_sbm / 10)) ]; then
     exit 0
   fi
 done
 
-_l=$(hook_screen_luma)
-if [ -z "$_l" ]; then
+_a=$(hook_screen_luma)
+if [ -z "$_a" ]; then
   # NOTHING TO MEASURE: no compositor to grab from (a greeter over ssh, a tty,
   # a headless box), or no grim/magick. Saying n/a is the honest answer, and
   # saying it with 78 is what keeps an edge where nothing could be checked from
   # reading like one where everything passed.
   exit 78
 fi
+_l=${_a%% *}                        # field 1 is the mean, as it always was
+_p=$(hook_luma_peak "$_a")          # empty when the answer carries no peak
 
-if hook_luma_is_dark "$_l"; then
-  exit 0
-fi
-
-echo "screen-dark: the machine is at a DARK rung ($edge) and the display is"\
+# THE WHOLE SURFACE FIRST. This is the original check and its message is
+# preserved VERBATIM, prefix included, because these notes quote it from two
+# live incidents and rewording it would turn a true quotation into a false one.
+if ! hook_luma_is_dark "$_l"; then
+  echo "screen-dark: the machine is at a DARK rung ($edge) and the display is"\
 " still emitting (mean luminance $_l, want ~0). Whatever was supposed to"\
 " darken it did not, and every per-device verifier can still be green while"\
 " this is true, because each one only knows about its own mechanism." >&2
-exit 1
+  exit 1
+fi
+
+# AND THEN: IS ANYTHING EMITTING? A surface that AVERAGES black can still carry
+# a small bright region, and on an OLED that is the failure that matters, since
+# one bright spot held still for hours is what burns in. A 48x48 white cursor on
+# this fleet's panel lifts the mean by 0.000444 against a 0.01 threshold, 22x
+# short, so the mean alone certified exactly the state lock-blank exists to
+# prevent. Observed on the glass before it was measured.
+#
+# A MISSING PEAK IS NOT A PASS AND NOT A FAILURE. An older deployed hook, or a
+# fixture supplying only a mean, leaves this unanswerable, and the honest report
+# is that the surface averages black with the bright-spot question unchecked.
+# Exit 0 keeps it from alarming on a static fact, and the qualifier is what
+# stops it reading as a full confirmation.
+if [ -z "$_p" ]; then
+  # SAY SO RATHER THAN PASS QUIETLY. This is the weaker of the two passes and
+  # nothing else distinguishes them: the exit code is 0 either way, so without a
+  # line here "the surface averages black" and "nothing is emitting anywhere"
+  # read identically, which is the conflation this whole change is about. It
+  # cannot fire on the normal path, because the capture always yields a peak.
+  echo "screen-dark: the surface AVERAGES black (mean $_l) and no peak was"\
+" available, so whether a small bright region is on it was NOT checked. Black"\
+" content is not a power state: the panel is on and scanning out." >&2
+  exit 0
+fi
+if ! hook_luma_peak_is_dark "$_p"; then
+  echo "screen-dark: at a DARK rung ($edge) the surface AVERAGES black (mean"\
+" $_l) but something on it is still emitting (peak $_p, want under 0.02). A"\
+" mean cannot see a small bright region, and a cursor or a notification held"\
+" still on an OLED is the burn-in this rung is supposed to prevent. Note the"\
+" panel itself is ON and scanning out: black CONTENT is not a power state." >&2
+  exit 1
+fi
+exit 0

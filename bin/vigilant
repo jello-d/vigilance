@@ -2102,17 +2102,47 @@ _rep_coherence() {
   else
   case "$_rung" in
     sleep|suspend)
+      # IT ONLY EVER LOOKED AT BACKLIGHTS, AND SAID "dark hardware" ANYWAY.
+      # Measured with an empty backlight root at rung `sleep`: the loop body
+      # never ran, `_lit` stayed empty, and this printed
+      #
+      #   [OK]   depth 'sleep' matches dark hardware
+      #
+      # having examined nothing at all. That is manifestor's permanent state (no
+      # sysfs backlight, an external OLED), so report has been certifying "dark
+      # hardware" there on every pass from an absence of evidence: the
+      # conflation exit 78 exists to break, in the section a human reads.
+      #
+      # SO IT COUNTS WHAT IT CHECKED, and a count of zero is not a verdict. The
+      # three outcomes are genuinely different and only one of them is a pass.
       _lit=
+      _seen=0
       for _b in "$SYS_BACKLIGHT"/*; do
         [ -d "$_b" ] || continue
         _a=$(cat "$_b/actual_brightness" 2>/dev/null || echo 0)
         _m=$(cat "$_b/max_brightness" 2>/dev/null || echo 0)
         case "$_a$_m" in *[!0-9]*|'') continue ;; esac
-        [ "$_m" -gt 1 ] && [ "$_a" -gt $((_m / 10)) ] && _lit=1
+        [ "$_m" -gt 1 ] || continue
+        _seen=$((_seen + 1))
+        [ "$_a" -gt $((_m / 10)) ] && _lit=1
       done
       if [ -n "$_lit" ]; then
         _r_bad "depth says '$_rung' but a backlight is still lit"
-      else _r_ok "depth '$_rung' matches dark hardware"; fi ;;
+      elif [ "$_seen" = 0 ]; then
+        # NAME THE CHECK THAT CAN ANSWER, rather than leaving a reader to
+        # conclude nothing does. INFO and not WARN: a box with no backlight is
+        # an ordinary desktop, nothing is known to be wrong, and a warning that
+        # is permanently on is how a report stops being read.
+        _r_info "depth '$_rung': no backlight device here, so sysfs cannot say"\
+" whether the panel emits; the capture in screen-dark's verify is the check"\
+" that can, and it is the one that distinguishes a dark panel from black"\
+" CONTENT on a panel that is still on"
+      else
+        # QUALIFIED DELIBERATELY. A dark backlight means the panel emits nothing
+        # whatever is drawn, which is a real power state; it says nothing about
+        # any OTHER output, and nothing about a box darkened by painted content.
+        _r_ok "depth '$_rung' matches a dark backlight ($_seen device(s))"
+      fi ;;
     open)
       if _r_locker_up; then
         _r_bad "depth says 'open' but a locker is UP (an edge was missed)"

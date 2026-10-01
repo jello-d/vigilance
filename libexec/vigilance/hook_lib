@@ -181,9 +181,29 @@ hook_have_brightnessctl() {
 #
 # OVERRIDABLE, or a test of any caller measures the DEVELOPER'S own screen,
 # the mistake behind seven past defects here.
-hook_screen_luma() {   # -> mean luminance 0..1, or empty if unmeasurable
+# -> "<mean> peak=<peak>", or empty if unmeasurable.
+#
+# TWO STATISTICS FROM ONE GRAB, because the grab is the expensive part (measured
+# at 1.3s) and the two answer different questions: the mean is "is the whole
+# surface emitting" and the peak is "is ANYTHING emitting". Only the second can
+# see a cursor on a black OLED; see hook_luma_peak_is_dark for the table.
+#
+# FIELD 1 IS STILL THE MEAN, and hook_luma_is_dark TAKES field 1 so that is a
+# real promise and not a hopeful one: a caller handing over the whole answer
+# gets the mean compared, which is what it did before this field existed. Same
+# append-after-field-1 shape the idle clock used for its ceiling. The first cut
+# of this comment claimed compatibility without the split, and a pitch-black
+# frame promptly read as LIT.
+hook_screen_luma() {
+  # THE PEAK HAS ITS OWN OVERRIDE, and an answer with only a mean leaves the
+  # peak UNKNOWN on purpose. Supplying a mean and silently implying a peak of 0
+  # would make every existing fixture assert the new check vacuously, which is
+  # how a guard arrives already switched off.
   if [ -n "${VIGILANCE_SCREEN_LUMA:-}" ]; then
     printf '%s' "$VIGILANCE_SCREEN_LUMA"
+    if [ -n "${VIGILANCE_SCREEN_PEAK:-}" ]; then
+      printf ' peak=%s' "$VIGILANCE_SCREEN_PEAK"
+    fi
     return 0
   fi
   command -v magick >/dev/null 2>&1 || return 0
@@ -209,13 +229,25 @@ hook_screen_luma() {   # -> mean luminance 0..1, or empty if unmeasurable
   _slg=
   if command -v grim >/dev/null 2>&1 \
      && { [ -n "${WAYLAND_DISPLAY:-}" ] || [ -z "${DISPLAY:-}" ]; }; then
-    _slg="timeout 25 grim -s 0.05 -"
+    # `-c` INCLUDES THE CURSOR, and without it this capture is structurally
+    # blind to one: grim omits cursors by default, so a white pointer sitting on
+    # a black lock surface was simply absent from the frame being measured. A
+    # cursor is a real emitter on the glass, held perfectly still for as long as
+    # nobody touches the mouse, which is the worst case for an OLED.
+    _slg="timeout 25 grim -c -s 0.05 -"
   elif command -v import >/dev/null 2>&1 && [ -n "${DISPLAY:-}" ]; then
     # -window root is the whole screen, which is the same claim `grim -s 0.05`
     # makes: a blank is about the WHOLE surface, and a corner reads 0.0156 on an
     # ordinary desktop, indistinguishable from black. -resize keeps the
     # pipeline's cost comparable (1.3s at full resolution was measured as the
     # reason for the downscale).
+    #
+    # NO CURSOR HERE, AND THAT IS A STATED LIMIT RATHER THAN AN OVERSIGHT.
+    # `grim -c` asks the compositor to composite the pointer into the frame;
+    # ImageMagick's `import` offers no equivalent for an X root capture, so the
+    # peak statistic is blind to a pointer on this path and the bright-spot
+    # question is only truly answered on the Wayland one. Said out loud because
+    # a limit nobody wrote down reads as a check that passed.
     _slg="timeout 25 import -silent -window root -resize 5% png:-"
   else
     return 0
@@ -229,7 +261,7 @@ hook_screen_luma() {   # -> mean luminance 0..1, or empty if unmeasurable
   # shellcheck disable=SC2086
   _sl=$($_slg 2>/dev/null \
         | timeout 25 magick - -alpha off -colorspace Gray \
-            -format '%[fx:mean]' info: 2>/dev/null) || _sl=
+            -format '%[fx:mean] peak=%[fx:maxima]' info: 2>/dev/null) || _sl=
   printf '%s' "$_sl"
   return 0
 }
@@ -254,10 +286,96 @@ hook_luma_is_dark() {   # <luma>
   # A value that is not a number at all is NOT dark. awk would quietly turn
   # garbage into 0 and call it black, which is the one wrong answer that
   # silences this tier instead of merely annoying it.
+  #
+  # IT TAKES FIELD 1 OF A WHOLE ANSWER, which is what makes "field 1 is still
+  # the mean" a real compatibility promise rather than an aspiration. When
+  # hook_screen_luma grew its `peak=` field I wrote that every existing consumer
+  # kept working, and that was FALSE: a caller doing the obvious
+  # `_l=$(hook_screen_luma); hook_luma_is_dark "$_l"` now hands over
+  # `0 peak=0`, the garbage guard above rejects it, and a pitch-black screen
+  # reads as LIT. lock-blank did exactly that and its own test caught it within
+  # the minute. Splitting here rather than at each call site is what keeps a
+  # THIRD-PARTY hook working too, which no amount of fixing our own two does.
+  set -- "${1%% *}"
+  hook_luma_is_number "$1" || return 1
+  awk -v v="$1" 'BEGIN { exit !(v + 0 <= 0.01) }' 2>/dev/null
+}
+
+# IS THIS A NUMBER AT ALL, which both thresholds have to ask before comparing.
+#
+# FACTORED THE MOMENT THERE WERE TWO, and not for tidiness: the guard was one
+# line duplicated between the mean's threshold and the peak's, and the mutation
+# driver matches a whole line and can only reach the FIRST occurrence. So a
+# record naming the peak's guard would silently have mutated the mean's and
+# reported the other as covered. That exact trap has cost this project twice
+# already (two identical `_unit_active` sites, three identical `_idle_secs`
+# calls), and one implementation cannot drift from itself.
+#
+# WHY IT MATTERS AT ALL: awk turns garbage into 0 silently, and 0 is DARK. Of
+# every wrong answer available that is the one that switches the tier off
+# instead of merely annoying it.
+hook_luma_is_number() {   # <value>
   case "${1:-}" in
     ''|*[!0-9.eE+-]*) return 1 ;;
   esac
-  awk -v v="$1" 'BEGIN { exit !(v + 0 <= 0.01) }' 2>/dev/null
+  return 0
+}
+
+# A MEAN CANNOT SEE A CURSOR, and that is not a tuning problem: it is the wrong
+# statistic for the question. The mean answers "is the whole surface emitting".
+# The OLED question is "is ANYTHING emitting", because one small bright region
+# held still for hours is what burns in, and lock-blank exists to prevent
+# exactly that.
+#
+# MEASURED through this very pipeline, on a 2880x1800 panel at the 5% capture
+# scale, against the mean's 0.01 threshold:
+#
+#   shape                      lit px   mean        peak
+#   48x48 solid white            2304   0.000450    1.00
+#   a realistic arrow pointer     931   0.000184    0.62 to 0.77
+#   a 24px arrow                  264   0.0000526   0.35
+#   a thin I-beam, the sparsest    123   0.0000255   0.084
+#   four dim scattered pixels        4   0.00000014  0.0004
+#   pure black                       0   0           0
+#
+# THE MEAN CALLS EVERY ONE OF THOSE DARK. A fully white 48x48 cursor lifts it by
+# 0.000444, which is 22x BELOW the threshold, so a black OLED with a bright spot
+# on it was reported as not emitting. The user saw the cursor on the glass; the
+# instrument could not.
+#
+# 0.02 SITS 50x ABOVE THE MEASURED NOISE FLOOR AND 4x BELOW THE SPARSEST REAL
+# POINTER, so it is chosen from that table rather than guessed. The downscale
+# helps here rather than hurting: it averages isolated dim pixels away to 0.0004
+# while a cursor-sized block survives at close to full intensity, because the
+# whole block is bright.
+#
+# AND THE CAPTURE HAS TO ASK FOR THE CURSOR. `grim` omits cursors unless given
+# `-c`, so this threshold would have had nothing to measure; see
+# hook_screen_luma. Two independent blindnesses, both closed, because either one
+# alone still certifies the state.
+hook_luma_peak_is_dark() {   # <peak>
+  # UNKNOWN IS NOT DARK, and it is not lit either: a caller that cannot obtain a
+  # peak must say so rather than pass, which is why the empty case returns
+  # non-zero here and screen-dark tests for emptiness BEFORE asking. Letting
+  # empty mean dark would hand back the old behaviour under a new name.
+  #
+  # A NON-NUMBER IS NOT DARK, through the shared guard, for the reason stated
+  # there: awk turns garbage into 0 and 0 is the one answer that silences this.
+  hook_luma_is_number "${1:-}" || return 1
+  awk -v v="$1" 'BEGIN { exit !(v + 0 <= 0.02) }' 2>/dev/null
+}
+
+# THE PEAK OUT OF A hook_screen_luma ANSWER, or empty when there is none.
+# Parsed rather than positional, so an answer from an older deployed hook (a
+# bare mean, no peak field) yields empty and the caller declines the peak
+# question instead of inventing a number for it. The runner's own idle clock
+# took the same shape for the same reason: a field appended after field 1 leaves
+# every existing consumer untouched.
+hook_luma_peak() {   # <answer>
+  case "$1" in
+    *peak=*) printf '%s' "${1##*peak=}" ;;
+    *)       : ;;
+  esac
 }
 
 # hook_dark <save-file> [brightnessctl-selector...]

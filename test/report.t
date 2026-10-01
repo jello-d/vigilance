@@ -186,4 +186,67 @@ case $(_sect "$_out") in
 an unconfigured box reports" ;;
 esac
 
-pass
+# --- coherence must not call it DARK HARDWARE having looked at nothing -------
+# MEASURED BEFORE IT WAS FIXED: with an empty backlight root at rung `sleep` the
+# loop body never ran, `_lit` stayed empty, and the section printed
+#
+#   [OK]   depth 'sleep' matches dark hardware
+#
+# having examined no device at all. That is manifestor's permanent state, an
+# external OLED with no sysfs backlight, so report had been certifying "dark
+# hardware" there on every pass from an absence of evidence. "I could not look"
+# laundered into "I looked and it is fine", in the section a human reads.
+#
+# THREE OUTCOMES, AND ONLY ONE IS A PASS. All three are asserted because the
+# obvious wrong fix is to warn in the no-device case, which would fire forever
+# on every desktop, and the other wrong fix is to go quiet, which hides the lit
+# backlight this section exists to catch.
+_coh() {   # <backlight-root> -> the coherence section only
+  VIGILANCE_SYS_BACKLIGHT="$1" "$VIGILANT" report 2>/dev/null \
+    | awk '/^-- coherence --$/ { f = 1; next } /^-- / { f = 0 } f' || true
+}
+go sleep
+mkdir -p "$T/bl-none" "$T/bl-dark/p0" "$T/bl-lit/p0"
+printf '400\n' > "$T/bl-dark/p0/max_brightness"
+printf '5\n'   > "$T/bl-dark/p0/actual_brightness"
+printf '400\n' > "$T/bl-lit/p0/max_brightness"
+printf '300\n' > "$T/bl-lit/p0/actual_brightness"
+
+_o=$(_coh "$T/bl-none")
+case "$_o" in
+  *'no backlight device here'*) ;;
+  *) fail "with NO backlight device, coherence must say sysfs cannot answer
+rather than render an empty scan as confirmation:
+$_o" ;;
+esac
+case "$_o" in
+  *'[OK]'*dark*) fail "coherence claimed dark hardware with no device to read.
+It checked nothing, and nothing is not evidence:
+$_o" ;;
+esac
+case "$_o" in
+  *'[WARN]'*backlight*|*'[FAIL]'*backlight*)
+    fail "the no-device case WARNED. Every desktop with an external monitor is
+in this state permanently, and a warning that is always on is how a report stops
+being read:
+$_o" ;;
+esac
+
+_o=$(_coh "$T/bl-dark")
+case "$_o" in
+  *'[OK]'*'dark backlight'*) ;;
+  *) fail "a backlight present and at 5/400 is a real power state and must read
+as a pass, QUALIFIED as being about the backlight rather than about the panel in
+general:
+$_o" ;;
+esac
+
+_o=$(_coh "$T/bl-lit")
+case "$_o" in
+  *'[FAIL]'*'still lit'*) ;;
+  *) fail "a backlight at 300/400 at rung 'sleep' is the original finding and
+must still FAIL. The no-device carve-out must not have swallowed it:
+$_o" ;;
+esac
+
+pass "reporters, the rc carve-out, and coherence's three dark outcomes"

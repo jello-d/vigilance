@@ -765,7 +765,13 @@ the interrupts file
 the uptime file
 .TP
 .B VIGILANCE_SCREEN_LUMA
-short-circuit the screen capture
+short-circuit the screen capture, supplying the MEAN luminance
+.TP
+.B VIGILANCE_SCREEN_PEAK
+and the PEAK, which is a separate question: the mean asks whether the whole
+surface is emitting and the peak asks whether ANYTHING is. Setting the mean
+alone leaves the peak unknown, which is reported as such rather than as a pass,
+so a fixture cannot satisfy the bright-spot check by saying nothing about it.
 .TP
 .B VIGILANCE_LOCKER_UP
 1|0 instead of looking for the locker
