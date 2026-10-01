@@ -241,6 +241,47 @@ and production must not carry one for this. A continuous observer would only
 ever be a SCENARIO instrument, so if it is ever built it belongs in the guest
 and never in the shipped set.
 
+**HIDING A CURSOR IS NOT A HOOK'S TO DO, and that is structural rather than a
+gap in tooling.** OPEN ITEM, 2026-10-01: on a panel with no real power-saving
+option the black-painted lock surface is the only darkening mechanism, and a
+white pointer on it is a static bright region on an OLED, which is the burn-in
+that mechanism exists to prevent. Observed on manifestor's glass: the cursor IS
+hidden when the locker takes over, and a notification brings it back.
+
+The obvious remedy, a hook that enumerates ways to hide it, has nothing to
+enumerate. Every pointer protocol this compositor advertises is for a client to
+set ITS OWN cursor (`wp_cursor_shape_manager_v1`, `zwp_pointer_constraints_v1`)
+or to synthesise input (`zwlr_virtual_pointer_manager_v1`); none lets one client
+hide another's. So the only actors are the locker and the compositor, and
+swaylock is already one of them: `wl_pointer_set_cursor` appears in its binary,
+which is why it was hidden in the first place. X11 is why the idea feels like it
+should exist, since `unclutter` and `xbanish` are real there.
+
+THE ONE TECHNICALLY AVAILABLE TRICK IS ACTIVELY HARMFUL. Warping the pointer
+with the virtual-pointer protocol is INPUT, so it would reset the idle clock,
+which is the mechanism that darkens the box in the first place. It would fight
+the ladder to hide a cursor.
+
+**DETECTION IS DONE AND NEEDS NO NEW POLLING**, which is the part worth knowing
+before anyone proposes a timer for it. `grim -c` composites the live cursor
+(measured: 1747 differing pixels against a plain capture) and the peak statistic
+reads it, and `screen-dark` carries no `hook_throttle`, so it already runs on
+every supervision pass where six peripheral hooks defer for an hour.
+
+WHAT IS STILL UNKNOWN is the one fact that decides whether a fix can exist. If
+the notification causes a pointer leave/enter cycle then swaylock can re-hide on
+enter, and patching it is a mechanism this fleet already has. If instead the
+compositor draws a default cursor because focus moved to a surface that sets
+none, swaylock cannot reach it and it is Wayfire's. The guest can settle that
+without touching anyone's glass: lock, measure with and without `-c`, map a
+surface, measure again.
+
+AND DETECTION ALONE IS NOT A STABLE END STATE. If the cursor is visible for most
+of a dark rung on such a box, this becomes a permanently-on warning, which is
+the cry-wolf shape banned throughout this file and the documented reason a live
+box once had its enforce timer stopped by hand. So the mechanism has to be
+established rather than lived with.
+
 ## 3. What is assumed about the world
 
 Each of these was at some point "everyone knows", and each was false here.
