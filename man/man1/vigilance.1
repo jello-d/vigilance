@@ -579,10 +579,21 @@ import that variable into its manager, the X11 example above could not start at
 all. \fBVIGILANCE_LOCKER_UNSETENV=WAYLAND_DISPLAY\fR is the remaining piece.
 .TP
 .B VIGILANCE_LOCK_CONFIRM
-seconds to confirm a non\-forking locker is still running after its unit starts
-(default 2). Only consulted when
-.B VIGILANCE_LOCKER_TYPE
-is not \fBforking\fR, because that type is already waited for.
+seconds to keep watching a non\-forking locker after its unit starts
+(default 2).
+.IP
+EVERY TYPE IS SAMPLED ONCE, immediately, and this knob only governs how long
+a non\-forking one is watched after that. An earlier version of this page said
+\fBforking\fR was "already waited for" and so needed no check at all, which
+is FALSE: measured, a script that exits 0 without forking gives
+.B systemd\-run
+rc=0 and a unit that is already \fBinactive\fR, so a locker which delegates and
+exits was reported as a successful lock under the DEFAULT type. The two cases
+differ immediately, so the first sample costs one
+.B systemctl show
+and nothing on the lock path worth counting; only the WATCHING is type\-gated,
+because under \fBsimple\fR a locker can be running at that instant and gone a
+moment later.
 .TP
 .B VIGILANCE_IDLE_PROCESS
 idle daemon; EMPTY means this box has none

@@ -188,34 +188,76 @@ if systemd-run --user --collect --unit="$UNIT" \
   # caught by it, and nothing says so until the next supervision pass because
   # `_cross_one` does not run the verify tier.
   #
-  # WHY `Type=forking` NEVER SHOWED IT, and why that is also why it costs
-  # nothing there: systemd-run BLOCKS until the locker forks, so a successful
-  # return already establishes that it got that far. `Type=simple` returns the
-  # instant the unit is started and establishes nothing at all, which is exactly
-  # the setting a foreground locker needs, i.e. every X11 integration.
+  # I CLAIMED `Type=forking` ESTABLISHED SOMETHING AND IT DOES NOT. The claim
+  # was that systemd-run blocks until the locker forks, so a successful return
+  # proves it got that far. MEASURED, and it is false:
   #
-  # So the confirm is TYPE-DISCRIMINATED rather than unconditional. Waiting on
-  # every lock would put seconds of latency on the shipped path to catch a
-  # hypothetical, and the measured case is reachable only where nothing was
-  # established. Branching on Type is legitimate here: it is a knob this file
-  # already reads, not a guess about which locker is in use.
-  case "$LOCKER_TYPE" in
-    forking) exit 0 ;;
-  esac
+  #   a script that forks a child and exits 0  rc=0, state immediately `active`
+  #   a script that just exits 0, no fork      rc=0, state immediately INACTIVE
+  #
+  # systemd does not fail the start for the second one. So a locker that asks a
+  # daemon to lock and exits was reported as a successful lock under the DEFAULT
+  # type, which is the configuration every shipped box uses.
+  #
+  # THE MEASUREMENT ALSO GAVE A BETTER DESIGN THAN THE ONE IT BROKE. The two
+  # cases differ IMMEDIATELY, with no waiting at all, so every type gets one
+  # sample the instant systemd-run returns: one `systemctl show`, a few
+  # milliseconds, nothing on the lock path worth counting.
+  #
+  # ONLY A NON-FORKING LOCKER IS THEN WATCHED, and that is where the waiting
+  # belongs. Under `simple` the unit is `active` at t=0 and the locker can die a
+  # moment later, which is what i3lock refusing on a Wayland box actually did; a
+  # forked locker that was alive at t=0 is systemd's to track from then on, and
+  # if it dies ExecStopPost crosses `unlock` and locker-up catches it.
+  #
+  # IT REQUIRES A GOOD STATE RATHER THAN LISTING THE BAD ONES, and the first
+  # version of this did the opposite and missed. It matched `inactive|failed`,
+  # and a unit whose process has exited sits in DEACTIVATING for as long as its
+  # ExecStopPost takes, which here is `vigilant go open` crossing an edge:
+  #
+  #   t=0s  active          <- the first sample
+  #   t=1s  deactivating    <- matched neither name, so the loop kept going
+  #   t=3s  inactive        <- after the loop had already returned success
+  #
+  # A deny-list cannot see the state nobody thought to name, which is the rule
+  # this suite applies to every other check with a hardcoded subject, and both
+  # halves of this confirm were wrong in that one way.
   _c=0
-  while [ "$_c" -lt "${VIGILANCE_LOCK_CONFIRM:-2}" ]; do
+  while :; do
     case "$(_unit_state)" in
-      inactive|failed)
-        echo "swaylock provider: $UNIT STARTED and then died; '$LOCKER' is not"\
-" running, so the screen is NOT locked. A locker under Type=$LOCKER_TYPE is"\
-" not waited for, so systemd reporting it started says nothing about whether"\
-" it survived. Its own output is in: journalctl --user -u $UNIT" >&2
+      active|activating|reloading) ;;   # alive; decide whether to keep watching
+      *)
+        # SAY WHAT IS KNOWN AND NAME THE REQUIREMENT, not what the screen is
+        # doing. The first version of this said "so the screen is NOT locked",
+        # which this code cannot know and which is FALSE for a whole class of
+        # locker: one that asks a running daemon to lock and exits (an
+        # `xfce4-screensaver-command --lock` shape) leaves the screen locked and
+        # its unit dead. A wrong diagnosis is worse than none because it is
+        # confidently actionable, which is the lesson the WAYLAND_DISPLAY
+        # message already carries three screens down.
+        #
+        # AND REFUSING IS STILL RIGHT, for a reason that is about tracking
+        # rather than about the screen. This provider's whole design is that the
+        # UNIT IS THE SPAN of the lock and ExecStopPost is the unlock detector,
+        # so a locker that does not outlive its own lock makes the ladder record
+        # `open` while the screen is covered: the record behind the world, which
+        # every tier that trusts the record then agrees with. Reporting failure
+        # is the lesser of the two wrongs, and it is the loud one.
+        echo "swaylock provider: $UNIT started and its process is gone"\
+" EITHER the locker failed on startup and the screen is NOT locked, OR it"\
+" locked and exited, which this provider cannot support: the unit IS the span"\
+" of the lock here and ExecStopPost is how an unlock is detected, so a locker"\
+" must hold the lock for its own lifetime. Its own output is in:"\
+" journalctl --user -u $UNIT" >&2
         exit 1 ;;
     esac
+    # A FORKED LOCKER THAT IS ALIVE NOW IS SYSTEMD'S TO TRACK, so the immediate
+    # sample is the whole check and the shipped path pays nothing further.
+    if [ "$LOCKER_TYPE" = forking ]; then exit 0; fi
     _c=$((_c + 1))
+    if [ "$_c" -ge "${VIGILANCE_LOCK_CONFIRM:-2}" ]; then exit 0; fi
     sleep 1
   done
-  exit 0
 fi
 # WAIT FOR IT TO SETTLE, do not sample once. The refusal means the unit exists,
 # which means someone is starting it, which means the honest answer is not yet

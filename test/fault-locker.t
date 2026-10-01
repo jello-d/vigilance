@@ -104,4 +104,68 @@ _vrc=0
 That is the exact claim lock-on-sleep.service checks as ExecStartPost before
 allowing a suspend"
 
-pass
+# --- A LOCKER THAT EXITS ZERO, which is the one above's dangerous twin -------
+# THE DIFFERENCE IS THE STATUS AND IT CHANGES EVERYTHING. A locker exiting 1
+# fails its unit, and systemd carries that back; a locker exiting ZERO looks
+# like a clean start to everything except whatever asks afterwards.
+#
+# AND IT IS NOT A CONTRIVANCE. It is the shape an integrator on a desktop
+# environment reaches for FIRST: `xfce4-screensaver-command --lock` and its
+# GNOME equivalent ask a running daemon to lock and exit immediately, by design.
+# A `VIGILANCE_LOCKER` pointing at one of those is a reasonable thing to try,
+# which is precisely why the refusal has to be deliberate and legible.
+#
+# WHY REFUSING IS RIGHT, and the reason is about TRACKING rather than about the
+# screen. This provider's design is that the UNIT IS THE SPAN of the lock and
+# ExecStopPost is how an unlock is detected, so a locker that does not outlive
+# its own lock makes the ladder record `open` while the display is covered: the
+# record BEHIND the world, which every tier that trusts the record then agrees
+# with. A loud wrong beats a silent one.
+session_reset
+wire lock ''      swaylock
+wire lock .verify locker-up
+printf '#!/bin/sh\nexit 0\n' > "$T/bin/delegatinglocker"
+chmod +x "$T/bin/delegatinglocker"
+
+# BOTH TYPES, because they are caught by different code and an integrator can
+# set either. Under `forking` systemd itself notices (it waits for a fork that
+# never comes); under `simple` nothing is established at all and the provider's
+# own survival confirm is the only thing that can see it. Asserting one would
+# leave the other free to report a successful lock.
+for _ty in simple forking; do
+  session_reset
+  wire lock ''      swaylock
+  wire lock .verify locker-up
+  _zrc=0
+  VIGILANCE_LOCKER="$T/bin/delegatinglocker" VIGILANCE_LOCKER_TYPE="$_ty" \
+    VIGILANCE_LOCKER_ARGV= PATH="$T/bin:$PATH" \
+    "$VIGILANT" go lock >>"$T/out" 2>>"$T/stderr" || _zrc=$?
+  [ "$_zrc" != 0 ] || fail "with Type=$_ty a locker that exits 0 immediately
+reported a SUCCESSFUL lock. Nothing is holding a lock, the unit is gone, and
+lock-on-sleep.service reads nothing but this status before letting the box
+suspend. That is the founding failure of this package, reached by a locker that
+behaved politely"
+done
+
+# AND THE MESSAGE MUST NOT GUESS AT THE SCREEN. The provider cannot tell a
+# locker that failed on startup from one that locked and exited, so claiming
+# either is a confidently actionable lie. The first version of this code said
+# "so the screen is NOT locked", which is false for exactly the delegating case
+# above, and sends a reader to debug a lock that is working.
+_msg=$(cat "$T/stderr" 2>/dev/null || true)
+case "$_msg" in
+  *'must hold the lock for its own lifetime'*) ;;
+  *) fail "the refusal does not name the REQUIREMENT it is enforcing. An
+integrator whose locker delegates needs to be told that this provider needs the
+locker to outlive its lock; without it the message is just a failure:
+$_msg" ;;
+esac
+case "$_msg" in
+  *'screen is NOT locked.'*) fail "the refusal asserts the screen is not locked.
+The provider cannot know that: a delegating locker leaves the screen COVERED and
+its unit dead, so this is the confidently-wrong diagnosis that the
+WAYLAND_DISPLAY message three screens away already exists to avoid:
+$_msg" ;;
+esac
+
+pass "killed mid-lock, exits 1, and exits 0 under both unit types"

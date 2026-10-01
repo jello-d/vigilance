@@ -297,6 +297,29 @@ Each of these was at some point "everyone knows", and each was false here.
 `systemctl is-active` means "not down"
 : FALSE while a unit is activating. Shipped a lock-edge alert twice.
 
+`systemd-run` returning success means the thing is running
+: FALSE under `Type=simple`, which returns the instant the unit is started.
+  Measured in the guest: `go lock` returned 0 with no locker anywhere, because
+  the locker refused on startup and exited in milliseconds. `Type=forking` is
+  the only one that establishes anything, because it blocks until the fork, and
+  it is the one setting a foreground locker cannot use. So the provider confirms
+  survival, and only for the non-forking case, because waiting on every lock
+  would put seconds on the shipped path to catch a hypothetical.
+
+a locker is any program that covers the screen
+: NOT ENOUGH HERE, and this is a limit of the provider rather than of lockers.
+  The design is that the UNIT IS THE SPAN of the lock and `ExecStopPost` is how
+  an unlock is detected, so the locker must hold the lock for its own LIFETIME.
+  A locker that asks a running daemon to lock and then exits (the
+  `xfce4-screensaver-command --lock` shape, which is what an integrator on a
+  desktop environment reaches for first) leaves the screen covered and its unit
+  dead, so the ladder records `open` while the display is locked: the record
+  BEHIND the world, which every tier that trusts the record then agrees with.
+  Such a locker is refused rather than accepted, because a loud wrong is better
+  than a silent one, and the message names the requirement instead of guessing
+  at the screen's state. The provider CANNOT tell that case from a locker that
+  failed on startup, and says so rather than picking one.
+
 an unknown key in a config file is ignored
 : FALSE. swaylock prints the option and its entire usage, and the lock provider
   returned 1. A dead config key raised an alert on the most security-critical
