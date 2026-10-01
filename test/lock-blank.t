@@ -15,9 +15,23 @@
 # 2026-09-04 retirement was right that a timer inside the locker duplicated
 # swayidle, and wrong that the PAINT was replaceable from outside.
 #
-# pgrep/pkill are STUBBED, which the suite permits for actuators: they are the
-# only way to assert WHICH signal was sent, and what was NOT sent. Nothing here
-# stands in for system state.
+# THE LOCKER IS A REAL PROCESS, NOT A pkill STUB, and that changed when the
+# hook stopped running an external program. It used to `pgrep -x` for the locker
+# and `pkill -SIG -x` to signal it, which a PATH stub could intercept; both are
+# hook_lib functions now, because `pgrep -x` is wrong twice over for a name that
+# came from a knob (comm truncates at 15 bytes, and the pattern is an ERE, so
+# `pkill -RTMIN -x '.*'` signals the whole box). A PATH stub cannot intercept
+# `kill`, which is a shell builtin.
+#
+# SO THE FIXTURE IS A PROCESS THAT TRAPS THE SIGNALS AND RECORDS THEM, which is
+# a STRONGER claim than the stub was: it asserts the signal was DELIVERED rather
+# than that a command was invoked, and the name in each record comes from the
+# process that received it rather than from the arguments we passed.
+#
+# THE NAME IS TEST-UNIQUE, and that is what keeps this hermetic. A fixture named
+# `swaylock` would collide with the DEVELOPER'S real swaylock on a desktop, so
+# the no-locker case would fail for a reason that has nothing to do with the
+# hook: the substrate-reading mistake this file's own backlight note is about.
 set -eu
 . "$(dirname "$0")/harness_lib"
 harness_init lock-blank
@@ -25,21 +39,58 @@ harness_init lock-blank
 HOOK=$HERE/libexec/vigilance/hooks/lock-blank
 mkdir -p "$T/bin" "$T/state"
 
-cat > "$T/bin/pgrep" <<'EOF'
-#!/bin/sh
-[ -n "${LOCKER_UP:-}" ] && exit 0
-exit 1
-EOF
-cat > "$T/bin/pkill" <<'EOF'
-#!/bin/sh
-printf '%s\n' "$*" >> "$SIGNALS"
-[ -n "${PKILL_FAIL:-}" ] && exit 1
-exit 0
-EOF
-chmod +x "$T/bin/pgrep" "$T/bin/pkill"
+# $T/bin STAYS ON PATH, and it is worth saying what for now that pgrep and pkill
+# have left it: the VERIFY cases stub `grim` and `magick` there, which is the
+# capture pipeline, an actuator the suite permits stubbing. Removing this line
+# with the process stubs made four of those cases measure the real screen and
+# report the alpha-channel bug that was fixed a year ago.
 PATH="$T/bin:$PATH"; export PATH
+
 SIGNALS=$T/signals; export SIGNALS
-export LOCKER_UP=1 PKILL_FAIL=
+LOCKER=vig-locker                 # 10 bytes, so nothing here is subtle
+VIGILANCE_LOCKER=$LOCKER; export VIGILANCE_LOCKER
+LPIDS=
+
+# A QUOTED heredoc with placeholders, never an expanding one. Four distinct bugs
+# in this project have come from text crossing a layer that interprets it, twice
+# in a heredoc whose own header said to keep prose out of it, so the template
+# expands NOTHING and the one path it needs is substituted afterwards.
+cat > "$T/locker-template" <<'TEMPLATE'
+#!/bin/sh
+trap 'echo "USR2 ${0##*/}" >> @SENT@' USR2
+trap 'echo "RTMIN ${0##*/}" >> @SENT@' RTMIN
+: > "$0.ready"
+_i=0
+while [ "$_i" -lt 900 ]; do _i=$((_i + 1)); sleep 0.1; done
+TEMPLATE
+
+_locker_start() {   # <name>
+  sed "s|@SENT@|$SIGNALS|g" "$T/locker-template" > "$T/$1"
+  chmod +x "$T/$1"
+  rm -f "$T/$1.ready"
+  "$T/$1" &
+  LPIDS="$LPIDS $!"
+  _i=0
+  while [ ! -f "$T/$1.ready" ] && [ "$_i" -lt 80 ]; do
+    _i=$((_i + 1)); sleep 0.1
+  done
+  [ -f "$T/$1.ready" ] || fail "the locker fixture '$1' never became ready, so
+every case below would be about a process that is not listening"
+}
+
+# `wait` RATHER THAN A POLL, and the reason is specific: a REAPED child is gone
+# from /proc, while a zombie still has a readable comm and would be found by any
+# comm scan. So polling could call the locker "still up" for as long as the test
+# shell took to reap it, making "no locker running" a race rather than a
+# condition. `wait` returns only once the child is reaped, so the next probe
+# cannot see it.
+_locker_stop() {
+  for _p in $LPIDS; do kill "$_p" 2>/dev/null || true; done
+  for _p in $LPIDS; do wait "$_p" 2>/dev/null || true; done
+  LPIDS=
+}
+
+_locker_start "$LOCKER"
 
 # THE BACKLIGHT ROOT IS PINNED, and empty by default. This hook is a LAST
 # RESORT for a panel with no other way to go dark, so "no sysfs backlight" is
@@ -47,12 +98,29 @@ export LOCKER_UP=1 PKILL_FAIL=
 # every case here would decline on the developer's laptop (intel_backlight,
 # max 400) and pass on a desktop, which is a verdict about the substrate.
 mkdir -p "$T/backlight"
+
+# SIGNAL DELIVERY IS ASYNCHRONOUS, so `_run` SETTLES before returning and every
+# assertion below reads a stable record. A trap fires only after the fixture's
+# current `sleep` returns, so the record can lag the hook's exit by about a
+# tenth of a second; reading it immediately would make the pass depend on
+# scheduling. It polls rather than sleeping a fixed time, so the common case
+# (a signal is expected and arrives) costs almost nothing.
 _run() {   # <edge> [kind]
   : > "$SIGNALS"
   VIGILANCE_EDGE="$1" VIGILANCE_KIND="${2:-act}" \
     VIGILANCE_SYS_BACKLIGHT="${BL_ROOT:-$T/backlight}" \
     VIGILANCE_LOCK_BLANK="${BLANK_POLICY:-auto}" \
-    VIGILANCE_STATE_DIR="$T/state" sh "$HOOK" "$1" 2>>"$T/stderr"
+    VIGILANCE_STATE_DIR="$T/state" sh "${HOOK_OVERRIDE:-$HOOK}" "$1" \
+    2>>"$T/stderr"
+  _rrc=$?
+  # THREE POLLS, NOT EIGHT. dash runs a trap once the fixture's current `sleep
+  # 0.1` returns, so delivery lands inside ~0.2s; the deadline only has to cover
+  # that. The cases expecting NO signal pay it in full, and there are a dozen of
+  # them, so an over-generous wait is seconds added to a suite with a bound.
+  _i=0
+  while [ ! -s "$SIGNALS" ] && [ "$_i" -lt 3 ]; do _i=$((_i + 1)); sleep 0.1
+  done
+  return $_rrc
 }
 _sent() { cat "$SIGNALS" 2>/dev/null; }
 
@@ -81,12 +149,12 @@ esac
 # The common case, not an edge case: a machine crosses `sleep` from an unlocked
 # session routinely (the display keybind, a manual `go sleep`), and a greeter
 # has no locker at all. There is simply no lock surface to repaint.
-LOCKER_UP=; export LOCKER_UP
+_locker_stop
 _run sleep || fail "the hook FAILED with no locker running. That is an
 unlocked session crossing sleep, which is routine, and a greeter's permanent
 state: it would alert on every such edge"
 [ -z "$(_sent)" ] || fail "a signal was sent with no locker running"
-LOCKER_UP=1; export LOCKER_UP
+_locker_start "$LOCKER"
 
 # --- 4. VERIFY MEASURES THE PIXELS ------------------------------------------
 # swaylock exposes no way to ask what it is painting, but the compositor can
@@ -186,17 +254,38 @@ esac
 # It costs only a wallpaper, never access, but a blank that silently did not
 # happen is a screen quietly emitting all night, which is the whole point of
 # the hook.
-PKILL_FAIL=1; export PKILL_FAIL
+# THE SEAM MOVED FROM PATH TO THE LIBRARY, because the signal is no longer an
+# external program. The hook self-locates hook_lib relative to its own path, so
+# reproducing that LAYOUT with a hook_lib whose signal refuses is the same
+# actuator-stubbing the suite already permits, one layer in. That layout
+# requirement is itself a recorded trap: a hook copied anywhere else looks for
+# `../hook_lib` and exits 2 before doing anything.
+#
+# A LATER DEFINITION WINS, which is how the refusal is injected without editing
+# the shipped rules. tools.t rejects that shape in SHIPPED code, for the good
+# reason that a refactor once left an old hook_lit body behind and the adapter
+# was never called for two days; here it is a fixture and deliberate.
+FAILDIR=$T/failsig
+mkdir -p "$FAILDIR/hooks"
+cp "$HERE/libexec/vigilance/hook_lib" "$FAILDIR/hook_lib"
+printf 'hook_proc_signal() { return 1; }\n' >> "$FAILDIR/hook_lib"
+cp "$HOOK" "$FAILDIR/hooks/lock-blank"
+chmod +x "$FAILDIR/hooks/lock-blank"
+HOOK_OVERRIDE=$FAILDIR/hooks/lock-blank
 if _run sleep 2>>"$T/stderr"; then
   fail "the hook returned SUCCESS while the signal failed. The surface never
 blanked and nothing anywhere says so"
 fi
-PKILL_FAIL=; export PKILL_FAIL
+unset HOOK_OVERRIDE
 
 # --- 7. the locker NAME is overridable --------------------------------------
 # An integrator running something other than swaylock must be able to say so,
-# and the signal must follow the name rather than a hardcoded one.
+# and the signal must follow the name rather than a hardcoded one. The record is
+# written BY THE PROCESS THAT RECEIVED the signal, so this is now a claim about
+# delivery rather than about the arguments we passed.
+_locker_stop
 VIGILANCE_LOCKER=mylocker; export VIGILANCE_LOCKER
+_locker_start mylocker
 _run sleep || fail "the hook failed with a custom locker name"
 case "$(_sent)" in
   *myotherlocker*) fail "unreachable" ;;
@@ -204,7 +293,34 @@ case "$(_sent)" in
   *) fail "the signal did not target the configured locker:
 $(_sent)" ;;
 esac
+_locker_stop
+
+# --- 7b. A LOCKER NAME OVER 15 BYTES still gets signalled -------------------
+# THE DEFECT THIS FIXTURE WAS REBUILT FOR. comm is truncated to 15 bytes by the
+# kernel, so `pkill -x` with a 17-byte name matched nothing, returned non-zero,
+# and this hook reported a failed signal about a locker that was right there.
+# `xfce4-screensaver` is 17, `gnome-screensaver` is 17, and xfce4-session
+# already Recommends the first: ordinary values, not contrived ones.
+#
+# AND THE BROKEN GUARD EARLIER IN THE HOOK WAS HIDING IT. The same `pgrep -x`
+# answered "no locker" first, so the hook exited 0 and never reached the signal:
+# one silent no-op covering for a loud failure, inside one file. Fixing either
+# alone is wrong, which is why this case asserts the whole path.
+VIGILANCE_LOCKER=xfce4-screensaver; export VIGILANCE_LOCKER
+_locker_start xfce4-screensaver
+_run sleep || fail "the hook failed with a 17-byte locker name. comm holds only
+'xfce4-screensav', so an exact match on the full name finds nothing: the hook
+must compare against what the kernel actually stores"
+case "$(_sent)" in
+  *USR2*) ;;
+  *) fail "no blank signal reached a locker whose name is over 15 bytes, so the
+surface stays lit at a dark rung on exactly the hardware this hook exists for:
+$(_sent)" ;;
+esac
+_locker_stop
 unset VIGILANCE_LOCKER
+VIGILANCE_LOCKER=$LOCKER; export VIGILANCE_LOCKER
+_locker_start "$LOCKER"
 
 # --- THE HARDWARE GATE ------------------------------------------------------
 # This is a last resort, not a preference. It exists for a panel that cannot go
@@ -278,4 +394,8 @@ BL_ROOT=$T/zerolight BLANK_POLICY=never
 _rc=0; _run sleep >/dev/null || _rc=$?
 [ "$_rc" = 78 ] || fail "VIGILANCE_LOCK_BLANK=never did not suppress the blank"
 
+# TEARDOWN MUST BE SILENT: it runs after `pass` would print, and test/run reads
+# the LAST line for the verdict, so one stray line turns a pass into NO VERDICT.
+# Hence it runs BEFORE the pass line rather than from a trap.
+_locker_stop
 pass

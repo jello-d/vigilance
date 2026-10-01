@@ -62,8 +62,22 @@ done
 # Adding a name here is a deliberate act with a cost: whatever it reads becomes
 # untestable in the stub tier and host-dependent in both. Prefer an override
 # with a live fallback (see _r_session, _rep_idle_armed) over a new entry.
+#
+# THE PROCESS PROBES ARE DECLARED, AND THEIR NAMES ARE TOKENS. That second half
+# is what keeps this ratchet's reach after a refactor. `_proc_pids` and friends
+# hold the /proc read that `pgrep -x` used to make: the read did not move house,
+# it merely became VISIBLE, because an external program was never one of the
+# tokens below and a `/proc/` path is. All three callers were already declared.
+#
+# BUT DECLARING THE HELPER WOULD HAVE LAUNDERED EVERY FUTURE CALLER. A new
+# function calling `_proc_running` would read the host while the only flagged
+# token sat inside an allowed function, so extracting a host read into a shared
+# helper is a way to smuggle one past this check. Adding the helper NAMES to the
+# token list closes that: a caller must declare itself, exactly as if it had
+# spelled out the /proc read.
 LIVE_OK='_rep_machinery _rep_unit_runnable _rep_idle_armed _r_session
-_r_locker_up cmd_rescue cmd_report _rep_budget_secs'
+_r_locker_up cmd_rescue cmd_report _rep_budget_secs
+_proc_pids _proc_running _proc_pid'
 
 _offenders=$(awk -v ok="$LIVE_OK" '
   BEGIN { n = split(ok, a, /[[:space:]]+/)
@@ -71,8 +85,10 @@ _offenders=$(awk -v ok="$LIVE_OK" '
   /^[_a-zA-Z][_a-zA-Z0-9]*\(\) *\{/ { fn = $1; sub(/\(\).*/, "", fn) }
   /^\}/ { fn = "" }
   # The host-state tokens. Deliberately narrow: these are reads of the RUNNING
-  # machine, not of anything the test controls.
-  /\/sys\/|\/proc\/|pgrep |systemctl |loginctl |journalctl |hostname -s/ {
+  # machine, not of anything the test controls. The last two are the process
+  # probes, named so that calling one counts as the /proc read it performs.
+  /\/sys\/|\/proc\/|pgrep |systemctl |loginctl |journalctl |hostname -s/ ||
+  /_proc_running |_proc_pid / {
     if ($0 ~ /^[[:space:]]*#/) next          # prose
     if ($0 ~ /VIGILANCE_[A-Z_]+/) next       # behind an override
     if (fn != "" && (fn in allow)) next      # declared live

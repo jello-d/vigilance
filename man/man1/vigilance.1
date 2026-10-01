@@ -491,10 +491,37 @@ the PATH every hook is given
 .B VIGILANCE_LOCKER
 locker process name (default swaylock). The NAME, because
 .B locker\-up
-finds it with
-.BR "pgrep \-x" ;
-its argv and its unit type are the two knobs below, which is the difference
-between a documented extension point and a name the code ignores.
+and
+.B lock\-blank
+look the process up by it; its argv and its unit type are the two knobs below,
+which is the difference between a documented extension point and a name the
+code ignores.
+.IP
+ONLY THE FIRST 15 BYTES ARE SIGNIFICANT, and that is the kernel's limit rather
+than this package's: a process name is read from
+.BR /proc/<pid>/comm ,
+which holds 15 bytes and a terminator. So
+.B xfce4\-screensaver
+(17) and
+.B gnome\-screensaver
+(17) are matched on
+.B xfce4\-screensav
+and
+.BR gnome\-screensave ,
+and two lockers agreeing in their first 15 bytes cannot be told apart. Matching
+is LITERAL, so a name is never read as a pattern.
+.IP
+Until 2026\-10\-01 the lookup was
+.BR "pgrep \-x" ,
+which was wrong in both directions for a name given here. An exact match on
+more than 15 bytes can never succeed, so a correctly locked box reported no
+locker and alerted on it once a minute; and the pattern is an ERE, so a name
+containing
+.B .*
+matched every process, which reported a secured session with nothing locking
+and, in
+.BR lock\-blank 's
+signal, would have signalled the whole machine.
 .TP
 .B VIGILANCE_LOCKER_ARGV
 extra arguments for it (default \fB\-f\fR, swaylock's \fB\-\-daemonize\fR).

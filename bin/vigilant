@@ -437,6 +437,68 @@ _alert_repeat() {   # kind message -> 0 if this is a suppressible repeat
   return 1
 }
 
+# IS A PROCESS OF THIS NAME RUNNING, and which pid is it. Deliberately NOT
+# `pgrep -x`, for two reasons that were both MEASURED rather than reasoned
+# about, and that fail in OPPOSITE directions:
+#
+# comm IS TRUNCATED TO 15 BYTES by the kernel, so an exact match on a longer
+# name can NEVER succeed. Both names reaching here come from shipped knobs
+# (VIGILANCE_LOCKER, VIGILANCE_IDLE_PROCESS) and the plausible long values are
+# ordinary: xfce4-screensaver (17), gnome-screensaver (17),
+# xfce4-power-manager (19), which on an xfce box genuinely IS the idle daemon.
+# Measured: such a process carries comm `xfce4-screensav` and `pgrep -x` with
+# the full name never matches it. That direction cries wolf, and it does so in
+# three places at once: a correctly locked box reports no locker, a healthy
+# idle timer reports NOT running, and `_rep_idle_armed` finds no pid and so
+# silently stops checking the armed command altogether. The last one is the
+# worst of the three, because it is the check that caught a real idle-lock
+# outage once and it would report clean while looking at nothing.
+#
+# AND THE pgrep PATTERN IS AN ERE, NOT A LITERAL. Measured: `pgrep -x
+# lock.safe` matches a process named `lockXsafe`, and `pgrep -x '.*'` matches
+# EVERY process on the box. At rung `lock` that makes _rep_coherence announce
+# "depth 'lock' matches a live locker" on the strength of a pattern that matched
+# anything at all: a FALSE GREEN on whether the session is secured, which is
+# the one answer here that must never be wrong.
+#
+# So the name is compared LITERALLY against what the kernel actually stores,
+# truncated the way the kernel truncates it. Two names agreeing in their first
+# 15 bytes are indistinguishable to ANY reader of comm, so that is a limit of
+# comm rather than of this code, and it is strictly better than never matching.
+#
+# THE TWIN LIVES IN hook_lib, because a hook cannot source the runner and the
+# runner must not source the hook author's API. test/proc-identity.t drives
+# both through ONE case table for that reason.
+_proc_pids() {   # <name> -> prints every matching pid, one per line
+  [ -n "${1:-}" ] || return 1
+  _ppn=$(printf '%.15s' "$1")
+  _ppf=1
+  for _ppp in /proc/[0-9]*; do
+    [ -r "$_ppp/comm" ] || continue
+    read -r _ppc < "$_ppp/comm" 2>/dev/null || continue
+    if [ "$_ppc" = "$_ppn" ]; then
+      printf '%s\n' "${_ppp#/proc/}"
+      _ppf=0
+    fi
+  done
+  return $_ppf
+}
+
+_proc_running() {   # <name>
+  _proc_pids "$1" >/dev/null 2>&1
+}
+
+# THE FIRST MATCH, and the caller must not read an ORDER into it. The old
+# `pgrep -x ... | head -1` took readdir order and this takes lexical glob
+# order; neither is "the lowest pid", so a consumer that needs a PARTICULAR
+# instance has to identify it some other way. swayidle-due already does, by
+# preferring swayidle-mgr's own pid.
+_proc_pid() {   # <name> -> prints one matching pid, or returns 1
+  _pp1=$(_proc_pids "$1" 2>/dev/null | head -1) || true
+  [ -n "${_pp1:-}" ] || return 1
+  printf '%s' "$_pp1"
+}
+
 _alert() {   # kind message
   _log "ALERT [$1] $2"
   # DEFERRED, AND THE LOG IS STILL WRITTEN. The standing recheck owns the
@@ -1882,7 +1944,7 @@ _r_locker_up() {
     [ "$VIGILANCE_LOCKER_UP" = 1 ]
     return $?
   fi
-  pgrep -x "${VIGILANCE_LOCKER:-swaylock}" >/dev/null 2>&1
+  _proc_running "${VIGILANCE_LOCKER:-swaylock}"
 }
 
 _r_session() {
@@ -2593,7 +2655,7 @@ _rep_idle_armed() {
     _icl=$VIGILANCE_IDLE_CMDLINE
   else
     [ -n "$IDLE_PROCESS" ] || return 0
-    _ipid=$(pgrep -x "$IDLE_PROCESS" 2>/dev/null | head -1)
+    _ipid=$(_proc_pid "$IDLE_PROCESS" 2>/dev/null || true)
     [ -n "${_ipid:-}" ] || return 0
     _icl=/proc/$_ipid/cmdline
   fi
@@ -2664,7 +2726,7 @@ _rep_machinery() {
   if [ -z "$IDLE_PROCESS" ]; then
     _r_info "idle timer n/a (VIGILANCE_IDLE_PROCESS is empty: this box"\
 " declares none)"
-  elif pgrep -x "$IDLE_PROCESS" >/dev/null 2>&1; then
+  elif _proc_running "$IDLE_PROCESS"; then
     _r_ok "$IDLE_PROCESS running (timer)"
   elif [ -z "$_sess" ]; then
     _r_info "$IDLE_PROCESS n/a (no session to idle in)"

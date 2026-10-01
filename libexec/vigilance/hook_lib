@@ -452,3 +452,89 @@ hook_verify_level() {
   fi
   return 0
 }
+
+# --- process identity -------------------------------------------------------
+
+# IS A PROCESS OF THIS NAME RUNNING, and which pid is it. Deliberately NOT
+# `pgrep -x`, for two reasons that were both MEASURED rather than reasoned
+# about, and that fail in OPPOSITE directions:
+#
+# comm IS TRUNCATED TO 15 BYTES by the kernel, so an exact match on a longer
+# name can NEVER succeed. `VIGILANCE_LOCKER` is a shipped knob and the
+# plausible long values are ordinary rather than exotic: xfce4-screensaver
+# (17), gnome-screensaver (17), xscreensaver-command (20). Measured: a process
+# started from a script named xfce4-screensaver carries comm
+# `xfce4-screensav`, and `pgrep -x xfce4-screensaver` never matches it. That
+# direction cries wolf: a correctly locked box reports no locker.
+#
+# AND THE pgrep PATTERN IS AN ERE, NOT A LITERAL. Measured: `pgrep -x
+# lock.safe` matches a process named `lockXsafe`, and `pgrep -x '.*'` matches
+# EVERY process on the box. That direction is a FALSE GREEN on "is the session
+# secured", which is the one answer in this package that must never be wrong.
+#
+# So the name is compared LITERALLY against what the kernel actually stores,
+# truncated the way the kernel truncates it. Two names agreeing in their first
+# 15 bytes are indistinguishable to ANY reader of comm, so that is a limit of
+# comm rather than of this code, and it is strictly better than never matching.
+#
+# AND IT EXECS NO EXTERNAL PROGRAM, which is load-bearing because lock-blank
+# calls this on the LOCK edge: a program per hook on the security path is a
+# regression this project has already measured and paid for once, and perf.t
+# counts exactly that. The one `$(printf ...)` runs a shell builtin.
+#
+# TWO IMPLEMENTATIONS EXIST, here and in `bin/vigilant`, because the runner
+# must not source the hook author's API. test/proc-identity.t drives BOTH
+# through one case table for that reason, the same way level-rules.t drives the
+# three level adapters, and a tree-wide ratchet there refuses a new site that
+# hands a name to `pgrep`/`pkill`.
+#
+# ONE ENUMERATOR, and the others are thin over it. The alternative was an
+# early-returning loop for the boolean and a second full loop for the signal,
+# which is three near-copies of the same comparison inside one file: the
+# duplicated-rules shape this package paid to delete once. The cost of not
+# returning early is the rest of /proc, measured in the single-digit
+# milliseconds and execing nothing, against a 10s per-hook bound.
+hook_proc_pids() {   # <name> -> prints every matching pid, one per line
+  [ -n "${1:-}" ] || return 1
+  _hpn=$(printf '%.15s' "$1")
+  _hpf=1
+  for _hpp in /proc/[0-9]*; do
+    [ -r "$_hpp/comm" ] || continue
+    read -r _hpc < "$_hpp/comm" 2>/dev/null || continue
+    if [ "$_hpc" = "$_hpn" ]; then
+      printf '%s\n' "${_hpp#/proc/}"
+      _hpf=0
+    fi
+  done
+  return $_hpf
+}
+
+hook_proc_running() {   # <name>
+  hook_proc_pids "$1" >/dev/null 2>&1
+}
+
+# SIGNAL EVERY PROCESS OF THAT NAME, which is what `pkill -x` did here and what
+# lock-blank means: the broadcast is meant to reach swaylock's password-backend
+# CHILD as well as swaylock, and that child carries the same comm.
+#
+# THE ERE HAZARD IS AT ITS WORST IN THIS ONE. A `pgrep` pattern matching too
+# much is a wrong answer; a `pkill` pattern matching too much SIGNALS THE WHOLE
+# BOX, and the default action for a realtime signal is to terminate, so
+# `pkill -RTMIN -x '.*'` is not a reporting fault. That is reason enough on its
+# own to compare literally, whatever the truncation did.
+#
+# AND IT SKIPS ITSELF, matching pkill, which never signals the process doing
+# the killing. It only bites for a pathological name (VIGILANCE_LOCKER=sh), and
+# one comparison is cheaper than reasoning about whether that is reachable.
+#
+# RETURNS 0 IF AT LEAST ONE WAS SIGNALLED, also matching pkill, because the
+# caller treats "nothing to signal" as a failure worth reporting.
+hook_proc_signal() {   # <signal> <name> -> 0 if at least one was signalled
+  _hsg=$1
+  _hsd=1
+  for _hsp in $(hook_proc_pids "$2" || true); do
+    if [ "$_hsp" = "$$" ]; then continue; fi
+    if kill -"$_hsg" "$_hsp" 2>/dev/null; then _hsd=0; fi
+  done
+  return $_hsd
+}

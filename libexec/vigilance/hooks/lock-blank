@@ -46,7 +46,7 @@ LOCKER=${VIGILANCE_LOCKER:-swaylock}
 # edge: a machine crosses `sleep` from an unlocked session all the time (the
 # display keybind, a manual `go sleep`), and a greeter has no locker at all.
 # There is simply no lock surface to repaint.
-if ! pgrep -x "$LOCKER" >/dev/null 2>&1; then
+if ! hook_proc_running "$LOCKER"; then
   exit 0
 fi
 
@@ -159,7 +159,7 @@ if [ "$_intent" = dark ]; then _sig=USR2; else _sig=RTMIN; fi
 # The patch resets these dispositions to SIG_IGN in swaylock's password-backend
 # CHILD precisely because this broadcast reaches it too; without that reset an
 # inherited handler would run in a process with no event loop.
-if ! pkill -"$_sig" -x "$LOCKER" 2>/dev/null; then
+if ! hook_proc_signal "$_sig" "$LOCKER"; then
   echo "lock-blank: could not signal $LOCKER ($_sig)" >&2
   exit 1
 fi

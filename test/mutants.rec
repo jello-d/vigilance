@@ -901,3 +901,64 @@ f libexec/vigilance/hook_lib
 t cadence
 -      && [ "$(( _ht_now - _ht_at ))" -lt "$_ht_every" ]; then
 +      && [ "$(( _ht_now - _ht_at ))" -ge 0 ]; then
+
+# comm IS TRUNCATED TO 15 BYTES by the kernel, so dropping the
+# truncation makes an exact match on any longer name impossible. The
+# plausible values are ordinary (xfce4-screensaver is 17), and the
+# consequence is a correctly locked box reporting no locker.
+= proc-truncation-hooklib
+f libexec/vigilance/hook_lib
+t proc-identity lock-blank locker-up
+-   _hpn=$(printf '%.15s' "$1")
++   _hpn=$(printf '%s' "$1")
+
+# The runner's twin of the above. Two implementations exist because a
+# hook cannot source the runner; this is the record that stops them
+# drifting in the direction that matters.
+= proc-truncation-runner
+f bin/vigilant
+t proc-identity
+-   _ppn=$(printf '%.15s' "$1")
++   _ppn=$(printf '%s' "$1")
+
+# THE FALSE-GREEN DIRECTION. A comparison that accepts anything is
+# what `pgrep -x` did with an ERE: `.*` matched every process, so
+# locker-up would certify a secured session with nothing locking.
+= proc-match-is-exact-hooklib
+f libexec/vigilance/hook_lib
+t proc-identity locker-up
+-     if [ "$_hpc" = "$_hpn" ]; then
++     if [ -n "$_hpc" ]; then
+
+= proc-match-is-exact-runner
+f bin/vigilant
+t proc-identity
+-     if [ "$_ppc" = "$_ppn" ]; then
++     if [ -n "$_ppc" ]; then
+
+# A PERFECT HELPER PROVES NOTHING IF A CALL SITE STILL REACHES FOR
+# pgrep. This is the site that made report announce "depth 'lock'
+# matches a live locker" from a pattern that matched anything.
+= proc-callsite-report-locker
+f bin/vigilant
+t proc-identity
+-   _proc_running "${VIGILANCE_LOCKER:-swaylock}"
++   pgrep -x "${VIGILANCE_LOCKER:-swaylock}" >/dev/null 2>&1
+
+# The security verifier's own probe. Every other case in locker-up.t
+# sets VIGILANCE_LOCKER_UP, which short-circuits it, so this site was
+# covered by nothing at all until that file grew a real-process case.
+= proc-callsite-locker-up
+f libexec/vigilance/hooks/locker-up
+t locker-up
+-   hook_proc_running "$LOCKER"
++   pgrep -x "$LOCKER" >/dev/null 2>&1
+
+# THE SITE THE FIRST AUDIT MISSED, because a flag sits between `pkill`
+# and `-x` and the sweep grepped for `pkill -x`. With pkill an
+# over-wide pattern SIGNALS THE WHOLE BOX rather than answering wrong.
+= proc-callsite-lock-blank-signal
+f libexec/vigilance/hooks/lock-blank
+t proc-identity lock-blank
+- if ! hook_proc_signal "$_sig" "$LOCKER"; then
++ if ! pkill -"$_sig" -x "$LOCKER" 2>/dev/null; then

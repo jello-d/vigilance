@@ -35,14 +35,30 @@
 # edge and teach its human to ignore the alert. Machine scope is for the
 # peripherals, which behave the same with nobody logged in; a locker does not.
 #
-# NO hook_lib. It is sourced by a path relative to this file's own location, and
-# this hook needs nothing from it: no intent table, no dark/lit actuation,
-# because it only ever READS. Carrying the dependency anyway would buy nothing
-# and would break the moment someone COPIED this hook into a hooks dir instead
-# of symlinking it (the shipped wiring symlinks, so `readlink -f` finds the
-# tree; a copy does not). An unused dependency that can only fail is not worth
-# the consistency.
+# IT SOURCES hook_lib NOW, REVERSING A DELIBERATE DECISION, and the reversal is
+# worth stating because the old reasoning was sound and stopped being true. It
+# said this hook "needs nothing from hook_lib: no intent table, no dark/lit
+# actuation, because it only ever READS", so an unused dependency that can only
+# fail was not worth the consistency, and keeping it standalone meant a COPIED
+# hook still worked where a sourcing one would not.
+#
+# WHAT CHANGED is that it does need one thing: how you ask whether a process is
+# running. `pgrep -x` gets that WRONG in both directions for a name handed to it
+# by a knob (comm is truncated to 15 bytes; the pattern is an ERE, so `.*`
+# matches every process and reports the session secured). The rule is in
+# hook_proc_running with its measurements, and a third copy of it is exactly the
+# duplicated-rules shape this package paid to delete once.
+#
+# AND THE OLD OBJECTIONS COST LESS THAN THEY LOOK. hook_lib has no top-level
+# side effects at all (checked: not one non-function line), so sourcing it
+# defines functions and nothing else. A hook COPIED rather than symlinked now
+# fails LOUDLY, rc=2 with a hook-failed alert on the lock edge, rather than
+# answering the security question wrongly in silence. Loud on a misinstall is
+# the trade this package makes everywhere else.
 set -eu
+
+_self=$(readlink -f "$0")
+. "$(dirname "$_self")/../hook_lib"
 
 edge=${1:-${VIGILANCE_EDGE:-}}
 
@@ -87,7 +103,7 @@ _up() {
     return $?
   fi
   systemctl --user is-active --quiet "$UNIT" 2>/dev/null && return 0
-  pgrep -x "$LOCKER" >/dev/null 2>&1
+  hook_proc_running "$LOCKER"
 }
 
 if [ "$want" = up ]; then

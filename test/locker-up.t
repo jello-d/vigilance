@@ -114,4 +114,75 @@ awk '/^ExecStart=/{s=NR} /^ExecStartPost=/{p=NR}
      END{exit (s && p && p > s) ? 0 : 1}' "$_unit" \
   || fail "the verify does not follow the crossing in lock-on-sleep.service"
 
+# --- THE REAL PROBE, which every case above short-circuits ------------------
+# EVERY CASE SO FAR SETS VIGILANCE_LOCKER_UP, and that knob replaces the probe
+# outright. So the code that actually decides whether the session is secured
+# was exercised by NOTHING in this file, in the hook whose entire job is that
+# question. The same trap the triggers section nearly shipped with: an override
+# short-circuits the thing it stands in for.
+#
+# AND IT HELD A DEFECT. The probe was `pgrep -x "$LOCKER"`, which is wrong twice
+# for a name from a knob: comm is truncated to 15 bytes by the kernel, so an
+# exact match on a longer name NEVER succeeds, and the pattern is an ERE, so
+# `.*` matches every process. The first makes this hook FAIL on a correctly
+# locked box once a minute; the second makes it pass with nothing locking.
+#
+# A REAL PROCESS, under a TEST-UNIQUE NAME. A fixture called `swaylock` would
+# find the DEVELOPER'S real locker on a desktop and the absent case would pass
+# for the wrong reason, which is the substrate-reading mistake this suite has
+# paid for three times.
+_LN=vig-lu-screensaver          # 20 bytes: comm holds only vig-lu-screensa
+cat > "$T/$_LN" <<'TEMPLATE'
+#!/bin/sh
+: > "$0.ready"
+_i=0
+while [ "$_i" -lt 600 ]; do _i=$((_i + 1)); sleep 0.1; done
+TEMPLATE
+chmod +x "$T/$_LN"
+"$T/$_LN" &
+_LPID=$!
+_i=0
+while [ ! -f "$T/$_LN.ready" ] && [ "$_i" -lt 80 ]; do _i=$((_i + 1)); sleep 0.1
+done
+[ -f "$T/$_LN.ready" ] || fail "the locker fixture never became ready, so the
+cases below would be about a process that is not running"
+
+# THE UNIT MUST NOT ANSWER FIRST. `_up` tries systemd before the process name,
+# so a stray screen-lock.service would decide this and the probe under test
+# would never run. Pointing the unit name at one that cannot exist leaves the
+# process probe as the only thing that can answer.
+# `env -u` IS LOAD-BEARING: scenario_init EXPORTS VIGILANCE_LOCKER_UP=0 for the
+# whole file, so merely not passing it leaves the probe short-circuited and
+# every case below reads "no locker". Walked into while writing the comment
+# above it, which is the argument for having the comment.
+_p() {   # <name> <edge> -> hook exit status, REAL probe
+  env -u VIGILANCE_LOCKER_UP VIGILANCE_KIND=verify \
+    VIGILANCE_LOCK_UNIT=vig-no-such-unit.service \
+    VIGILANCE_LOCKER="$1" "$H" "$2" 2>>"$T/stderr"
+}
+
+_p "$_LN" lock || fail "with a process named $_LN running, the REAL probe must
+see the session as locked. comm holds only the first 15 bytes, so an exact match
+on the full name finds nothing and this verifier FAILS on a correctly locked
+box, once a minute, raising an alert on the security edge every time"
+
+# THE DISCRIMINATING HALF. 'running' and 'not running' must come out opposite on
+# the same machine, or a probe stuck on either answer passes one of them: at
+# `unlock` the session must be UNLOCKED, so a live locker is a failure.
+_p "$_LN" unlock && fail "at 'unlock' with a locker running the probe must
+FAIL. Passing here means it cannot see the process at all, and the case above
+then passed for some other reason"
+
+# AN OVER-WIDE PATTERN MUST NOT SATISFY IT, which is the false-green direction
+# and the one that matters: `pgrep -x '.*'` matches every process on the box, so
+# the verifier would report a secured session with no locker anywhere.
+_p '.*' lock && fail "the probe accepted '.*' as a running locker. As an ERE
+that matches EVERY process, so this hook would certify the session as secured on
+a machine with nothing locking it: the one answer here that must never be wrong"
+_p 'definitely-no-such-locker' lock && fail "the probe claimed a locker named
+'definitely-no-such-locker' was running"
+
+kill "$_LPID" 2>/dev/null || true
+wait "$_LPID" 2>/dev/null || true
+
 pass
