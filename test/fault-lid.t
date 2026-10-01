@@ -96,13 +96,18 @@ fi
 # documented way the second of those happens.
 #
 # AND ONE OF THOSE CAUSES IS NOT A FAILURE, which the xfce flavour is what
-# taught us. A DISPLAY MANAGER TAKES A BLOCK INHIBITOR ON handle-lid-switch so
-# it can implement its own policy, and logind then logs "Lid closed." and does
-# nothing at all. Measured chain, in the xfce guest:
+# taught us. A DESKTOP POWER MANAGER TAKES A BLOCK INHIBITOR on the lid switch
+# and the power keys so it can implement its own policy, and logind then logs
+# "Lid closed." and does nothing at all. Measured in the xfce guest, by reading
+# the holder rather than inferring it:
 #
-#   xfce4-session  Recommends  light-locker
-#   light-locker   Depends     lightdm
-#   lightdm        block-inhibits  handle-lid-switch (+ the power keys)
+#   handle-lid-switch is BLOCK-inhibited ... Held by: xfce4-power-manager
+#
+# CORRECTED: an earlier version of this comment named lightdm, which the xfce
+# package set does pull in (xfce4-session Recommends light-locker, which Depends
+# lightdm) and which was sitting in the session list, so it looked like the
+# culprit. It is not; the holder was never read, only inferred from what else
+# was running.
 #
 # So on that substrate there is no lid-to-logind-to-Lock chain to test, and no
 # arrangement of vigilance would make one. The scenario DECLINES, naming the
