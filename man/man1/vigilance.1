@@ -549,6 +549,40 @@ covered. A foreground locker (\fBxsecurelock\fR, \fBi3lock \-n\fR) under
 .B systemd\-run
 waiting for a fork that never comes, and the provider then reports failure about
 a screen that is locked; such a locker wants \fBsimple\fR.
+.IP
+AND \fBsimple\fR ESTABLISHES NOTHING, which is the hazard in the other
+direction.
+.B systemd\-run
+returns the instant the unit is started, so a locker that dies in milliseconds
+was reported as a successful lock: measured in the guest, where the crossing
+returned 0 with no locker anywhere. The provider therefore confirms the unit
+survived (see
+.BR VIGILANCE_LOCK_CONFIRM ),
+which costs nothing under \fBforking\fR because
+.B systemd\-run
+blocked until the fork.
+.TP
+.B VIGILANCE_LOCKER_UNSETENV
+names to REMOVE from the locker unit's environment, space separated. SETTING one
+needs no knob: the unit inherits the user manager's environment, so an
+integrator imports it there, which is the advice this page already gives for
+.BR WAYLAND_DISPLAY .
+Removing one for a single unit had no mechanism at all, and that asymmetry is
+why this exists.
+.IP
+AN X11 LOCKER NEEDS IT. \fBi3lock\fR checks
+.B WAYLAND_DISPLAY
+and refuses whatever
+.B DISPLAY
+says, so on any box that has run a Wayland session, and such a box is told to
+import that variable into its manager, the X11 example above could not start at
+all. \fBVIGILANCE_LOCKER_UNSETENV=WAYLAND_DISPLAY\fR is the remaining piece.
+.TP
+.B VIGILANCE_LOCK_CONFIRM
+seconds to confirm a non\-forking locker is still running after its unit starts
+(default 2). Only consulted when
+.B VIGILANCE_LOCKER_TYPE
+is not \fBforking\fR, because that type is already waited for.
 .TP
 .B VIGILANCE_IDLE_PROCESS
 idle daemon; EMPTY means this box has none

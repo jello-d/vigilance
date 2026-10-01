@@ -781,6 +781,62 @@ runcmd:
         echo "  no Xorg; x11dpms scenarios will SKIP"
       fi
 
+      # A REAL ALTERNATIVE LOCKER, which is the one documented configuration in
+      # this package that nothing had ever executed. The man page says an X11
+      # box is `VIGILANCE_LOCKER=i3lock VIGILANCE_LOCKER_ARGV=-n` with
+      # `VIGILANCE_LOCKER_TYPE=simple`, and the only test naming i3lock writes
+      # its OWN stub over it (`printf '#!/bin/sh\nexit 0\n'`), asserting only
+      # that the knobs reach systemd-run's argv and nothing about whether a
+      # real locker
+      # comes up under them. i3lock has been in this image's package list the
+      # whole time, used by nobody: shipped and wired by nothing.
+      #
+      # THE CAPABILITY IS THAT IT COMES UP, not that the package is present,
+      # which is the same rule x11dpms follows: a locker that resolves and then
+      # dies would let a scenario assert against an absence.
+      #
+      # IT NEEDS :98 RATHER THAN Xvfb because a locker grabs the keyboard and
+      # pointer, and gating on the DPMS round trip is the cheapest way to know
+      # that server is genuinely usable.
+      # AND WAYLAND_DISPLAY HAS TO GO, which the probe found by being refused:
+      #
+      #   i3lock: i3lock is a program for X11 and does not work on Wayland.
+      #
+      # It checks that variable and bails REGARDLESS of DISPLAY, so on a box
+      # carrying both platforms, which is exactly what the lean flavour is, an
+      # X11 locker will not start unless the variable is absent from its
+      # environment. Worth knowing beyond this probe: the provider starts the
+      # locker through `systemd-run --user`, so what matters in production is
+      # the USER MANAGER's environment, not the caller's.
+      _x11locker=
+      if [ -n "${_x11dpms:-}" ] && command -v i3lock >/dev/null 2>&1; then
+        env -u WAYLAND_DISPLAY DISPLAY=:98 i3lock -n \
+          >/tmp/i3lock-probe.out 2>&1 &
+        _ilp=$!
+        _n=0
+        while [ "$_n" -lt 20 ]; do
+          if pgrep -x i3lock >/dev/null 2>&1; then break; fi
+          sleep 0.25; sleep 0; _n=$((_n + 1))
+        done
+        if pgrep -x i3lock >/dev/null 2>&1; then
+          echo "  i3lock (a REAL non-swaylock locker) comes up on :98"
+          _x11locker=x11locker
+        else
+          echo "  i3lock did NOT come up; alt-locker scenarios will SKIP"
+          tail -3 /tmp/i3lock-probe.out 2>/dev/null | sed 's/^/    /' || true
+        fi
+        kill "$_ilp" 2>/dev/null || true
+        pkill -x i3lock 2>/dev/null || true
+        # IT MUST BE GONE before any scenario runs, or the first one finds a
+        # locker it did not start and passes for the wrong reason.
+        _n=0
+        while pgrep -x i3lock >/dev/null 2>&1 && [ "$_n" -lt 20 ]; do
+          sleep 0.25; sleep 0; _n=$((_n + 1))
+        done
+      else
+        echo "  no i3lock or no usable :98; alt-locker scenarios will SKIP"
+      fi
+
       # A REAL DESKTOP ENVIRONMENT, whose POWER MANAGER is the whole subject.
       #
       # THE GATE IS THE TOOL, not the flavour name: `xfce4-session` exists only
@@ -892,6 +948,7 @@ runcmd:
       SCENARIO_CAPS_EXTRA="$_compositor $_userbus $_wayfire"
       SCENARIO_CAPS_EXTRA="$SCENARIO_CAPS_EXTRA $_tackup $_uinput $_x11"
       SCENARIO_CAPS_EXTRA="$SCENARIO_CAPS_EXTRA $_x11dpms $_xfce"
+      SCENARIO_CAPS_EXTRA="$SCENARIO_CAPS_EXTRA $_x11locker"
       echo "  capabilities: $SCENARIO_CAPS_EXTRA"
       # SAY WHICH ENVIRONMENT THIS IS. Four flavours produce four console logs
       # that are otherwise near-identical, and a verdict filed against the wrong

@@ -62,6 +62,28 @@ LOCKER=${VIGILANCE_LOCKER:-swaylock}
 LOCKER_ARGV=${VIGILANCE_LOCKER_ARGV:--f}
 LOCKER_TYPE=${VIGILANCE_LOCKER_TYPE:-forking}
 
+# NAMES TO REMOVE FROM THE UNIT'S ENVIRONMENT, and the asymmetry is the whole
+# reason this exists. A --user unit inherits the user MANAGER's environment, so
+# SETTING something for the locker is already possible and already documented:
+# import it into the manager, which is exactly the advice this file gives for
+# WAYLAND_DISPLAY on the failure path below. There is no way to UN-import one
+# variable for one unit, so that direction had no mechanism at all.
+#
+# MEASURED, in the guest, with the documented X11 configuration:
+#
+#   Started screen-lock.service - [systemd-run] /usr/bin/i3lock -n
+#   i3lock: i3lock is a program for X11 and does not work on Wayland
+#
+# i3lock checks WAYLAND_DISPLAY and refuses REGARDLESS of DISPLAY. So on any box
+# whose manager carries that variable, and a box running a Wayland session is
+# told to put it there, an X11 locker cannot start through this provider no
+# matter how the other knobs are set. The documented example could not work.
+#
+# NOT a second knob for setting. Building one would be speculative surface for a
+# case the manager already covers, and this package has shipped enough knobs
+# that nothing uses.
+LOCKER_UNSETENV=${VIGILANCE_LOCKER_UNSETENV:-}
+
 command -v "$LOCKER" >/dev/null 2>&1 || {
   echo "swaylock provider: '$LOCKER' not found" >&2; exit 1; }
 
@@ -145,11 +167,54 @@ fi
 # cannot survive being run twice at once is not idempotent, which this package
 # requires of anything that mutates state.
 # shellcheck disable=SC2086
+_unsetprop=
+[ -z "$LOCKER_UNSETENV" ] \
+  || _unsetprop="--property=UnsetEnvironment=$LOCKER_UNSETENV"
 if systemd-run --user --collect --unit="$UNIT" \
      --property=Type="$LOCKER_TYPE" \
      --property=GuessMainPID=no \
      --property="ExecStopPost=$_vigilant go open" \
+     $_unsetprop \
      -- "$LOCKER" $LOCKER_ARGV $_args >/dev/null 2>&1; then
+  # STARTED IS NOT RUNNING, and this is where that bit. Measured in the guest:
+  #
+  #   go lock -> rc=0, and no locker anywhere
+  #   journal: Started screen-lock.service - [systemd-run] /usr/bin/i3lock -n
+  #            i3lock: ... does not work on Wayland
+  #
+  # The unit genuinely started and the locker died in milliseconds, and the
+  # crossing reported SUCCESS. That is the false green on the security edge that
+  # `locker-up`'s own header is about, produced by the provider rather than
+  # caught by it, and nothing says so until the next supervision pass because
+  # `_cross_one` does not run the verify tier.
+  #
+  # WHY `Type=forking` NEVER SHOWED IT, and why that is also why it costs
+  # nothing there: systemd-run BLOCKS until the locker forks, so a successful
+  # return already establishes that it got that far. `Type=simple` returns the
+  # instant the unit is started and establishes nothing at all, which is exactly
+  # the setting a foreground locker needs, i.e. every X11 integration.
+  #
+  # So the confirm is TYPE-DISCRIMINATED rather than unconditional. Waiting on
+  # every lock would put seconds of latency on the shipped path to catch a
+  # hypothetical, and the measured case is reachable only where nothing was
+  # established. Branching on Type is legitimate here: it is a knob this file
+  # already reads, not a guess about which locker is in use.
+  case "$LOCKER_TYPE" in
+    forking) exit 0 ;;
+  esac
+  _c=0
+  while [ "$_c" -lt "${VIGILANCE_LOCK_CONFIRM:-2}" ]; do
+    case "$(_unit_state)" in
+      inactive|failed)
+        echo "swaylock provider: $UNIT STARTED and then died; '$LOCKER' is not"\
+" running, so the screen is NOT locked. A locker under Type=$LOCKER_TYPE is"\
+" not waited for, so systemd reporting it started says nothing about whether"\
+" it survived. Its own output is in: journalctl --user -u $UNIT" >&2
+        exit 1 ;;
+    esac
+    _c=$((_c + 1))
+    sleep 1
+  done
   exit 0
 fi
 # WAIT FOR IT TO SETTLE, do not sample once. The refusal means the unit exists,
