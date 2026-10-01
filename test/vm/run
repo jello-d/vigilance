@@ -870,6 +870,18 @@ runcmd:
           /org/freedesktop/login1 org.freedesktop.login1.Manager "$_lp" \
           2>&1 | head -1)"
       done
+      # AND WHAT VIGILANCE MAKES OF IT, on the real machine rather than against
+      # a fixture. triggers.t drives every branch through override knobs, which
+      # is the only way to reach the no-lid and unanswerable cases, but a knob
+      # short-circuits the probe it replaces: this is the one place the udev
+      # query and logind's real answer are both genuine. In the xfce guest that
+      # means a REAL block-inhibited handler, which is what the flavour is for.
+      if command -v vigilant >/dev/null 2>&1; then
+        vigilant report 2>/dev/null \
+          | awk '/^-- triggers --$/ { f = 1; next }
+                 /^-- / { f = 0 }
+                 f' | sed 's/^/    /' || true
+      fi
 
       # ASSEMBLED AFTER EVERY PROBE, which is the only place it can be. It
       # used to sit beside the compositor probe, so the capabilities discovered

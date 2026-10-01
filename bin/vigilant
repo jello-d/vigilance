@@ -2132,6 +2132,166 @@ _rep_coverage() {
   return 0
 }
 
+# CAN A HARDWARE GESTURE REACH THE LADDER AT ALL?
+#
+# THE SAME QUESTION FROM TWO SIDES, which is why it is one check. A lock
+# request arriving from the hardware (a lid closing, a power button) is wired
+# through logind, and exactly three things can be true of it:
+#
+#   gesture present, uninhibited     reachable
+#   gesture present, inhibited by X  wired but UNREACHABLE
+#   gesture absent                   wired but IMPOSSIBLE
+#
+# MEASURED, and the middle one is why this exists: a desktop power manager takes
+# a BLOCK inhibitor so it can implement its own policy, and logind then logs
+# "Lid closed." and does nothing at all. Observed in the xfce guest, where
+# xfce4-power-manager holds
+#
+#   handle-power-key:handle-suspend-key:handle-hibernate-key:handle-lid-switch
+#
+# AND IT APPEARS SECONDS INTO THE SESSION, which is why this is a report section
+# rather than a one-shot probe: the guest's own inhibitor dump, taken moments
+# earlier, read BlockInhibited as EMPTY and listed only ModemManager. A fact
+# that settles late cannot be answered early.
+#
+# so on such a box the lid-driven lock path SILENTLY DOES NOT EXIST while every
+# piece of wiring reads as correct. That is this package's signature failure
+# shape arriving from outside its own code, and nothing reported it.
+#
+# IT IS NOT A HOOK TIER, and that is deliberate. A gesture is a TRIGGER, not an
+# edge: everything that means "secure this session" already collapses onto `go
+# lock atleast`, so the lid, the keybind and `loginctl lock-session` are one
+# edge with several callers. Giving a gesture its own hook directory would put
+# "secure this session" work in two places, free to drift, and a hook set keyed
+# on HOW you got there is one that disagrees with itself.
+#
+# THE NAMES ARE THE PLATFORM'S, not ours: udev tags these devices
+# `power-switch` and logind calls them "system buttons", so `handle-lid-switch`
+# is what an operator has to go and change. Inventing a vocabulary here would
+# mean translating it back before the message was actionable.
+
+# The gesture devices udev says logind will watch. OVERRIDABLE, because a test
+# cannot plant a tagged device and the alternative is a tier that measures the
+# developer's own laptop.
+_trig_switches() {
+  if [ -n "${VIGILANCE_SWITCH_DEVICES+x}" ]; then
+    printf '%s\n' "$VIGILANCE_SWITCH_DEVICES"
+    return 0
+  fi
+  command -v udevadm >/dev/null 2>&1 || return 0
+  for _tsd in /dev/input/event*; do
+    [ -e "$_tsd" ] || continue
+    case $(udevadm info -q property -n "$_tsd" 2>/dev/null \
+           | grep -E '^(CURRENT_)?TAGS=' | head -1) in
+      *power-switch*) printf '%s\n' "${_tsd##*/}" ;;
+    esac
+  done
+}
+
+# Is there a LID specifically? SW_LID is bit 0 of the `sw` capability.
+#
+# `sw` NON-ZERO IS NOT THE TEST, and that is a measurement rather than caution:
+# on this fleet the HDMI outputs report 0x140 and a headset jack 0x14, so a
+# naive "has a switch" read finds audio jacks and would claim a lid on a
+# desktop. Bit 0 of a hex value is set exactly when its last digit is odd,
+# which answers it with no arithmetic at all.
+_trig_has_lid() {
+  for _tlc in "${VIGILANCE_SYS_INPUT:-/sys/class/input}"/*/capabilities/sw; do
+    [ -r "$_tlc" ] || continue
+    _tlv=$(cat "$_tlc" 2>/dev/null || true)
+    _tlv=${_tlv##* }
+    case $_tlv in
+      *[13579bdfBDF]) return 0 ;;
+    esac
+  done
+  return 1
+}
+
+# logind's OWN answer, and the exit status separates "nothing is inhibited" from
+# "I could not ask". Those are the same empty string and opposite findings: the
+# whole n/a contract exists because "I could not look" must never read as "I
+# looked and it is fine".
+_trig_blocked() {
+  if [ -n "${VIGILANCE_BLOCK_INHIBITED+x}" ]; then
+    printf '%s' "$VIGILANCE_BLOCK_INHIBITED"
+    return 0
+  fi
+  command -v busctl >/dev/null 2>&1 || return 1
+  # CAPTURED, THEN CHECKED, because a pipeline's status is its LAST command's.
+  # Written as `busctl ... | head -1` the status was head's, so a busctl that
+  # FAILED returned 0 with no output and read as an empty BlockInhibited, i.e.
+  # "nothing is inhibited", i.e. the reassuring answer. That is verbatim the
+  # defect that made the lock provider blame WAYLAND_DISPLAY for a dead user
+  # bus, and its own test is what caught this one.
+  _tbo=$(busctl get-property org.freedesktop.login1 /org/freedesktop/login1 \
+    org.freedesktop.login1.Manager BlockInhibited 2>/dev/null) || return 1
+  printf '%s' "$_tbo" | head -1
+}
+
+# WHO holds it, because the operator's remedy is at that process and a handler
+# name alone sends them hunting. Best-effort: the message stands without it.
+_trig_holder() {   # <handler> -> "a, b" or nothing
+  command -v systemd-inhibit >/dev/null 2>&1 || return 0
+  systemd-inhibit --list 2>/dev/null | awk -v h="$1" '
+    $0 ~ h { if (s != "") s = s ", "; s = s $1 }
+    END { if (s != "") print s }'
+}
+
+_rep_triggers() {
+  # ITS OWN SECTION, so an assertion can be scoped to it rather than to report's
+  # single exit code over a dozen of them.
+  echo "-- triggers --"
+  _tsw=$(_trig_switches | grep -c . || true)
+  if [ "${_tsw:-0}" = 0 ]; then
+    # NOT A WARNING. A headless server or a VM has no gesture to lose, the
+    # ladder is reached by timer and by command there, and a warning that fires
+    # on every such box forever is how a report stops being read.
+    _r_info "no hardware gesture here (nothing udev tags power-switch);" \
+      "the ladder is reached by timer and command only"
+    return 0
+  fi
+  if ! _tbi=$(_trig_blocked); then
+    _r_info "$_tsw power-switch device(s) present, but logind's inhibitors" \
+      "cannot be read here, so reachability is UNKNOWN rather than fine"
+    return 0
+  fi
+  _tbad=
+  for _th in handle-lid-switch handle-power-key handle-suspend-key \
+             handle-hibernate-key; do
+    # THE LID IS THE ONE GESTURE WHOSE ABSENCE IS ORDINARY, so it is the one
+    # that gets a presence test. A desktop keeps its default lid policy and a
+    # display manager inhibits the handler anyway, so without this the check
+    # would warn on every desktop, which is the cry-wolf this project has now
+    # been bitten by three times. The key handlers are not presence-tested: a
+    # machine with no gesture at all already returned above, and testing
+    # individual key bits buys less than it costs.
+    if [ "$_th" = handle-lid-switch ] && ! _trig_has_lid; then continue; fi
+    case $_tbi in
+      *"$_th"*) _tbad="$_tbad $_th" ;;
+    esac
+  done
+  if [ -z "$_tbad" ]; then
+    # "TAGGED", NOT "WATCHED", because they are not the same number and the
+    # difference is not ours to narrow: udev tags 11 devices on this laptop and
+    # logind's journal says it watches 5, since it filters further by what each
+    # device can actually emit. Claiming the larger number as reachable would be
+    # an over-statement in the reassuring direction.
+    _r_ok "$_tsw device(s) tagged power-switch, and no handler is" \
+      "block-inhibited"
+    return 0
+  fi
+  for _tb in $_tbad; do
+    # THE CLAUSE IS BUILT, not interpolated, because an unnamed holder left a
+    # dangling colon mid-sentence ("BLOCK-INHIBITED by: so logind will"). The
+    # finding stands without the holder, so the sentence has to as well.
+    _tho=$(_trig_holder "$_tb")
+    [ -z "$_tho" ] || _tho=" by $_tho"
+    _r_warn "$_tb is BLOCK-INHIBITED$_tho, so logind logs the event and acts" \
+      "on NOTHING: that gesture cannot reach the ladder"
+  done
+  return 0
+}
+
 # CAN AN OVERDUE EDGE BE DETECTED AT ALL? "Armed" is not "reachable", which is
 # the "enabled is not working" lesson one layer out.
 #
@@ -2818,6 +2978,7 @@ cmd_report() {
   _rep_verify
   _rep_cadence
   _rep_coverage
+  _rep_triggers
   _rep_deadlines
   _rep_machinery
   _rep_actuators
