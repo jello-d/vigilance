@@ -297,10 +297,18 @@ t soak
 # TWO ACTUATORS, ONE DEVICE, which is the class that cost twelve hours once:
 # mute-leds darkened an LED at `sleep` while the audio driver relit it, and
 # vigilance raised 278 drift alerts about a fight it could not win. The rival
-# here is REAL (a process driving the same compositor sway-dpms drives), and it
-# is deliberately NOT an X11 power manager: the guest's X servers have no DPMS
-# extension and `xset s` is silently ignored, so an X-side rival would have no
-# device to contend for and the cell would pass vacuously.
+# here is REAL: a process driving the same compositor sway-dpms drives.
+#
+# AN X11 RIVAL IS NOW POSSIBLE TOO, and this note used to say it was not. The
+# reason given was that the guest's X servers had no DPMS extension and `xset s`
+# was silently ignored, so an X-side rival would have no device to contend for
+# and the cell would pass vacuously. That was true of Xvfb and stopped being
+# true when the guest gained a real Xorg over DRM (the `x11dpms` capability):
+# DPMS comes from the DRIVER, not the server, and modesetting on /dev/dri/card0
+# provides it. `xfce4-power-manager` in the xfce flavour is exactly that rival,
+# and it needs the flavour because it will not start without a notification
+# service. Left as its own cell rather than folded in here: a second actuator on
+# a DIFFERENT mechanism is a different claim, not a bigger version of this one.
 = competing-actuator
 m the peripheral actuators and the standing recheck
 f a second process re-asserts `dpms on` while the rung is dark
