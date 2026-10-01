@@ -908,18 +908,49 @@ runcmd:
       # output at all, not a partial log, nothing. Two cells were set aside as
       # "cause unknown" on exactly that evidence.
       #
-      # GENEROUS ON PURPOSE, against a MEASURED full run: 302s of guest
-      # uptime end to end, of which the scenarios are about 250. A bound that
-      # fires on a correct machine is the cry-wolf this suite bans, and it must
-      # also stay under the HOST's own VM_TIMEOUT (600s from qemu launch), or
-      # the host gives up first and the log is lost anyway, which is the exact
-      # failure being fixed here.
+      # GENEROUS ON PURPOSE. A bound that fires on a correct machine is the
+      # cry-wolf this suite bans, and it must also stay under the HOST's own
+      # VM_TIMEOUT (from qemu launch), or the host gives up first and the log is
+      # lost anyway, which is the exact failure being fixed here.
+      #
+      # RAISED 2026-10-01 FROM 420s, AND THE OLD VALUE HAD 2s OF MARGIN LEFT. It
+      # was chosen against a measured 302s run and the suite had since grown to
+      # 418s with nothing saying so, because the bound only ever spoke when it
+      # FIRED: a passing run printed no duration, so there was no way to see it
+      # closing. It then fired on a CORRECT lean run that happened to share the
+      # host with a concurrent flavour, and the message named the test that was
+      # merely running at the time, which cost an investigation into a hang that
+      # did not exist.
+      #
+      # SO THE ELAPSED LINE IS THE REAL FIX AND THE NUMBER IS THE CONSEQUENCE.
+      # 600s leaves ~180s of headroom over the measurement, and the host bound
+      # moved with it: provisioning costs about 30s from the preserved image, so
+      # 600 + 30 must stay clear of VM_TIMEOUT. A hang now costs 600s of waiting
+      # instead of 420, which is the right trade: a false failure on a correct
+      # run is more expensive than a slow true one, and this already proved it.
+      # AND IT REPORTS THE ELAPSED TIME WHETHER OR NOT IT FIRES, because the
+      # bound alone cannot tell "a test hung" from "the suite grew past it", and
+      # those want opposite responses. It fired once with the suite merely
+      # SLOWER, and "TIMED OUT after 420s" said nothing about whether 430 would
+      # have done: the measurement the operator needs is how close a passing run
+      # came, which is only visible when the passing run prints it too.
+      #
+      # THE BREADCRUMB NAMES WHAT WAS RUNNING, NOT WHAT HUNG, and the wording
+      # now says so. On a suite-wide bound the last test to START is the one
+      # holding the clock at that instant, which is a hang only if the elapsed
+      # time is nowhere near the bound.
       VIGILANCE_RUNNING_FILE=/root/running; export VIGILANCE_RUNNING_FILE
       _src=0
-      timeout -k 10 "${VIG_SUITE_TIMEOUT:-420}" sh test/run @FILTER@ || _src=$?
+      _st=$(date +%s)
+      timeout -k 10 "${VIG_SUITE_TIMEOUT:-600}" sh test/run @FILTER@ || _src=$?
+      _el=$(( $(date +%s) - _st ))
+      echo "suite: ${_el}s of a ${VIG_SUITE_TIMEOUT:-600}s bound"
       if [ "$_src" = 124 ]; then
-        echo "SUITE TIMED OUT after ${VIG_SUITE_TIMEOUT:-420}s."
-        echo "HUNG IN: $(cat /root/running 2>/dev/null || echo '<unknown>')"
+        echo "SUITE EXCEEDED ITS BOUND of ${VIG_SUITE_TIMEOUT:-600}s."
+        echo "RUNNING AT THE TIME: $(cat /root/running 2>/dev/null || echo \
+          '<unknown>') (the last test to START, which is a HANG only if the"
+        echo "  elapsed time above is far short of the bound; otherwise the"
+        echo "  suite has simply grown and the bound wants raising)"
       fi
       echo "VIGILANCE_VM_EXIT=$_src"
     } > /root/log 2>&1
@@ -1061,7 +1092,7 @@ _qpid=$!
 # Poll the log for the guest's completion marker, then stop the VM. Bounded, so
 # a guest that never reports cannot hang the run either way.
 _waited=0
-while [ "$_waited" -lt "${VM_TIMEOUT:-600}" ]; do
+while [ "$_waited" -lt "${VM_TIMEOUT:-900}" ]; do
   if grep -q 'VIGILANCE_VM_EXIT=' "$CONSOLE" 2>/dev/null; then break; fi
   if ! kill -0 "$_qpid" 2>/dev/null; then break; fi
   sleep 2
