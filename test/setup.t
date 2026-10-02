@@ -15,9 +15,46 @@ run() {
 # install: every bin/ tool + the man page linked; the --user unit is NOT (that
 # is `service`, kept out so a host wiring systemd itself gets no duplicate).
 run install >/dev/null 2>&1 || fail "install errored"
+# THE LINKS POINT INTO THE PAYLOAD, NOT THE CLONE, which is the whole of the
+# place-not-link conversion. A departed package installs from
+# ~/.cache/tackup/pkgs/<pkg>, which is re-cloned on every sweep and wiped on
+# demand, so a link into it dangles the moment that happens: two were dangling
+# on a live box before this, left by tools retired on 2026-09-01.
+PAY=$SHR/vigilance
 for _t in "$HERE"/bin/*; do _n=$(basename "$_t")
-  [ "$(readlink "$BIN/$_n")" = "$_t" ] || fail "$_n not symlinked"; done
+  [ "$(readlink "$BIN/$_n")" = "$PAY/bin/$_n" ] \
+    || fail "$_n links to '$(readlink "$BIN/$_n")' rather than into the
+payload at $PAY/bin/$_n: a link into the source tree is what this removes"
+done
 [ -e "$SHR/man/man1/vigilance.1" ] || fail "man page not linked"
+[ -d "$PAY" ] && [ ! -L "$PAY" ] \
+  || fail "the payload at $PAY is not a real directory"
+
+# AND THE PLUGINS CAN STILL FIND THE COMMAND, which is this package's own
+# invariant and the one a reader is most likely to break. `bin/vigilant` reads
+# no libexec at all; it is the PLUGINS that locate the COMMAND, each resolving
+# its own real path and walking up: a hook sources `../hook_lib`, and a trigger
+# or provider execs `../../../bin/vigilant`. So bin and libexec must sit at that
+# exact relative depth INSIDE the payload.
+#
+# DROPPING bin/ FROM THE PAYLOAD WOULD LOOK HARMLESS, since `vigilant` is also
+# published system-wide, and it would silently disable every hook: `_hooks_in`
+# lists a hook only `if [ -x ]`, so a plugin that cannot resolve its dependency
+# does not fail, it stops existing.
+[ -x "$PAY/bin/vigilant" ] \
+  || fail "no $PAY/bin/vigilant, so every trigger and provider in the payload
+resolves its command to nothing"
+[ -r "$PAY/libexec/vigilance/hook_lib" ] \
+  || fail "no hook_lib in the payload, so every shipped hook exits 2"
+# Proven by RUNNING one through the payload path, not by checking the files are
+# adjacent: the hook sources hook_lib by a relative path and only an execution
+# shows that the path resolves.
+env VIGILANCE_KIND=verify VIGILANCE_EDGE=sleep \
+    VIGILANCE_SYS_BACKLIGHT="$T/nobl" VIGILANCE_SCREEN_LUMA=0 \
+    VIGILANCE_SCREEN_PEAK=0 \
+    sh "$PAY/libexec/vigilance/hooks/screen-dark" sleep >/dev/null 2>&1 \
+  || fail "a shipped hook could not run from inside the payload, so its
+relative source of hook_lib does not resolve there"
 [ -e "$CFG/systemd/user/vigilance-logind.service" ] \
   && fail "install linked the --user unit (should be service-only)"
 # Same for the supervision timer: `install` is bin + man, nothing that runs.
@@ -29,10 +66,14 @@ for _u in vigilance-enforce.service vigilance-enforce.timer \
 done
 
 # libexec: the shipped hooks are installed AVAILABLE...
-[ "$(readlink "$T/libexec/vigilance")" = "$HERE/libexec/vigilance" ] \
-  || fail "libexec hooks not linked"
-[ -x "$T/libexec/vigilance/providers/swaylock" ] \
+[ -x "$PAY/libexec/vigilance/providers/swaylock" ] \
   || fail "a shipped provider is not reachable through the install"
+# ...AND THE STRUCK ROOT IS NOT RECREATED. `~/.local/libexec/<pkg>` is gone as a
+# concept: it was a symlink into the clone, so it dangled on every re-clone, and
+# an install that recreates it puts the violation straight back.
+[ -e "$T/libexec/vigilance" ] \
+  && fail "install recreated the struck root at $T/libexec/vigilance; the
+payload carries the plugins now"
 # ...and never WIRED. A hook that shipped pre-enabled would be vigilance
 # deciding policy, which is exactly what mute-on-lock was moved out to avoid.
 for _e in lock sleep suspend unlock wake resume; do
@@ -56,6 +97,10 @@ for _t in "$HERE"/bin/*; do _n=$(basename "$_t")
   [ -e "$BIN/$_n" ] && fail "$_n symlink not removed"; done
 [ -e "$SHR/man/man1/vigilance.1" ] && fail "man page not removed"
 [ -e "$T/libexec/vigilance" ] && fail "libexec hooks link not removed"
+# AND THE PAYLOAD GOES WITH IT. It is the only directory this install creates,
+# so leaving it behind would make uninstall a half-measure and the next install
+# a swap against a tree nobody owns.
+[ -e "$PAY" ] && fail "uninstall left the payload at $PAY"
 
 # --- COPY MODE: what a shared/system prefix needs ---------------------------
 # The default install SYMLINKS into the clone. That is unreadable from a system

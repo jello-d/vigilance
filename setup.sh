@@ -67,6 +67,45 @@ _bin=${XDG_BIN_HOME:-$PREFIX/bin}
 _lib=$PREFIX/libexec
 _shr=${XDG_DATA_HOME:-$PREFIX/share}
 _man=$_shr/man
+
+# THE PAYLOAD: one self-contained tree per package, COPIES of what the repo
+# ships, with links into it. The rule and the recipe are
+# `_install-placement.md` and `_place-conversion.md` in shared-notes; what
+# follows is only what is SPECIFIC to this package.
+#
+# WHY A DEPARTED PACKAGE CANNOT SYMLINK INTO ITS CLONE. This installs from
+# ~/.cache/tackup/pkgs/vigilance, which is re-cloned on every sweep and wiped on
+# demand, so every ~/.local link into it dangles the moment that happens. Two
+# such links were dangling on this box before the conversion, left by tools
+# retired on 2026-09-01.
+#
+# THE SELF-LOCATION HERE RUNS THE OPPOSITE WAY FROM THE RECIPE'S CASE, and that
+# is the one thing a reader must not optimise away. `bin/vigilant` reads no
+# libexec at all; it is the PLUGINS that locate the COMMAND, each one resolving
+# its own real path and walking up:
+#
+#   libexec/vigilance/hooks/*      . "$(dirname "$_self")/../hook_lib"
+#   libexec/vigilance/triggers/*   ../../../bin/vigilant
+#   libexec/vigilance/providers/*  ../../../bin/vigilant
+#
+# So the payload must contain `bin/` AND `libexec/` at exactly that relative
+# depth. Dropping `bin/` from the payload on the grounds that `vigilant` is also
+# published system-wide would leave every hook and trigger unable to find it,
+# silently: `_hooks_in` lists a hook only `if [ -x ]`, so a plugin that cannot
+# resolve its own dependency does not FAIL, it stops existing.
+_pay=$_shr/$PKG
+
+# A SHAPE GUARD, because the next thing this path meets is `rm -rf`, and the
+# house rule is that no variable reaches that command unchecked. Keyed on SHAPE
+# rather than on a literal prefix: the conversion is verified under a scratch
+# PREFIX (/var/tmp/...), so a guard demanding $HOME would refuse exactly the
+# safe rehearsal it exists to protect.
+_pay_sane() {
+  case ${_pay:-} in
+    /*/"$PKG") [ "$(dirname "$_pay")" != / ] ;;
+    *)         return 1 ;;
+  esac
+}
 _cfg=${XDG_CONFIG_HOME:-$HOME/.config}
 _usr=$_cfg/systemd/user
 # The MACHINE hook root, same default and same override name vigilant uses, so
@@ -172,12 +211,50 @@ _wanted_at_prefix() {   # <tool-name>
   return 1
 }
 
+# STAGE BESIDE THE LIVE TREE AND SWAP, rather than writing into it. A copying
+# install re-runs on every provision sweep, so it has to be idempotent, and a
+# half-written payload is worse than an old one: the hooks inside it are what a
+# greeter and a lock edge execute. Staging means the live tree is only ever
+# replaced by a complete one.
+#
+# THE SHIPPED DIRS AND NOTHING ELSE. `bin` and `libexec` are load-bearing at a
+# fixed relative depth (see the _pay comment); `man` rides along so the payload
+# is the single thing to remove on uninstall. The repo has no `share/`.
+_payload_stage() {
+  if ! _pay_sane; then
+    echo "$PKG: refusing to stage a payload at '${_pay:-}'" >&2
+    return 1
+  fi
+  # DERIVED FROM A PATH JUST GUARDED, which is the only form in which these two
+  # names may reach `rm -rf`. The guard is immediately above on purpose.
+  _paynew=$_pay.new
+  _payold=$_pay.old
+  rm -rf -- "$_paynew" "$_payold"
+  mkdir -p "$_paynew"
+  for _pd in bin libexec man; do
+    if [ -d "$_root/$_pd" ]; then cp -R "$_root/$_pd" "$_paynew/$_pd"; fi
+  done
+  mkdir -p "$(dirname "$_pay")"
+  if [ -e "$_pay" ]; then mv -- "$_pay" "$_payold"; fi
+  mv -- "$_paynew" "$_pay"
+  rm -rf -- "$_payold"
+}
+
 do_install() {
+  # A PAYLOAD IN USER MODE ONLY. Copy mode is the SHARED/system install, which
+  # copies into a root-owned prefix and already satisfies place-not-link; giving
+  # it a payload as well would mean two copies and a second thing to keep in
+  # step. So this branch leaves /opt behaviour byte-identical.
+  _srcroot=$_root
+  if [ "${VIGILANCE_INSTALL_COPY:-0}" != 1 ]; then
+    _payload_stage || return 1
+    _srcroot=$_pay
+  fi
   mkdir -p "$_bin"
   for _t in "$_root"/bin/*; do
     _n=$(basename "$_t")
     if _wanted_at_prefix "$_n"; then
-      _place "$_t" "$_bin/$_n"
+      _place "$_srcroot/bin/$_n" "$_bin/$_n"
     else
       # SWEEP what an earlier over-install left. Leaving it would keep
       # shadowing the live copy, and a stale shadow is worse than a missing
@@ -188,9 +265,13 @@ do_install() {
       fi
     fi
   done
+  # THE LINK TARGET IS THE PAYLOAD'S COPY in user mode, so the source is
+  # rewritten relative to $_srcroot rather than taken from the clone. Enumerated
+  # from the repo either way, because that is what decides WHICH pages ship.
   _man_pages | while IFS= read -r _m; do
     _d=$_man/$(basename "$(dirname "$_m")")
-    mkdir -p "$_d"; _place "$_m" "$_d/$(basename "$_m")"; done
+    mkdir -p "$_d"
+    _place "$_srcroot/${_m#"$_root"/}" "$_d/$(basename "$_m")"; done
   # libexec carries the shipped PLUGINS: hooks/ (peripheral actuators, alert
   # sinks, block guards), providers/ (how to bring a locker up) and triggers/
   # (what crosses an edge). All installed AVAILABLE but never WIRED: which
@@ -225,13 +306,45 @@ do_install() {
         chmod -R go-w "$_lib/$PKG"
       fi
     else
-      ln -sfn "$_root/libexec/$PKG" "$_lib/$PKG"
+      # THE STRUCK ROOT. `~/.local/libexec/<pkg>` is gone as a concept: it was
+      # a symlink into the clone, so it dangled on every re-clone, and the
+      # plugins live in the payload now where their `../../../bin/vigilant`
+      # resolves. RETIRED here rather than only on uninstall, because install is
+      # what every box runs and a conversion that waits for an uninstall never
+      # happens.
+      #
+      # ONLY IF IT IS OURS. A symlink into this clone is unambiguously the old
+      # install's; anything else at that path is somebody's own and is left
+      # exactly alone.
+      if [ "$(readlink "$_lib/$PKG" 2>/dev/null)" = "$_root/libexec/$PKG" ]
+      then
+        rm -f "$_lib/$PKG"
+        echo "$PKG: retired $_lib/$PKG (the payload carries the plugins now)"
+      fi
     fi
   fi
+  # THE CRUMBS A RETIREMENT LEFT, which no amount of correct uninstall logic can
+  # reach: `do_uninstall` enumerates `$_root/bin/*`, so a tool deleted from the
+  # repo is never named again and its link outlives the package forever.
+  # smart-lock and smart-trigger were retired on 2026-09-01 and both were still
+  # dangling into the clone on this box when the conversion measured it.
+  #
+  # BY NAME, DELIBERATELY, and only when the link points into THIS clone. A
+  # name-keyed sweep is the only thing that can see a path the repo has
+  # forgotten, and the readlink test is what keeps it from touching a file an
+  # integrator put there under the same name.
+  for _gone in smart-lock smart-trigger; do
+    case "$(readlink "$_bin/$_gone" 2>/dev/null)" in
+      "$_root"/bin/"$_gone")
+        rm -f "$_bin/$_gone"
+        echo "$PKG: swept $_bin/$_gone (retired 2026-09-01, link had dangled)"
+        ;;
+    esac
+  done
   if [ "${VIGILANCE_INSTALL_COPY:-0}" = 1 ]; then
     echo "$PKG: COPIED the tools (+ man, hooks) into $PREFIX"
   else
-    echo "$PKG: linked the tools (+ man, hooks) into $PREFIX"
+    echo "$PKG: staged the payload at $_pay and linked into $PREFIX"
   fi
 }
 
@@ -336,10 +449,28 @@ _unplace() {   # <installed-path> <clone-source>
 }
 
 do_uninstall() {
-  for _t in "$_root"/bin/*; do _place_l=$_bin/$(basename "$_t")
-    _unplace "$_place_l" "$_t"; done
+  # THE EXPECTED TARGET IS THE PAYLOAD in user mode, and that is not cosmetic:
+  # `_unplace` only removes a link whose target MATCHES, which is what stops it
+  # deleting an integrator's own link of the same name. Pass it the clone path
+  # after a conversion and it matches nothing, so uninstall silently leaves
+  # every link behind.
+  #
+  # BOTH ARE ACCEPTED, because a box may still carry pre-conversion links when
+  # this runs: the old install put them there and only an uninstall from this
+  # version can clear them.
+  _unsrc=$_root
+  if [ "${VIGILANCE_INSTALL_COPY:-0}" != 1 ]; then _unsrc=$_pay; fi
+  for _t in "$_root"/bin/*; do
+    _n=$(basename "$_t")
+    _unplace "$_bin/$_n" "$_unsrc/bin/$_n"
+    _unplace "$_bin/$_n" "$_t"
+  done
+  for _gone in smart-lock smart-trigger; do
+    _unplace "$_bin/$_gone" "$_root/bin/$_gone"
+  done
   _man_pages | while IFS= read -r _m; do
     _l=$_man/$(basename "$(dirname "$_m")")/$(basename "$_m")
+    _unplace "$_l" "$_unsrc/${_m#"$_root"/}"
     _unplace "$_l" "$_m"; done
   # RENDERED units are plain files, so readlink can no longer identify them as
   # ours. Remove by NAME, safe for the same reason copy-mode removal is: the
@@ -353,10 +484,22 @@ do_uninstall() {
   if [ "${VIGILANCE_INSTALL_COPY:-0}" = 1 ]; then
     rm -rf "$_lib/$PKG"
   else
+    # The STRUCK ROOT again, for a box that still has the old one. Only when it
+    # is a link into this clone, as on install.
     [ "$(readlink "$_lib/$PKG" 2>/dev/null)" = "$_root/libexec/$PKG" ] \
       && rm -f "$_lib/$PKG" || :
+    # AND THE PAYLOAD, which is the only directory this version created.
+    # Guarded, then removed through a value that cannot be anything else: the
+    # house rule is that no unchecked variable reaches `rm -rf`, and this is the
+    # one place in the file that deletes a TREE under a user prefix.
+    if [ -d "$_pay" ] && _pay_sane; then
+      rm -rf -- "$_pay"
+      echo "$PKG: removed the payload at $_pay"
+    elif [ -e "$_pay" ] && ! _pay_sane; then
+      echo "$PKG: refusing to remove '$_pay' (not a payload-shaped path)" >&2
+    fi
   fi
-  echo "$PKG: removed the ~/.local symlinks (+ the --user listener)"
+  echo "$PKG: removed the ~/.local links (+ the --user listener)"
 }
 
 # DEVICE ACCESS, which this file's own header declares as a hard requirement and
@@ -588,14 +731,71 @@ do_check() {
   for _d in $DEPS; do
     command -v "$_d" >/dev/null 2>&1 && ok "dep $_d present" \
       || warn "dep $_d absent: $(_dep_why "$_d") degrades"; done
+  # WHERE THE INSTALLED PLUGINS LIVE, which the two modes answer differently and
+  # which this check asked for in ONE place before the conversion. It looked
+  # under the struck `$_lib/$PKG`, so after the payload move it would have
+  # reported every hook, provider and trigger as not installed on a correct box:
+  # a conversion that leaves its own verifier pointing at the old layout turns a
+  # success into a wall of red.
+  _plugin_root() {
+    if [ "${VIGILANCE_INSTALL_COPY:-0}" = 1 ]; then printf '%s' "$_lib/$PKG"
+    else printf '%s' "$_pay/libexec/$PKG"; fi
+  }
+  _pr=$(_plugin_root)
   for _k in hooks providers triggers; do
     for _h in "$_root"/libexec/"$PKG"/"$_k"/*; do
       [ -x "$_h" ] || continue
       _n=$(basename "$_h")
-      if [ -x "$_lib/$PKG/$_k/$_n" ]; then ok "${_k%s} $_n available"
-      else bad "${_k%s} $_n not installed ($_lib/$PKG/$_k/$_n)"; fi
+      if [ -x "$_pr/$_k/$_n" ]; then ok "${_k%s} $_n available"
+      else bad "${_k%s} $_n not installed ($_pr/$_k/$_n)"; fi
     done
   done
+
+  # THE PAYLOAD INVARIANTS, which are what the conversion actually promises.
+  # Copy mode is exempt: it installs into a root-owned system prefix and has no
+  # payload by design.
+  if [ "${VIGILANCE_INSTALL_COPY:-0}" != 1 ]; then
+    if [ -d "$_pay" ] && [ ! -L "$_pay" ]; then
+      ok "payload is a real directory ($_pay)"
+    else
+      bad "payload missing or a symlink ($_pay); a departed package must own a
+  real tree, because a link into the clone dangles on the next re-clone"
+    fi
+    # THE PLUGINS' OWN DEPENDENCY, asserted rather than assumed. A hook finds
+    # `hook_lib` at `../hook_lib` and a trigger finds the command at
+    # `../../../bin/vigilant`, both from inside the payload, so bin and libexec
+    # have to sit at that exact relative depth. If they do not, nothing fails
+    # loudly: `_hooks_in` lists a hook only `if [ -x ]`, so a plugin that cannot
+    # resolve its dependency stops EXISTING as far as the runner is concerned.
+    if [ -x "$_pay/bin/vigilant" ]; then
+      ok "plugins can reach vigilant at ../../../bin/vigilant"
+    else
+      bad "no $_pay/bin/vigilant, so every trigger and provider in the payload
+  resolves its command to nothing and the hooks silently stop existing"
+    fi
+    if [ -r "$_pay/libexec/$PKG/hook_lib" ]; then
+      ok "plugins can source hook_lib at ../hook_lib"
+    else
+      bad "no $_pay/libexec/$PKG/hook_lib, so every shipped hook exits 2"
+    fi
+    # AND NOTHING MAY RESOLVE BACK INTO THE SOURCE TREE. This is the rule the
+    # conversion exists for, and the only assertion that can see a half-done
+    # one: a single surviving link into the clone re-breaks on the next sweep.
+    _leak=
+    for _ld in "$_bin" "$_man" "$_lib"; do
+      [ -d "$_ld" ] || continue
+      for _lf in "$_ld"/* "$_ld"/*/*; do
+        [ -L "$_lf" ] || continue
+        case "$(readlink -f "$_lf" 2>/dev/null)" in
+          "$_root"/*) _leak="$_leak $_lf" ;;
+        esac
+      done
+    done
+    if [ -z "$_leak" ]; then
+      ok "no installed link resolves into the source tree"
+    else bad "these resolve into the source tree, so they dangle when it is
+  re-cloned or wiped:$_leak"; fi
+  fi
   # MAN PAGES, which `install` claims in its own success message ("+ man") and
   # nothing confirmed. Iterated as a glob rather than via _man_pages, because
   # that prints, and a `while read` over a pipe runs in a SUBSHELL where
