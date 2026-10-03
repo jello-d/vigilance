@@ -67,7 +67,18 @@ edge=${1:-${VIGILANCE_EDGE:-}}
 
 # Same knobs as the swaylock provider, so the pair cannot disagree about what a
 # locker IS. The unit is authoritative (it is what the provider started); the
-# process name is the fallback for a locker brought up some other way.
+# process name is the fallback for OUR locker brought up some other way.
+#
+# AND THAT IS THE BOUND ON EVERYTHING BELOW, stated because an earlier version
+# of this comment said "a locker brought up some other way" and so read as
+# though any locker counted. It does not: the name has to be the CONFIGURED
+# one. A locker vigilance neither started nor was told about is invisible here,
+# measured 2026-10-03 with a real i3lock holding the screen while this hook
+# returned 0 at `unlock`. So the subject is OUR locker, which is exactly the
+# missed-unlock case the hook was written for, and "is the session locked by
+# anyone at all" is a different question that no mechanism-specific probe can
+# answer. It is not widened to pretend otherwise: see report's `coherence`
+# section, which carries the same bound in the line a human reads.
 UNIT=${VIGILANCE_LOCK_UNIT:-screen-lock.service}
 LOCKER=${VIGILANCE_LOCKER:-swaylock}
 
@@ -75,8 +86,8 @@ LOCKER=${VIGILANCE_LOCKER:-swaylock}
 # to the rung we are IN (open -> unlock, lock -> lock, sleep -> sleep, and
 # suspend -> suspend), so this is really a statement about rungs:
 #
-#   unlock            we are at `open`   -> a locker MUST NOT be up
-#   lock/sleep/suspend we are locked     -> a locker MUST be up
+#   unlock            we are at `open`   -> OUR locker MUST NOT be up
+#   lock/sleep/suspend we are locked     -> OUR locker MUST be up
 #
 # wake and resume land on `lock` and `sleep` respectively, both locked, so they
 # assert the same thing if ever verified explicitly.

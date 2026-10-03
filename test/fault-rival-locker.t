@@ -136,6 +136,19 @@ echo "rival process name:      $RIVAL  (running: $(pgrep -xc "$RIVAL" \
   2>/dev/null || true))"
 echo "--- end signals ---"
 
+# THE ONE DETECTION-SHAPED ASSERTION THIS CELL CAN HONESTLY MAKE. Not "the
+# rival was detected": enumerating every locker is not a capability anyone has,
+# and a test demanding one would be demanding a defect's opposite rather than a
+# behaviour. What IS assertable is that the claim matches the evidence, with a
+# real foreign locker present on real components, which is the half that was
+# measured as wrong here on 2026-10-03 and fixed in the same change.
+if grep -q 'matches an unlocked session' /tmp/rival-report.out; then
+  fail "with a REAL foreign locker holding the screen, report still claims the
+SESSION is unlocked. Its evidence is our own unit plus one configured process
+name, so this line cannot be about the session:
+$(awk '/coherence/,/^$/' /tmp/rival-report.out)"
+fi
+
 # --- 4. RECOVERY: the ladder is not wedged by a rival -----------------------
 # The one response this cell can be certain of. Whatever vigilance can or
 # cannot SEE, a rival must not leave the ladder unable to secure the session:

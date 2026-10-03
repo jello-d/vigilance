@@ -249,4 +249,32 @@ must still FAIL. The no-device carve-out must not have swallowed it:
 $_o" ;;
 esac
 
-pass "reporters, the rc carve-out, and coherence's three dark outcomes"
+# --- and the SAME over-claim at the other end of the ladder ------------------
+# At rung `open` the pass read "depth 'open' matches an unlocked session", which
+# is a claim about the whole session drawn from `_r_locker_up`: our own unit and
+# ONE process name from a knob. MEASURED 2026-10-03 against real components, a
+# foreign i3lock holding the screen with the record at `open`, where that line
+# read [OK] and the verify tier reported "ok (1 checked)".
+#
+# NOT WIDENED, so this is not a detection test: enumerating every locker is not
+# a capability anyone has. What is asserted is that the CLAIM matches the
+# EVIDENCE, which is the same fix the dark-hardware cases above got.
+go open
+_o=$(_coh "$T/bl-none")
+case "$_o" in
+  *'matches an unlocked session'*)
+    fail "coherence still claims the SESSION is unlocked. Its evidence is our
+own unit plus one configured process name, so it cannot see a locker vigilance
+did not start, and a foreign locker leaves this line reading [OK]:
+$_o" ;;
+esac
+case "$_o" in
+  *'[OK]'*"no locker of ours"*'not visible to this check'*) ;;
+  *) fail "the bounded pass must still SAY what it checked and what it cannot
+see. Deleting the over-claim without naming the bound would leave a reader with
+no idea the check is our-locker-shaped:
+$_o" ;;
+esac
+
+pass "reporters, the rc carve-out, coherence's three dark outcomes, and the\
+ bounded claim at 'open'"

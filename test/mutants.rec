@@ -1016,3 +1016,13 @@ f bin/vigilant
 t report
 -       elif [ "$_seen" = 0 ]; then
 +       elif false; then
+
+# THE BOUND IS THE POINT OF THAT LINE, so dropping it must not pass. The
+# pass at rung `open` rests on our-locker-shaped evidence, and a reader who
+# is not told so reads [OK] as a statement about the session. Measured with
+# a real foreign locker holding the screen while this line said [OK].
+= coherence-open-claim-is-bounded
+f bin/vigilant
+t report
+- " something else is not visible to this check)"
++ ")"

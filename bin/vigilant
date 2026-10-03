@@ -2144,9 +2144,29 @@ _rep_coherence() {
         _r_ok "depth '$_rung' matches a dark backlight ($_seen device(s))"
       fi ;;
     open)
+      # THE PASS SAYS WHAT WAS CHECKED, NOT WHAT WOULD BE REASSURING. The
+      # evidence here is `_r_locker_up`, which recognises our own unit and ONE
+      # process name from a knob, so it cannot see a locker vigilance neither
+      # started nor was told about. "matches an unlocked session" was therefore
+      # a claim about the whole session drawn from our-locker-shaped evidence:
+      # measured 2026-10-03 with a real foreign locker (i3lock) holding the
+      # screen at this rung, where this line read [OK] and the verify tier
+      # reported "ok (1 checked)" with nothing guarding anything.
+      #
+      # NOT WIDENED HERE, deliberately. Enumerating every locker is not a
+      # capability anyone has, and returning 78 would make the unlock edge read
+      # NOTHING CHECKED on every box, which is noise that retires the tier. The
+      # candidate widening is logind's LockedHint, which a well-behaved rival
+      # sets, and it needs the STALE-hint case excluded first or it cries wolf
+      # for ever: this package has already had a live stale LockedHint
+      # (2026-09-24, from logind-hint's own defect). So the claim is bounded to
+      # its evidence now and the widening is its own measured change.
       if _r_locker_up; then
         _r_bad "depth says 'open' but a locker is UP (an edge was missed)"
-      else _r_ok "depth 'open' matches an unlocked session"; fi ;;
+      else
+        _r_ok "depth 'open': no locker of ours is up (a locker started by"\
+" something else is not visible to this check)"
+      fi ;;
     lock)
       # A LOCKER IS ONLY EXPECTED WHERE ONE CAN BE RAISED. A GREETER is the
       # locked state: it sits at this rung with no user session, no lock

@@ -393,6 +393,35 @@ defensible, since something has to be trusted and an init system is a better
 choice than a bespoke supervisor, but it is a real constraint on portability
 and should be read as one.
 
+### "Is the session locked" has no universal probe, so the claim is bounded
+
+Vigilance verifies ITS OWN locker and nothing wider. Both probes that answer the
+question recognise exactly two things, the transient unit the provider started
+and ONE process name from `VIGILANCE_LOCKER`, so a locker vigilance neither
+started nor was told about is invisible to `locker-up` and to report's
+`coherence` section.
+
+MEASURED rather than reasoned, 2026-10-03, against real components: a real
+i3lock holding the screen with the depth record at `open` left `verify unlock`
+reporting `ok (1 checked)` and coherence reporting `[OK]`. Held down by
+`test/fault-rival-locker.t`, which is also where the measurement lives.
+
+THE CLAIM IS NOW BOUNDED TO THE EVIDENCE: coherence says it found no locker of
+OURS and names what it cannot see, rather than certifying the session. That is
+the same correction the dark-hardware branch of the same section took, and the
+reason is identical: a pass must mean "I looked and it is fine", never "I could
+not look".
+
+WHY IT IS NOT WIDENED, since both obvious widenings are wrong. Enumerating every
+locker is not a capability anyone has. Returning `HOOK_NA` at `unlock` would
+make the edge read NOTHING CHECKED on every box, which is noise that retires the
+tier and loses the missed-unlock case the hook exists for. The candidate is
+logind's `LockedHint`, which a well-behaved rival sets and which would genuinely
+catch the light-locker and GNOME class; it is PENDING a stale-hint exclusion,
+because a stale hint reads identically to a rival and this package has already
+had a live one (2026-09-24, from `logind-hint`'s own defect). A check that cries
+wolf on a stale value is how the enforce timer got stopped by hand once.
+
 ## 4. Defence in depth: what is watching what
 
 Five independent mechanisms, each able to see something the others cannot.
