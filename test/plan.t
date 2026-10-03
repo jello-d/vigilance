@@ -159,6 +159,7 @@ esac
 # Mode bits are not the whole answer. Granting the greeter a named ACL entry is
 # exactly how an integrator would deliberately open a path, and a check that
 # read only the mode would report that correct setup as broken.
+_vskip=${_vskip:-}
 if command -v setfacl >/dev/null 2>&1 \
    && setfacl -m "u:$GREETER:x" "$T/private" 2>/dev/null; then
   ln -sf "$T/private/real-hook" "$MACH/sleep.d/30-unreachable"
@@ -173,6 +174,12 @@ the operator already did" ;;
   esac
   setfacl -b "$T/private" 2>/dev/null || true
   rm -f "$MACH/sleep.d/30-unreachable"
+else
+  # NAMED, NOT SILENT. Everything above needs setfacl, so
+  # without it those assertions simply do not run while the
+  # verdict below still claims them. environment.t already
+  # carries this pattern: say what was NOT checked.
+  _vskip="$_vskip setfacl"
 fi
 
 # --- 6. NO GREETER ACCOUNT: say so, do not guess ----------------------------
@@ -267,4 +274,5 @@ covers only what was asked for, so comparing two of them says nothing about
 whether the boxes agree" ;;
 esac
 
-pass
+# As above: a capability-gated case that did not run is said out loud.
+pass "plan${_vskip:+ (not checked:$_vskip)}"

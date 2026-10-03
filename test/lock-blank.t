@@ -198,6 +198,7 @@ VIGILANCE_SCREEN_LUMA=0; export VIGILANCE_SCREEN_LUMA
 #
 # A screengrab always carries an alpha channel, so this is not a corner case;
 # it is what every capture looks like.
+_vskip=${_vskip:-}
 if command -v magick >/dev/null 2>&1; then
   unset VIGILANCE_SCREEN_LUMA
   magick -size 8x8 xc:black -alpha set PNG32:"$T/black.png" 2>/dev/null
@@ -209,6 +210,12 @@ reads 0.5 on a black RGBA frame, the bug that made a pitch-black screen
 measure as lit and contradicted a human looking straight at it"
   rm -f "$T/bin/grim"
   VIGILANCE_SCREEN_LUMA=0; export VIGILANCE_SCREEN_LUMA
+else
+  # NAMED, NOT SILENT. Everything above needs magick, so
+  # without it those assertions simply do not run while the
+  # verdict below still claims them. environment.t already
+  # carries this pattern: say what was NOT checked.
+  _vskip="$_vskip magick"
 fi
 
 # --- 4a. A CAPTURE THAT FAILS is n/a, not drift -----------------------------
@@ -398,4 +405,6 @@ _rc=0; _run sleep >/dev/null || _rc=$?
 # the LAST line for the verdict, so one stray line turns a pass into NO VERDICT.
 # Hence it runs BEFORE the pass line rather than from a trap.
 _locker_stop
-pass
+# The verdict NAMES what went unchecked, so a gate that silently removed a
+# case cannot read as a full pass.
+pass "lock-blank${_vskip:+ (not checked:$_vskip)}"

@@ -9,6 +9,8 @@ harness_init tools
 # anything in bin/, and a hook with a syntax error fails at an edge crossing,
 # which is the worst possible moment to find out.
 _bad=0
+# What could not be checked, named in the verdict rather than left silent.
+_vskip=
 # test/probe/ IS IN THE LIST, and for a reason already paid for once: the VM
 # guest script was shipped code with no syntax check at all, and two
 # three-minute boots ended in "guest never reported" over a quoting slip that
@@ -30,8 +32,16 @@ for _f in "$HERE"/bin/* "$HERE"/setup.sh \
       python3 -c 'import ast,sys; ast.parse(open(sys.argv[1]).read())' "$_f" \
         2>/dev/null || { echo "  syntax: $_f" >&2; _bad=1; } ;;
     *bash)
+      # NO SUBJECT TODAY, and the skip is recorded anyway. Nothing shipped
+      # carries a bash shebang now (smart-lock and mute-on-lock did, and both
+      # were retired), so this arm checks nothing and costs nothing. But it is
+      # the one place in this file that could silently STOP checking: add a
+      # bash script on a box without bash and its syntax goes unverified while
+      # the verdict still reads as a full pass. Naming the skip removes that.
       if command -v bash >/dev/null 2>&1; then
         bash -n "$_f" 2>/dev/null || { echo "  syntax: $_f" >&2; _bad=1; }
+      else
+        _vskip=" bash (needed by $_f)"
       fi ;;
     *)
       { dash -n "$_f" 2>/dev/null || sh -n "$_f" 2>/dev/null; } \
@@ -63,4 +73,5 @@ the old body behind passes every test (the shadowing copy behaves the same)
 right up until someone fixes the copy that is never called."
 
 pass "$(ls "$HERE"/bin | wc -l | tr -d ' ') tools + $(ls \
-  "$HERE"/libexec/vigilance/hooks | wc -l | tr -d ' ') hooks + setup.sh parse"
+  "$HERE"/libexec/vigilance/hooks | wc -l | tr -d ' ') hooks + setup.sh\
+ parse${_vskip:+ (not checked:$_vskip)}"

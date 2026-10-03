@@ -291,6 +291,7 @@ esac
 # `-c` or it measures a frame with no cursor in it and reports black: the second
 # of the two independent blindnesses, and either one alone still certifies the
 # state.
+_vskip=${_vskip:-}
 if command -v magick >/dev/null 2>&1; then
   magick -size 400x250 xc:black -fill white -draw 'rectangle 10,10 26,26' \
     PNG32:"$T/with-cursor.png" 2>/dev/null
@@ -343,7 +344,13 @@ rather than bypass it, or an integrator on a third stack gets a tier that
 either declines for ever or measures a value it was handed:
 $(cat "$T/grabmeas" 2>/dev/null)"
   rm -f "$T/bin/plasma-grab"
+else
+  # NAMED, NOT SILENT. Everything above needs magick, so
+  # without it those assertions simply do not run while the
+  # verdict below still claims them. environment.t already
+  # carries this pattern: say what was NOT checked.
+  _vskip="$_vskip magick"
 fi
 
 pass "mean and peak, the measured noise floor, the real pipeline, and a\
- supplied grabber"
+ supplied grabber${_vskip:+ (not checked:$_vskip)}"
