@@ -811,9 +811,36 @@ do_check() {
   _check_root_inputs
   _check_units
   _check_access
-  if [ -d "$_cfg/shapes" ]; then
-    ok "shape config present (~/.config/shapes)"
-  else warn "no ~/.config/shapes; the lock provider uses a plain lock"; fi
+  # THE SEAM IS THE HELPER, NOT ANOTHER PACKAGE'S LAYOUT. This used to test for
+  # `~/.config/shapes` and WARN when it was missing, which was wrong twice
+  # over: that tree belongs to the integrator (it is tackup's, holding mako and
+  # wallpaper config too) and NOTHING in vigilance reads it. Measured before
+  # changing it: those three lines were the only `shapes` reference in the whole
+  # shipped package.
+  #
+  # So every box that is not this fleet carried a permanent WARN about a
+  # directory it has no reason to own, which is the same always-on warning that
+  # makes a report stop being read. What vigilance actually has is
+  # `vigilance-lock-argv`, the optional hook the provider asks for
+  # locker-specific arguments, and its absence is a SUPPORTED configuration: the
+  # provider falls back to a plain lock on purpose.
+  #
+  # INFO, NEVER WARN, for that reason. "You did not supply an optional helper"
+  # is a statement about intent, not a fault, and the one thing a check here
+  # must not do is imply a working box is misconfigured.
+  # BOTH BRANCHES ARE `ok`, and that is deliberate rather than lazy. This file
+  # emits a THREE-marker contract a host integrator styles ([OK]/[FAIL]/[WARN])
+  # and there is no INFO, so the choice is between passing with precise words
+  # and inventing a fourth marker that every consumer would have to learn. The
+  # state is acceptable either way: the marker says the check passed and the
+  # sentence says what was found.
+  if command -v vigilance-lock-argv >/dev/null 2>&1; then
+    ok "lock argv helper present (vigilance-lock-argv): the provider asks it"\
+" for locker-specific arguments"
+  else
+    ok "no vigilance-lock-argv on PATH, so the provider uses a plain lock:"\
+" a supported configuration rather than a gap"
+  fi
 }
 
 _U="usage: setup.sh [install|service|all|uninstall|check|test|version]"

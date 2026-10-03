@@ -89,7 +89,36 @@ done
 # than about this install. Set to the sandbox bindir alone, so the
 # assertion is both meaningful and about the thing under test.
 PATH="$BIN:$PATH" VIGILANCE_CHECK_PATH="$BIN" \
-  run check >/dev/null 2>&1 || fail "check failed post-install"
+  run check >"$T/check.out" 2>&1 || { cat "$T/check.out" >&2
+    fail "check failed post-install"; }
+
+# AND IT MUST NOT REACH PAST ITS OWN SEAM. `check` used to test for
+# `~/.config/shapes` and WARN when it was absent. That tree belongs to the
+# INTEGRATOR (it carries mako and wallpaper config too) and nothing in this
+# package reads it: measured, those were the only three `shapes` references in
+# the whole shipped tree. So every box that is not one specific fleet carried a
+# permanent warning about a directory it has no reason to own, which is the
+# always-on warning that makes a report stop being read.
+if grep -qi 'shapes' "$T/check.out"; then
+  cat "$T/check.out" >&2
+  fail "check mentions 'shapes' again. That path is the integrator's, not
+this package's, and asserting it warns forever on any other setup"
+fi
+
+# THE SEAM THAT DOES EXIST is `vigilance-lock-argv`, the optional helper the
+# provider asks for locker-specific arguments, and its ABSENCE is a supported
+# configuration rather than a gap. Asserted as "never a WARN about it", which
+# is structural here because both branches are `ok`: whichever one this sandbox
+# takes, a reintroduced warning is the regression worth catching.
+if grep -iE '\[WARN\].*(lock argv|lock-argv|plain lock)' "$T/check.out"; then
+  fail "the lock argv helper was reported as a WARNING. Not supplying an
+optional helper is intent, not a fault, and the provider's plain-lock fallback
+is deliberate"
+fi
+grep -q 'vigilance-lock-argv' "$T/check.out" \
+  || { cat "$T/check.out" >&2
+       fail "check says nothing about the lock argv helper either way. The
+point of the change was to report the seam this package HAS, not to go quiet"; }
 
 # uninstall: the bin + man symlinks are removed
 run uninstall >/dev/null 2>&1 || fail "uninstall errored"
