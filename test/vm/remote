@@ -98,6 +98,38 @@ _state() {
   elif _rsh systemctl --user is-active --quiet "$UNIT.service"; then
     printf 'running'
   else
+    # "UNIT GONE" IS NOT EVIDENCE OF DEATH WHILE rc IS STILL MOMENTS AWAY.
+    # remote-run writes rc as its LAST act, so between the unit leaving active
+    # and that write landing there is a window where both tests above are
+    # false and nothing is wrong. Sampling it once reported a run that had
+    # exited cleanly as "killed, out of memory, or the host rebooted": a
+    # confidently actionable WRONG diagnosis, which is worse than none, and it
+    # fired on the first fast-failing run this driver ever saw (a usage error,
+    # rc=1, recorded on the remote the whole time).
+    #
+    # So the window is WAITED OUT rather than guessed at, which is the same
+    # shape as the lock provider learning to accept `activating`: a state
+    # sampled once inside a legitimately transient window is not a verdict.
+    # Only on this path, so a healthy run pays nothing.
+    # BOTH EDGES OF THE WINDOW, because the same branch is reachable from the
+    # other direction: `systemd-run` returns once the job is QUEUED, so a
+    # sample taken before the unit becomes active also finds rc absent and the
+    # unit not yet running. Settling on rc alone would then declare a healthy
+    # run that had just started to be dead, which is the first fix's own
+    # opposite. So the loop watches for EITHER answer to arrive.
+    _ls=0
+    while [ "$_ls" -lt "${REMOTE_SETTLE:-5}" ]; do
+      sleep 1
+      _ls=$((_ls + 1))
+      if _rsh test -f "$ROUT/rc"; then
+        printf 'done:%s' "$(_rsh cat "$ROUT/rc")"
+        return 0
+      fi
+      if _rsh systemctl --user is-active --quiet "$UNIT.service"; then
+        printf 'running'
+        return 0
+      fi
+    done
     printf 'lost'
   fi
 }
