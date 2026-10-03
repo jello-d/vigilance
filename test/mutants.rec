@@ -1026,3 +1026,22 @@ f bin/vigilant
 t report
 - " something else is not visible to this check)"
 + ")"
+
+# A SEVERITY IS PART OF A CLAIM. The sentence is identical under _r_info, only
+# the marker moves, so a report would MENTION a declared unit that is missing
+# and not fail about it. An earlier version of the test grepped the text alone
+# and this mutation survived it.
+= machinery-missing-unit-is-a-fail
+f bin/vigilant
+t report
+-     _r_bad "$_url: $_urd declared but NOT $_urc$_urw"
++     _r_info "$_url: $_urd declared but NOT $_urc$_urw"
+
+# AND DECLARING NONE MUST NOT GO QUIET ABOUT A UNIT THAT IS THERE. Downgrading
+# the WARN to the genuinely-absent INFO makes "declare it absent" the way to
+# switch a real finding off, which is the whole risk a declaration introduces.
+= machinery-undeclared-but-installed-warns
+f bin/vigilant
+t report
+-       _r_warn "$_url: $_urf is installed on this box but DECLARED NONE, so"\
++       _r_info "$_url n/a (this box declares none)" #\

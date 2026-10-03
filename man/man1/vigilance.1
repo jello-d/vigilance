@@ -606,6 +606,36 @@ transient unit the lock provider starts
 .TP
 .B VIGILANCE_GREETER_USER
 uid `plan` judges reachability for
+.PP
+THE UNIT SET IS DECLARED, NOT ASSUMED. The five below are what
+.B report
+checks under
+.BR machinery ,
+and each defaults to the shipped name, so a box wired the standard way needs
+none of them. EMPTY means "this box declares none", exactly as
+.B VIGILANCE_IDLE_PROCESS
+already works: an integration that wires a subset should say so rather than
+collect a permanent FAIL about a machine that is working.
+.PP
+THE CHECK RUNS BOTH WAYS. A declared unit that is missing is a FAIL, as it
+always was; a unit DECLARED NONE that is nonetheless installed is a WARN naming
+it, because otherwise declaring a unit absent would be the way to switch a real
+finding off.
+.TP
+.B VIGILANCE_LOGIND_UNIT
+the Session.Lock listener (\fB\-\-user\fR, must be active)
+.TP
+.B VIGILANCE_SLEEP_UNIT
+the suspend guarantee (SYSTEM, must be enabled)
+.TP
+.B VIGILANCE_RESUME_UNIT
+the resume path (SYSTEM, must be enabled)
+.TP
+.B VIGILANCE_ENFORCE_UNIT
+the supervision pass timer (\fB\-\-user\fR, must be active)
+.TP
+.B VIGILANCE_AUDIT_UNIT
+the forensic pass timer (\fB\-\-user\fR, must be active)
 .SS Policy and bounds
 .TP
 .B VIGILANCE_HOOK_TIMEOUT

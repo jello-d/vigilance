@@ -2700,6 +2700,30 @@ _rep_unit_runnable() {   # unit
 IDLE_PROCESS=${VIGILANCE_IDLE_PROCESS-swayidle}
 IDLE_UNIT=${VIGILANCE_IDLE_UNIT-vigilance-idle.service}
 
+# THE UNIT SET IS DECLARED, NOT ASSUMED, and the asymmetry above is why. The
+# idle timer could already say "this box declares none" and report n/a; the five
+# units below were LITERAL in `_rep_machinery` and each one `_r_bad` when
+# absent, and `_r_bad` sets RRC=1, so an integrator who wires a subset got up to
+# five permanent FAILs and a permanently non-zero report about a correctly
+# working machine. That is how a report stops being read, and it is the same
+# false-FAIL-about-a-healthy-box shape the swayidle hardcoding had.
+#
+# ONE KNOB PER ROLE rather than one list, because the ROLE decides the check and
+# the name does not: the scope differs (--user against system) and so does the
+# question (is-active for a listener and a timer, is-enabled for a sleep hook
+# that must be wired whether or not it has run). A flat list would need a
+# mini-syntax carrying scope and check, which is a parser and a new failure
+# surface for no gain.
+#
+# EMPTY MEANS "THIS BOX DECLARES NONE", exactly as VIGILANCE_IDLE_PROCESS
+# already works, and the defaults are the shipped names so no existing box
+# changes by a byte.
+LOGIND_UNIT=${VIGILANCE_LOGIND_UNIT-vigilance-logind.service}
+SLEEP_UNIT=${VIGILANCE_SLEEP_UNIT-lock-on-sleep.service}
+RESUME_UNIT=${VIGILANCE_RESUME_UNIT-vigilance-resume.service}
+ENFORCE_UNIT=${VIGILANCE_ENFORCE_UNIT-vigilance-enforce.timer}
+AUDIT_UNIT=${VIGILANCE_AUDIT_UNIT-vigilance-audit.timer}
+
 _rep_idle_armed() {
   if [ -n "${VIGILANCE_IDLE_CMDLINE:-}" ]; then
     _icl=$VIGILANCE_IDLE_CMDLINE
@@ -2746,18 +2770,84 @@ EOF
   fi
 }
 
+# The two scope-aware asks, as functions rather than an unquoted `$_opt` that
+# has to expand to nothing: a word-splitting trick here would be the sixth
+# quoting layer this tree has been bitten by.
+_unit_known() {   # <user|system> <unit> -> systemd can find the unit FILE
+  if [ "$1" = user ]; then systemctl --user cat "$2" >/dev/null 2>&1
+  else systemctl cat "$2" >/dev/null 2>&1; fi
+}
+_unit_state_ok() {   # <user|system> <active|enabled> <unit>
+  if [ "$1" = user ]; then systemctl --user "is-$2" --quiet "$3" 2>/dev/null
+  else systemctl "is-$2" --quiet "$3" 2>/dev/null; fi
+}
+
+# ONE ROLE, CHECKED BOTH WAYS. The declaration says what this box MEANT to
+# wire; systemd says what is actually there; and the honest report is the pair,
+# because either one alone is an assumption. The shape is the one `_common.md`
+# names for a place root that gives up a symlink: declared-but-missing AND
+# present-but-undeclared, since the hardcoded name used to be the declaration
+# and the check in one artifact, and that is exactly what a knob gives up.
+#
+# PRESENT-BUT-UNDECLARED IS A WARN, NOT A FAIL. Nothing is broken: a unit is
+# installed and running and simply outside what the box asked for. But it is
+# also the direction a declaration could be used to SWITCH A CHECK OFF, so it
+# must not be silent, or "declare it absent" becomes how you quiet a real
+# finding. WARN names it and leaves the status alone.
+# THE ROLE OWNS ITS OWN VERDICT, including the sentence for the failing case,
+# so a call site is one call and no caller has to juggle `$?` through an `||`
+# chain. Reading a status out of the middle of a chain is the measurement
+# mistake this tree has made most often, and a verdict helper is the wrong place
+# to invite it.
+#
+# Returns 0 when the role was CHECKED (so a caller may probe further), non-zero
+# when there was nothing declared to check.
+_rep_unit_role() {   # <label> <user|system> <active|enabled> <decl> <dflt> <why
+                     #   : the clause appended to the declared-but-missing FAIL>
+
+  _url=$1; _urs=$2; _urc=$3; _urd=$4; _urf=$5; _urw=$6
+  if [ -z "$_urd" ]; then
+    if _unit_known "$_urs" "$_urf"; then
+      _r_warn "$_url: $_urf is installed on this box but DECLARED NONE, so"\
+" nothing here checks it. Declare it, or remove the unit."
+    else
+      _r_info "$_url n/a (this box declares none)"
+    fi
+    return 1
+  fi
+  if _unit_state_ok "$_urs" "$_urc" "$_urd"; then
+    _r_ok "$_urd $_urc"
+  elif [ "$_urs" = user ] && [ -z "$_sess" ]; then
+    _r_info "$_url n/a (no session)"
+  else
+    # THE ROLE AND THE NAME, both: the name is what you go and fix, and the
+    # role is what you lost. A reader who does not know which unit does what
+    # gets "vigilance-audit.timer NOT active" and no idea the forensic pass is
+    # the casualty.
+    _r_bad "$_url: $_urd declared but NOT $_urc$_urw"
+  fi
+  return 0
+}
+
 _rep_machinery() {
   echo "-- machinery --"
-  if systemctl --user is-active --quiet vigilance-logind.service 2>/dev/null
-  then _r_ok "vigilance-logind.service active"
-  elif [ -z "$_sess" ]; then _r_info "vigilance-logind n/a (no session)"
-  else _r_bad "vigilance-logind.service NOT active (Session.Lock is deaf)"; fi
-  for _u in lock-on-sleep.service vigilance-resume.service; do
-    if systemctl is-enabled --quiet "$_u" 2>/dev/null; then
-      _r_ok "$_u enabled"
-    else _r_bad "$_u NOT enabled"; fi
-    _rep_unit_runnable "$_u"
-  done
+  # `|| true` AND `if`, chosen per call rather than by habit: a helper whose
+  # status is MEANINGFUL ("was anything checked") is a bare statement, so an
+  # unguarded 1 would kill the shell under `set -e`. Where the answer is used,
+  # `if` says so and suppresses -e; where it is ignored, `|| true` says that.
+  _rep_unit_role "Session.Lock listener" user active "$LOGIND_UNIT" \
+    vigilance-logind.service " (Session.Lock is deaf)" || true
+  # The runnable probe stays INTERLEAVED, one unit at a time, because that is
+  # the order the section has always printed and a reader follows a unit's
+  # verdict and its ExecStart together.
+  if _rep_unit_role "suspend guarantee" system enabled "$SLEEP_UNIT" \
+       lock-on-sleep.service ""; then
+    _rep_unit_runnable "$SLEEP_UNIT"
+  fi
+  if _rep_unit_role "resume path" system enabled "$RESUME_UNIT" \
+       vigilance-resume.service ""; then
+    _rep_unit_runnable "$RESUME_UNIT"
+  fi
   # WHO SUPERVISES THE SUPERVISOR. These two timers ARE the second pillar, and
   # nothing here reported on them at all.
   #
@@ -2766,13 +2856,12 @@ _rep_machinery() {
   # report green. "A supervision loop nothing runs" is the dead tier this
   # project keeps rediscovering: `due.d` was designed, enumerated and read
   # by nothing for a whole refactor. So its absence is a FAILURE, not silence.
-  for _t in vigilance-enforce.timer vigilance-audit.timer; do
-    if systemctl --user is-active --quiet "$_t" 2>/dev/null; then
-      _r_ok "$_t active"
-    elif [ -z "$_sess" ]; then _r_info "$_t n/a (no session)"
-    else _r_bad "$_t NOT active: supervision is off, so a missed edge will go"\
-" unnoticed, which is the one thing this suite exists to prevent"; fi
-  done
+  _sup=": supervision is off, so a missed edge will go unnoticed, which is"\
+" the one thing this suite exists to prevent"
+  _rep_unit_role "supervision pass" user active "$ENFORCE_UNIT" \
+    vigilance-enforce.timer "$_sup" || true
+  _rep_unit_role "forensic pass" user active "$AUDIT_UNIT" \
+    vigilance-audit.timer "$_sup" || true
   if [ -z "$IDLE_PROCESS" ]; then
     _r_info "idle timer n/a (VIGILANCE_IDLE_PROCESS is empty: this box"\
 " declares none)"

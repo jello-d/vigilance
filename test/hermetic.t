@@ -75,9 +75,16 @@ done
 # helper is a way to smuggle one past this check. Adding the helper NAMES to the
 # token list closes that: a caller must declare itself, exactly as if it had
 # spelled out the /proc read.
+# _unit_known / _unit_state_ok / _rep_unit_role are machinery's own ask, split
+# out so the scope (--user against system) is a parameter rather than an
+# unquoted expansion. They read the live systemd for the same declared reason
+# _rep_machinery always has, and they are named here rather than folded into it
+# because the check is keyed on function NAMES: extracting a host read into a
+# helper is otherwise a way to smuggle one past this ratchet.
 LIVE_OK='_rep_machinery _rep_unit_runnable _rep_idle_armed _r_session
 _r_locker_up cmd_rescue cmd_report _rep_budget_secs
-_proc_pids _proc_running _proc_pid'
+_proc_pids _proc_running _proc_pid
+_unit_known _unit_state_ok _rep_unit_role'
 
 _offenders=$(awk -v ok="$LIVE_OK" '
   BEGIN { n = split(ok, a, /[[:space:]]+/)

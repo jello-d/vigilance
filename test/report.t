@@ -186,6 +186,85 @@ case $(_sect "$_out") in
 an unconfigured box reports" ;;
 esac
 
+# --- the UNIT SET is DECLARED, not assumed -----------------------------------
+# Five unit names were LITERAL in `_rep_machinery`, each one `_r_bad` when
+# absent, and `_r_bad` sets RRC=1. So an integrator who wires a subset got up to
+# five permanent FAILs and a permanently non-zero report about a correctly
+# working machine, which is how a report stops being read. Not theoretical: this
+# project's OWN guest is such an integration. It installs in user mode and
+# deliberately does not place the two SYSTEM units, says so with a WARN of its
+# own, and machinery has been red about it on every run, which five tests work
+# around by refusing to read report's status.
+#
+# THE SAME FUNCTION ALREADY HAD THE HONEST PATTERN for the idle timer
+# (VIGILANCE_IDLE_PROCESS empty means "this box declares none"), applied to the
+# process and not to the units. The asymmetry was the tell.
+#
+# SEVERITY ASSERTED PER LINE, via grep, never against the whole section: a
+# shell glob spans newlines, so a `*'[FAIL]'*audit*` pattern would happily match
+# a FAIL on one line and the word on another. That has bitten here before.
+
+# 1. DECLARED BUT MISSING IS STILL A FAILURE. The declaration must not become a
+# way to be told nothing: a name that is wired and absent is the original
+# finding and has to survive the change.
+_out=$(VIGILANCE_SESSION=7 VIGILANCE_AUDIT_UNIT=vig-no-such.timer \
+       "$VIGILANT" report 2>&1 || true)
+# THE SEVERITY IS PART OF THE CLAIM, so the marker is in the pattern. A first
+# version of this grepped the TEXT alone, and a mutation downgrading `_r_bad` to
+# `_r_info` SURVIVED it: the sentence was identical and only the marker moved,
+# which is a report that mentions a dead unit without failing about it. Caught
+# by disbelieving a survival rather than by the test.
+if ! _sect "$_out" \
+     | grep -qE '^ *\[FAIL\].*vig-no-such\.timer declared but NOT active'; then
+  printf '%s\n' "$_out" >&2
+  fail "a DECLARED unit that is absent must still FAIL, and must name itself.
+Otherwise declaring a unit buys nothing and the original check is gone"
+fi
+
+# 2. DECLARED NONE MUST NEVER BE A FAILURE, which is the whole point, and this
+# assertion is substrate-independent: whether the box HAS the unit decides WARN
+# against INFO, and neither is a FAIL.
+_out=$(VIGILANCE_SESSION=7 VIGILANCE_AUDIT_UNIT= "$VIGILANT" report 2>&1 \
+       || true)
+if _sect "$_out" | grep -qE '^ *\[FAIL\].*(audit|forensic)'; then
+  printf '%s\n' "$_out" >&2
+  fail "with the audit timer DECLARED NONE, machinery still FAILED about it. A
+box that does not wire a unit is not a broken box, and a permanently non-zero
+report is one nobody reads"
+fi
+
+# 3. AND IT MUST SAY WHICH, rather than going quiet. Silence would make
+# "declare it absent" the way to switch a check off, so the undeclared-but-
+# INSTALLED direction is a WARN naming the unit, and the genuinely-absent one is
+# an INFO saying the box declares none. That two-way shape is the one
+# `_common.md` prescribes where a declaration replaces an artifact that used to
+# be both the declaration and the deployment.
+# THE RELATION, NOT EITHER BRANCH, and that distinction is the whole assertion.
+# A first version accepted a WARN *or* an INFO so as to read the same on every
+# substrate, and a mutation downgrading the WARN to the absent-INFO SURVIVED it:
+# the two are precisely what must not be confused, since reporting "declares
+# none" about a unit that IS installed is how declaring one absent becomes the
+# way to silence a real finding.
+#
+# So the test asks the SAME question the product asks and requires the answers
+# to correspond. That is substrate-INDEPENDENT as a relation while still being
+# exact on each substrate, which is the opposite of a verdict that differs by
+# substrate: here the box decides which branch, and the test knows which to
+# demand.
+if systemctl --user cat vigilance-audit.timer >/dev/null 2>&1; then
+  _want='\[WARN\].*is installed on this box but DECLARED NONE'
+  _why="the audit timer IS installed here, so DECLARED NONE has to WARN and
+name it: a unit nothing checks is the drift a declaration introduces"
+else
+  _want='\[--\].*declares none'
+  _why="the audit timer is genuinely absent here, so DECLARED NONE has to read
+as an INFO rather than a warning about a unit that was never wired"
+fi
+if ! _sect "$_out" | grep -qE "^ *$_want"; then
+  printf '%s\n' "$_out" >&2
+  fail "$_why"
+fi
+
 # --- coherence must not call it DARK HARDWARE having looked at nothing -------
 # MEASURED BEFORE IT WAS FIXED: with an empty backlight root at rung `sleep` the
 # loop body never ran, `_lit` stayed empty, and the section printed
