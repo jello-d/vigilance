@@ -636,6 +636,21 @@ the supervision pass timer (\fB\-\-user\fR, must be active)
 .TP
 .B VIGILANCE_AUDIT_UNIT
 the forensic pass timer (\fB\-\-user\fR, must be active)
+.TP
+.B VIGILANCE_SCREEN_GRAB
+the command that captures a frame, writing an image to STDOUT and nothing
+else. Defaults to
+.B grim \-c \-s 0.05 \-
+on Wayland and
+.B import \-silent \-window root \-resize 5%
+on X11, chosen by which tool exists and which display is present. Supply it
+where neither is the right tool: a KDE Plasma session has neither and reaches
+for spectacle. This is NOT a probe override and does not belong with them: only
+the frame's SOURCE changes, while the mean, the peak, the alpha handling and
+the whole-surface rule stay shared, so the statistic cannot drift with the
+platform. The CURSOR is the grabber's responsibility and the peak reading rests
+on it: \fBgrim \-c\fR composites the pointer, \fBimport\fR has no equivalent
+and is blind to one, and a supplied grabber inherits that.
 .SS Policy and bounds
 .TP
 .B VIGILANCE_HOOK_TIMEOUT

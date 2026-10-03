@@ -226,8 +226,28 @@ hook_screen_luma() {
   # dressed as a measurement, which is the failure this whole hook exists to
   # prevent. So grim is used whenever it is the only plausible grabber, and the
   # variable only decides WHICH when a DISPLAY is also present.
+  #
+  # AND THE GRABBER IS NAMEABLE, because those two are not the only ones. A KDE
+  # Plasma session has neither grim nor import and reaches for spectacle; GNOME
+  # goes through a portal. Without this knob such a box could only override the
+  # WHOLE ANSWER (VIGILANCE_SCREEN_LUMA), which replaces the measurement along
+  # with the capture and turns the tier into a fixture, or patch hook_lib, which
+  # an integrator should never have to do to supply a tool.
+  #
+  # IT MUST WRITE AN IMAGE TO STDOUT and nothing else. The ImageMagick stage
+  # below is untouched, so the statistic, the alpha handling and the
+  # whole-surface rule cannot drift with the platform: only the frame's source
+  # changes. Unquoted on purpose, exactly as the two built-in choices are, since
+  # the value is a command WITH ARGUMENTS and has to word-split.
+  #
+  # THE CURSOR IS THE GRABBER'S RESPONSIBILITY, and the peak statistic rests on
+  # it: `grim -c` composites the pointer, `import` has no equivalent and is
+  # stated as blind to one. A supplied grabber inherits that, so a peak reading
+  # is only ever as good as the frame it was handed.
   _slg=
-  if command -v grim >/dev/null 2>&1 \
+  if [ -n "${VIGILANCE_SCREEN_GRAB:-}" ]; then
+    _slg=$VIGILANCE_SCREEN_GRAB
+  elif command -v grim >/dev/null 2>&1 \
      && { [ -n "${WAYLAND_DISPLAY:-}" ] || [ -z "${DISPLAY:-}" ]; }; then
     # `-c` INCLUDES THE CURSOR, and without it this capture is structurally
     # blind to one: grim omits cursors by default, so a white pointer sitting on

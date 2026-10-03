@@ -314,6 +314,36 @@ through the actual pipeline. Every case above this one uses the override and
 would pass with both of those broken:
 $(cat "$T/realmeas" 2>/dev/null)"
   rm -f "$T/bin/grim"
+
+  # AND A SUPPLIED GRABBER REACHES THE SAME MEASUREMENT. A KDE Plasma session
+  # has neither grim nor import and reaches for spectacle; without
+  # VIGILANCE_SCREEN_GRAB such a box could only override the WHOLE ANSWER,
+  # which replaces the statistic along with the capture and makes the tier a
+  # fixture, or patch hook_lib to supply a tool.
+  #
+  # DRIVEN THROUGH THE REAL PIPELINE for the same reason as the case above: the
+  # point is that only the FRAME'S SOURCE changes while the threshold, the
+  # alpha handling and the whole-surface rule stay shared. So the grabber emits
+  # the cursor frame and the hook must reach the same verdict it reached from
+  # grim, with no grim or import on PATH at all.
+  cat > "$T/bin/plasma-grab" <<EOF
+#!/bin/sh
+exec cat "$T/with-cursor.png"
+EOF
+  chmod +x "$T/bin/plasma-grab"
+  _rc=0
+  PATH="$T/nothing:/usr/bin:/bin" \
+    VIGILANCE_SCREEN_GRAB="$T/bin/plasma-grab" \
+    VIGILANCE_EDGE=sleep VIGILANCE_KIND=verify \
+    VIGILANCE_SYS_BACKLIGHT="$T/nobacklight" \
+    sh "$HOOK" sleep 2>>"$T/grabmeas" || _rc=$?
+  [ "$_rc" = 1 ] || fail "with a SUPPLIED grabber handing over the same frame,
+the hook returned $_rc instead of 1. The knob has to feed the real measurement
+rather than bypass it, or an integrator on a third stack gets a tier that
+either declines for ever or measures a value it was handed:
+$(cat "$T/grabmeas" 2>/dev/null)"
+  rm -f "$T/bin/plasma-grab"
 fi
 
-pass "mean and peak, the measured noise floor, and the real pipeline"
+pass "mean and peak, the measured noise floor, the real pipeline, and a\
+ supplied grabber"
