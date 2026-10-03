@@ -314,3 +314,26 @@ m the peripheral actuators and the standing recheck
 f a second process re-asserts `dpms on` while the rung is dark
 e ALERT: the drift is named once, the edge still crosses, and it clears
 t fault-actuator
+
+# THE SAME COEXISTENCE FAULT ON THE EDGE THAT MATTERS MOST. Above, a rival
+# drives a PERIPHERAL and the worst case is a lit panel. Here a rival drives the
+# LOCK, and the worst case is the record reading `open` with the screen covered,
+# which every tier that trusts the record then agrees with.
+#
+# IT IS THE OUTSIDE INTEGRATOR'S CASE, not ours. tackup's config test already
+# asserts OUR keybind crosses the edge rather than calling a locker directly,
+# and that guard cannot reach a third party: xfce4-session's Recommends alone
+# pull light-locker, xfce4-screensaver, xscreensaver and mate-screensaver, and
+# xss-lock plus i3lock is the same rival assembled by hand.
+#
+# THE RESPONSE IS DELIBERATELY SPLIT, because the two halves have different
+# standing. RECOVER is certain and asserted: whatever vigilance can see, a rival
+# that comes and goes must not leave the ladder unable to secure the session.
+# Whether the desync itself can be NOTICED depends on evidence the package may
+# not have, so the scenario prints every candidate signal and the verdict is
+# recorded from that measurement rather than asserted from reasoning.
+= rival-locker
+m locker-up, report's coherence section, and the depth record
+f a REAL foreign locker (i3lock on :98) holds the screen with no edge crossed
+e RECOVER: the ladder still locks afterwards; detection is MEASURED, see below
+t fault-rival-locker
