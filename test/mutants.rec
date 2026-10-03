@@ -942,8 +942,8 @@ t proc-identity
 = proc-callsite-report-locker
 f bin/vigilant
 t proc-identity
--   _proc_running "${VIGILANCE_LOCKER:-swaylock}"
-+   pgrep -x "${VIGILANCE_LOCKER:-swaylock}" >/dev/null 2>&1
+-   _proc_running "$LOCKER_NAME"
++   pgrep -x "$LOCKER_NAME" >/dev/null 2>&1
 
 # The security verifier's own probe. Every other case in locker-up.t
 # sets VIGILANCE_LOCKER_UP, which short-circuits it, so this site was

@@ -1944,7 +1944,7 @@ _r_locker_up() {
     [ "$VIGILANCE_LOCKER_UP" = 1 ]
     return $?
   fi
-  _proc_running "${VIGILANCE_LOCKER:-swaylock}"
+  _proc_running "$LOCKER_NAME"
 }
 
 _r_session() {
@@ -2700,6 +2700,13 @@ _rep_unit_runnable() {   # unit
 IDLE_PROCESS=${VIGILANCE_IDLE_PROCESS-swayidle}
 IDLE_UNIT=${VIGILANCE_IDLE_UNIT-vigilance-idle.service}
 
+# THE LOCKER NAME, ONCE. It was expanded inline at its only use, and a second
+# reader (rescue's journal filter) would have made the DEFAULT a fact kept in
+# two places free to drift, which this tree has a rule against. The knob itself
+# is the provider's and locker-up's, documented with them; this is only the
+# runner's copy of the answer.
+LOCKER_NAME=${VIGILANCE_LOCKER:-swaylock}
+
 # THE UNIT SET IS DECLARED, NOT ASSUMED, and the asymmetry above is why. The
 # idle timer could already say "this box declares none" and report n/a; the five
 # units below were LITERAL in `_rep_machinery` and each one `_r_bad` when
@@ -3232,13 +3239,53 @@ cmd_rescue() {
     cmd_report || true
     # Rescue-only, because it is too heavy for a routine report and only
     # matters when something is actually wrong.
-    echo "-- compositor --"
-    timeout 5 wlopm 2>&1 | sed 's/^/  /'
-    timeout 5 wlr-randr 2>&1 | sed -n '1,20p;s/^/  /'
+    # EVERY PROBE IS GUARDED, which is the portability half. These were bare
+    # calls, so on a box without wlroots tools the section held two "timeout:
+    # failed to run command" lines under a heading promising the display
+    # server's state: noise exactly where the reader needs a reading, on the one
+    # path that exists for someone who cannot see the screen.
+    #
+    # AND X11 IS ASKED TOO. The dump was wlroots-only while the package ships
+    # x11-dpms and x11-idle, so an X11 box got nothing about its outputs.
+    # `xset q` carries the DPMS block, which is the reading wlopm gives there.
+    #
+    # NO KNOB HERE, deliberately: a configured command list is one more thing
+    # that can be wrong on the panic path, and this is a diagnostic rather than
+    # an extension point. Guarding both platforms costs nothing and cannot be
+    # misconfigured.
+    echo "-- display server --"
+    _rsaid=0
+    if command -v wlopm >/dev/null 2>&1; then
+      timeout 5 wlopm 2>&1 | sed 's/^/  /'; _rsaid=1
+    fi
+    if command -v wlr-randr >/dev/null 2>&1; then
+      # `sed -n '1,20p;s/^/  /'` INDENTED NOTHING: under -n the `p` prints the
+      # pattern space BEFORE the substitution runs, so that indent was dead and
+      # this output has always landed flush left. Measured, then fixed.
+      timeout 5 wlr-randr 2>&1 | sed -n '1,20{s/^/  /;p}'; _rsaid=1
+    fi
+    if [ -n "${DISPLAY:-}" ] && command -v xset >/dev/null 2>&1; then
+      timeout 5 xset q 2>&1 | sed -n '/DPMS/,$p' | sed 's/^/  /'; _rsaid=1
+    fi
+    if [ "$_rsaid" = 0 ]; then
+      echo "  no display-server probe available (wlopm, wlr-randr, xset), so"
+      echo "  nothing here can say what the outputs are doing"
+    fi
     echo "-- journal, last 3 min --"
+    # HARDWARE TERMS GENERIC, TOOL NAMES CONFIGURED. `wayfire|swaylock` were
+    # literals, which is one fleet's stack named inside the runner; the locker
+    # and the idle daemon are knobs, so the pattern follows them. Appended only
+    # when the value carries no regex metacharacter, because this is an ERE and
+    # a knob is third-party input: the same guard the process-identity work
+    # needed, for the same reason.
+    _rpat="drm|i915|xe |backlight|dpms|connector"
+    for _rn in "$LOCKER_NAME" "$IDLE_PROCESS"; do
+      [ -n "$_rn" ] || continue
+      case $_rn in *[!A-Za-z0-9_.-]*) continue ;; esac
+      _rpat="$_rpat|$_rn"
+    done
     timeout 5 journalctl --since "-3 min" --no-pager 2>/dev/null \
-      | grep -iE "drm|i915|xe |wayfire|swaylock|backlight|dpms|connector" \
-      | tail -25 | sed 's/^/  /'
+      | grep -iE "$_rpat" | tail -25 | sed 's/^/  /'
   } >> "$_rl" 2>&1
 
   _log "RESCUE pressed; evidence in $_rl"

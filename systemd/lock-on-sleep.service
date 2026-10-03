@@ -15,7 +15,7 @@
 # sleep the box UNLOCKED.
 [Unit]
 Description=vigilance: lock the session before the system sleeps
-Documentation=man:swaylock(1)
+Documentation=man:vigilance(1)
 Before=sleep.target
 
 [Service]
