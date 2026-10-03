@@ -180,6 +180,27 @@ Every VIGILANCE_* name has to appear in the man page or the README. A knob is a
 promise that something is adjustable, and one nobody can find is a promise to
 whoever reads the source and nobody else."
 
+# AND THE OTHER DIRECTION, which nothing asked until now. The check above is
+# code -> docs; this is docs -> code, and a knob that was renamed or removed
+# leaves behind a documented name nothing reads. That is worse than an
+# undocumented one: it is a promise that something is adjustable when turning
+# it has no effect at all, and the reader has no way to tell from the page.
+#
+# ZERO TODAY, measured before writing this, so it is a ratchet rather than a
+# sweep. The precedent is directly below: THEORY.md naming a test that no
+# longer exists is the same shape, a dead reference that reads as substance.
+_orphan=
+for _k in $(grep -ohE 'VIGILANCE_[A-Z0-9_]+' "$M" "$HERE/README.md" \
+            2>/dev/null | sort -u); do
+  grep -rqE "\b$_k\b" "$HERE"/bin "$HERE"/libexec "$HERE"/setup.sh \
+    "$HERE"/systemd 2>/dev/null || _orphan="$_orphan $_k"
+done
+[ -z "$_orphan" ] || fail "knob(s) DOCUMENTED but absent from the code:$_orphan
+
+A documented name nothing reads is a promise that setting it does something.
+Either the knob was removed and the page did not follow, or it was renamed and
+only one side moved. Both leave a reader turning a dial wired to nothing."
+
 # --- THEORY.md NAMES THE CHECK THAT ENFORCES EACH INVARIANT ----------------
 # The whole value of that map is that it lets a reader go and READ the check,
 # and separates the invariants that are enforced from the ones that are only
