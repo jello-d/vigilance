@@ -1998,15 +1998,28 @@ _screensaver_active() {
   # being probed: a desktop implementing something else answers "cannot tell"
   # through the failure below, which is the safe direction.
   _ssp=/$(printf '%s' "$SSAVER_NAME" | tr . /)
-  _sso=$(timeout 3 busctl --user call "$SSAVER_NAME" "$_ssp" \
-         org.freedesktop.ScreenSaver GetActive 2>/dev/null) || return 2
-  # `busctl call` prints the SIGNATURE and then the value ("b true"), measured
-  # rather than assumed.
-  case $_sso in
-    *'b true'*)  return 0 ;;
-    *'b false'*) return 1 ;;
-    *)           return 2 ;;
-  esac
+  # THE INTERFACE FOLLOWS THE NAME TOO, which the first version got wrong and a
+  # real rival exposed. Pointing VIGILANCE_SCREENSAVER_NAME at an xfce box's
+  # screensaver was not enough: xfce4-screensaver owns `org.xfce.ScreenSaver`
+  # and implements ONLY that interface (it does not carry the string
+  # org.freedesktop.ScreenSaver at all, measured over its .deb), so asking the
+  # freedesktop interface on the xfce path failed and the probe answered
+  # "cannot tell" about a rival sitting right there. Safe, documented, and
+  # narrower than a knob called "the name a screensaver answers on" implies.
+  #
+  # THE STANDARD ONE IS TRIED FIRST so a conforming implementation is unchanged,
+  # and a failure moves on rather than being read as an answer.
+  for _ssi in org.freedesktop.ScreenSaver "$SSAVER_NAME"; do
+    _sso=$(timeout 3 busctl --user call "$SSAVER_NAME" "$_ssp" \
+           "$_ssi" GetActive 2>/dev/null) || continue
+    # `busctl call` prints the SIGNATURE and then the value ("b true"),
+    # measured rather than assumed.
+    case $_sso in
+      *'b true'*)  return 0 ;;
+      *'b false'*) return 1 ;;
+    esac
+  done
+  return 2
 }
 
 _r_session() {

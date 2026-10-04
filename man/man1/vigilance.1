@@ -658,9 +658,17 @@ the D-Bus name a FOREIGN screensaver answers on, default
 At rung
 .B open
 report asks it whether the screen is active, which is the only way this package
-can notice a locker it neither started nor was told about: light-locker and
-xfce4-screensaver both implement that interface. Three things about the probe
-are deliberate. It is asked only where the name is
+can notice a locker it neither started nor was told about.
+.B SET THIS ON A DESKTOP WHOSE SCREENSAVER ANSWERS ON ITS OWN NAME:
+xfce4-screensaver owns
+.B org.xfce.ScreenSaver
+and implements only that interface, so the default finds nothing there. The
+object path and the interface both FOLLOW the name given here, with the
+freedesktop interface tried first, so one setting is enough and a conforming
+implementation is unaffected. Measured against a real xfce4-screensaver in the
+guest, where setting the name alone was NOT enough until the interface followed
+it too. Three further things about the probe are deliberate. It is asked only
+where the name is
 .BR ACQUIRED ,
 never where it is merely activatable, because calling an unowned activatable
 name makes D\-Bus START that daemon and vigilance must not spawn a rival locker
