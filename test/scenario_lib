@@ -53,6 +53,13 @@ scenario_init() {   # <name>
   # exactly that way, reading a real swaylock from inside a sandbox. Default to
   # "no locker"; a scenario that cares sets it per call.
   export VIGILANCE_LOCKER_UP=0
+  # AND THE FOREIGN-SCREENSAVER PROBE, for the same reason one line up. Unset,
+  # coherence asks the DEVELOPER's session bus whether a screensaver owns
+  # org.freedesktop.ScreenSaver, so a box running a desktop that does would
+  # flip this verdict for reasons nothing in the suite controls. The default is
+  # the cannot-tell answer, which is what a box with no rival gives anyway; a
+  # scenario that cares sets active or idle per call.
+  export VIGILANCE_SCREENSAVER=unknown
   # And the IDLE ARGV source. Unset, report pgreps for a real swayidle and reads
   # the DEVELOPER's live timer: both a reach into the running system and a
   # verdict that changes depending on their session. Point it at a file that

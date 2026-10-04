@@ -651,6 +651,27 @@ the whole-surface rule stay shared, so the statistic cannot drift with the
 platform. The CURSOR is the grabber's responsibility and the peak reading rests
 on it: \fBgrim \-c\fR composites the pointer, \fBimport\fR has no equivalent
 and is blind to one, and a supplied grabber inherits that.
+.TP
+.B VIGILANCE_SCREENSAVER_NAME
+the D-Bus name a FOREIGN screensaver answers on, default
+.BR org.freedesktop.ScreenSaver .
+At rung
+.B open
+report asks it whether the screen is active, which is the only way this package
+can notice a locker it neither started nor was told about: light-locker and
+xfce4-screensaver both implement that interface. Three things about the probe
+are deliberate. It is asked only where the name is
+.BR ACQUIRED ,
+never where it is merely activatable, because calling an unowned activatable
+name makes D\-Bus START that daemon and vigilance must not spawn a rival locker
+while asking whether one exists. Nothing owning the name reports
+.BR "cannot tell" ,
+never
+.BR no .
+And a disagreement is a WARN rather than a FAIL, because a desktop that owns
+its own locking will raise its screensaver with this ladder correctly at
+.BR open ,
+and a report that is permanently non-zero is one nobody reads.
 .SS Policy and bounds
 .TP
 .B VIGILANCE_HOOK_TIMEOUT
@@ -865,6 +886,14 @@ so a fixture cannot satisfy the bright-spot check by saying nothing about it.
 .TP
 .B VIGILANCE_LOCKER_UP
 1|0 instead of looking for the locker
+.TP
+.B VIGILANCE_SCREENSAVER
+active|idle|anything else, instead of asking the bus. The third value is the
+cannot\-tell answer, and it is the one a box with no rival gives, so it is the
+default behaviour rather than an error case. Here and not with the mechanism
+dials because it replaces the measurement outright: a tier running under it is
+measuring a fixture, which is what makes the foreign\-locker outcome reachable
+without installing a rival desktop.
 .TP
 .B VIGILANCE_SESSION
 the logind session id

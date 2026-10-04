@@ -1947,6 +1947,68 @@ _r_locker_up() {
   _proc_running "$LOCKER_NAME"
 }
 
+# IS A FOREIGN SCREENSAVER HOLDING THE SCREEN? The one question `_r_locker_up`
+# cannot answer, asked of the one interface the rival population implements.
+# Three answers: 0 active, 1 idle, 2 CANNOT TELL, and 2 is never "no".
+#
+# THE OBVIOUS CANDIDATE WAS WRONG, which is why this is not it. The recorded
+# plan was logind's `LockedHint`, on the stated premise that a well-behaved
+# rival sets it. MEASURED 2026-10-04 against the real package payloads
+# (apt-get download plus dpkg-deb -x, so nothing was installed to find out):
+# NONE of light-locker, xfce4-screensaver or xscreensaver carries
+# `SetLockedHint` at all. light-locker CONSUMES Lock/Unlock and calls
+# SetIdleHint; xfce4-screensaver consumes them and calls Inhibit. So that route
+# would have risked a stale-value false alarm for almost no yield, against
+# precisely the population it was chosen for. The same strings show
+# light-locker and xfce4-screensaver both implementing
+# GetActive/SetActive/ActiveChanged, which is the interface asked here.
+#
+# A LIVE QUERY HAS NO STALE CASE, and that is what made the exclusion the
+# LockedHint route needed unnecessary rather than merely cheaper: this asks
+# whoever owns the name at this instant, so a rival that died leaves nothing
+# behind to misread. A stored property cannot offer that.
+#
+# ACQUIRED, NEVER MERELY ACTIVATABLE. That is a SAFETY rule and not a short
+# cut: measured on a live box, `org.gnome.ScreenSaver` is listed activatable
+# and unowned, so calling the name blind has D-Bus START a screensaver daemon.
+# Vigilance must not spawn a rival locker in the act of asking whether one
+# exists.
+_screensaver_active() {
+  # A FIXTURE, for the reason every probe here has one: a tier reachable only
+  # by installing a rival desktop is a tier nothing exercises, and these three
+  # outcomes are what report says about a stranger's machine.
+  if [ -n "${VIGILANCE_SCREENSAVER+x}" ]; then
+    case $VIGILANCE_SCREENSAVER in
+      active) return 0 ;;
+      idle)   return 1 ;;
+      *)      return 2 ;;
+    esac
+  fi
+  command -v busctl >/dev/null 2>&1 || return 2
+  # `--acquired`, never the default list, per the header. Field 1 is the name.
+  # The status comes from awk's END rather than from a pipeline tail, because
+  # `| grep -q` here would make a FAILED busctl indistinguishable from one that
+  # answered with the name absent: the defect this file has already paid for in
+  # `_trig_blocked` and in the lock provider.
+  busctl --user list --acquired --no-legend --no-pager 2>/dev/null \
+    | awk -v n="$SSAVER_NAME" '$1 == n { f = 1; exit } END { exit !f }' \
+    || return 2
+  # THE PATH FOLLOWS THE NAME, so an integrator naming org.xfce.ScreenSaver is
+  # asked at /org/xfce/ScreenSaver. The INTERFACE stays the freedesktop one
+  # being probed: a desktop implementing something else answers "cannot tell"
+  # through the failure below, which is the safe direction.
+  _ssp=/$(printf '%s' "$SSAVER_NAME" | tr . /)
+  _sso=$(timeout 3 busctl --user call "$SSAVER_NAME" "$_ssp" \
+         org.freedesktop.ScreenSaver GetActive 2>/dev/null) || return 2
+  # `busctl call` prints the SIGNATURE and then the value ("b true"), measured
+  # rather than assumed.
+  case $_sso in
+    *'b true'*)  return 0 ;;
+    *'b false'*) return 1 ;;
+    *)           return 2 ;;
+  esac
+}
+
 _r_session() {
   # Overridable so a scenario can exercise BOTH the session and no-session
   # paths. They behave differently (a fresh session makes the `open` default a
@@ -2153,19 +2215,36 @@ _rep_coherence() {
       # screen at this rung, where this line read [OK] and the verify tier
       # reported "ok (1 checked)" with nothing guarding anything.
       #
-      # NOT WIDENED HERE, deliberately. Enumerating every locker is not a
-      # capability anyone has, and returning 78 would make the unlock edge read
-      # NOTHING CHECKED on every box, which is noise that retires the tier. The
-      # candidate widening is logind's LockedHint, which a well-behaved rival
-      # sets, and it needs the STALE-hint case excluded first or it cries wolf
-      # for ever: this package has already had a live stale LockedHint
-      # (2026-09-24, from logind-hint's own defect). So the claim is bounded to
-      # its evidence now and the widening is its own measured change.
+      # WIDENED 2026-10-04, by a SECOND and independent probe rather than by
+      # loosening the first. Enumerating every locker is still not a capability
+      # anyone has, and returning 78 would make the unlock edge read NOTHING
+      # CHECKED on every box, which is noise that retires the tier. What
+      # changed is that a foreign locker of this class answers a standard
+      # question about itself: see `_screensaver_active`, including why the
+      # LockedHint route recorded here until today was measured and dropped.
+      #
+      # SEVERITY IS PART OF THE CLAIM. A disagreement is WARN and not FAIL,
+      # because on a box whose desktop owns locking (xfce with its own
+      # screensaver, vigilance wired alongside) the screensaver activating
+      # while the ladder sits at `open` is ORDINARY, and `_r_bad` sets RRC=1,
+      # so a FAIL would make report permanently non-zero on every such machine.
+      # That is how a report stops being read, and this package has paid for it
+      # twice. The finding is real and the remedy is the integrator's.
       if _r_locker_up; then
         _r_bad "depth says 'open' but a locker is UP (an edge was missed)"
       else
-        _r_ok "depth 'open': no locker of ours is up (a locker started by"\
-" something else is not visible to this check)"
+        _ssrc=0; _screensaver_active || _ssrc=$?
+        case $_ssrc in
+          0) _r_warn "depth says 'open' but $SSAVER_NAME reports the screen"\
+" ACTIVE: something this ladder did not start is holding it, so the record is"\
+" behind the world. Either route that locker through 'vigilant go lock"\
+" atleast' or expect this line whenever it fires" ;;
+          1) _r_ok "depth 'open': no locker of ours, and $SSAVER_NAME reports"\
+" idle" ;;
+          *) _r_ok "depth 'open': no locker of ours is up (nothing owns"\
+" $SSAVER_NAME either, so a locker started by something else that answers"\
+" nothing is still not visible here)" ;;
+        esac
       fi ;;
     lock)
       # A LOCKER IS ONLY EXPECTED WHERE ONE CAN BE RAISED. A GREETER is the
@@ -2706,6 +2785,12 @@ IDLE_UNIT=${VIGILANCE_IDLE_UNIT-vigilance-idle.service}
 # is the provider's and locker-up's, documented with them; this is only the
 # runner's copy of the answer.
 LOCKER_NAME=${VIGILANCE_LOCKER:-swaylock}
+
+# THE BUS NAME A FOREIGN SCREENSAVER ANSWERS ON. Only `_screensaver_active`
+# reads it; the knob exists because a desktop that answers on its own name
+# would otherwise be unaskable, and a wrong name degrades to "cannot tell"
+# rather than to a wrong answer.
+SSAVER_NAME=${VIGILANCE_SCREENSAVER_NAME:-org.freedesktop.ScreenSaver}
 
 # THE UNIT SET IS DECLARED, NOT ASSUMED, and the asymmetry above is why. The
 # idle timer could already say "this box declares none" and report n/a; the five

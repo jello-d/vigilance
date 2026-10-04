@@ -348,12 +348,91 @@ did not start, and a foreign locker leaves this line reading [OK]:
 $_o" ;;
 esac
 case "$_o" in
-  *'[OK]'*"no locker of ours"*'not visible to this check'*) ;;
+  *'[OK]'*"no locker of ours"*'not visible here'*) ;;
   *) fail "the bounded pass must still SAY what it checked and what it cannot
 see. Deleting the over-claim without naming the bound would leave a reader with
 no idea the check is our-locker-shaped:
 $_o" ;;
 esac
 
-pass "reporters, the rc carve-out, coherence's three dark outcomes, and the\
- bounded claim at 'open'"
+# --- THE WIDENING: a FOREIGN screensaver, and the severity it earns ----------
+# The second probe, independent of `_r_locker_up`, which is what lets this
+# section say anything at all about a locker vigilance did not start. All three
+# outcomes are asserted because the two that are not findings are what stop the
+# check crying wolf, and a widening is only safe if those stay quiet.
+#
+# THE SEVERITY IS ASSERTED AS A RELATION, not just as words. A disagreement must
+# be WARN and must leave report's status alone: `_r_bad` sets RRC=1, so a FAIL
+# here would make every box whose desktop owns its own locking permanently
+# non-zero, which is how a report stops being read. Asserting only the sentence
+# would let a WARN -> FAIL change through, which is the exact mutation that
+# survived the unit-role work two days ago.
+_ss_coh() {   # <VIGILANCE_SCREENSAVER value> -> the coherence section
+  VIGILANCE_SCREENSAVER="$1" VIGILANCE_SYS_BACKLIGHT="$T/bl-none" \
+    "$VIGILANT" report 2>/dev/null \
+    | awk '/^-- coherence --$/ { f = 1; next } /^-- / { f = 0 } f' || true
+}
+_o=$(_ss_coh active)
+case "$_o" in
+  *'[WARN]'*'ACTIVE'*'behind the world'*) ;;
+  *'[FAIL]'*) fail "a foreign screensaver at 'open' was reported as a FAIL.
+That sets RRC=1, so every box whose desktop raises its own screensaver with
+this ladder at 'open' reports non-zero for ever, and a report that is always
+red is one nobody reads:
+$_o" ;;
+  *) fail "with a foreign screensaver reporting the screen ACTIVE at rung
+'open', coherence said nothing about it. That is the whole gap this probe
+exists to close: the record is behind the world and the section a human reads
+did not say so:
+$_o" ;;
+esac
+# THE MARKER IS THE SEVERITY ASSERTION, and deliberately not report's exit
+# code. Branching on that code is banned here for a measured reason: it folds
+# nine sections, several reading the real host, so the assertion would pass for
+# free on any box already red and keep passing with the check deleted. This
+# file's own hermetic ratchet caught exactly that attempt on the first draft of
+# this case. `_r_bad` is the only helper that sets RRC, so asserting [WARN] and
+# refusing [FAIL] above IS the assertion about the status, substrate-free.
+
+# IDLE IS A PASS THAT SAYS WHAT ANSWERED, which is what distinguishes it from
+# the cannot-tell case below. Collapsing the two would hide the difference
+# between a rival that answered "no" and no rival at all.
+_o=$(_ss_coh idle)
+case "$_o" in
+  *'[OK]'*'reports'*idle*) ;;
+  *) fail "a screensaver answering IDLE must read as a pass that names what
+answered, not as the no-answer case: the two are different states of knowledge:
+$_o" ;;
+esac
+
+# AND THE NO-ANSWER CASE MUST NOT READ AS "NO". Every box in this fleet is
+# here, so this is the line almost every reader sees, and it is the one that
+# has to keep naming the bound.
+_o=$(_ss_coh unknown)
+case "$_o" in
+  *'[OK]'*'nothing owns'*'not visible here'*) ;;
+  *) fail "with nothing owning the bus name, coherence must say so and keep
+naming what it cannot see. Reading that as a clean 'unlocked' is the
+could-not-look conflation this whole section was corrected for:
+$_o" ;;
+esac
+
+# --- THE PROBE MUST NEVER CALL AN UNOWNED NAME ------------------------------
+# Asserted MECHANICALLY, in the spirit of dpms.t refusing `wlopm --off`,
+# because this one cannot be driven safely: proving it by behaviour would mean
+# letting the probe start a screensaver on the developer's session, which is
+# the exact accident being guarded against.
+#
+# MEASURED, not supposed: on a live box `org.gnome.ScreenSaver` is listed
+# activatable and UNOWNED, so `busctl call` against the name would have D-Bus
+# launch that daemon. A locker-supervision package that spawns a rival locker
+# while asking whether one exists has caused the thing it was inspecting.
+grep -qE 'busctl --user list --acquired' "$HERE/bin/vigilant" \
+  || fail "the screensaver probe lists bus names without --acquired. The
+default list includes ACTIVATABLE names, and calling one of those STARTS the
+service: vigilance would launch a screensaver in the act of asking whether one
+is running. Measured on a live box, org.gnome.ScreenSaver is exactly such a
+name."
+
+pass "reporters, the rc carve-out, coherence's three dark outcomes, the\
+ bounded claim at 'open' and the foreign-screensaver widening"

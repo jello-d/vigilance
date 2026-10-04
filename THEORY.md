@@ -412,15 +412,59 @@ the same correction the dark-hardware branch of the same section took, and the
 reason is identical: a pass must mean "I looked and it is fine", never "I could
 not look".
 
-WHY IT IS NOT WIDENED, since both obvious widenings are wrong. Enumerating every
-locker is not a capability anyone has. Returning `HOOK_NA` at `unlock` would
-make the edge read NOTHING CHECKED on every box, which is noise that retires the
-tier and loses the missed-unlock case the hook exists for. The candidate is
-logind's `LockedHint`, which a well-behaved rival sets and which would genuinely
-catch the light-locker and GNOME class; it is PENDING a stale-hint exclusion,
-because a stale hint reads identically to a rival and this package has already
-had a live one (2026-09-24, from `logind-hint`'s own defect). A check that cries
-wolf on a stale value is how the enforce timer got stopped by hand once.
+THE TWO OBVIOUS WIDENINGS REMAIN WRONG. Enumerating every locker is not a
+capability anyone has. Returning `HOOK_NA` at `unlock` would make the edge read
+NOTHING CHECKED on every box, which is noise that retires the tier and loses the
+missed-unlock case the hook exists for.
+
+### RETRACTED 2026-10-04: the `LockedHint` plan rested on a false premise
+
+This file said the candidate was logind's `LockedHint`, "which a well-behaved
+rival sets and which would genuinely catch the light-locker and GNOME class",
+pending a stale-hint exclusion. **The premise does not hold.** Measured against
+the real package payloads, with `apt-get download` plus `dpkg-deb -x` so nothing
+had to be installed to find out:
+
+    light-locker        Lock, Unlock, SetIdleHint      NO SetLockedHint
+    xfce4-screensaver   Lock, Unlock, Inhibit          NO SetLockedHint
+    xscreensaver        (no login1 session members)    NO SetLockedHint
+
+None of the three canonical rivals sets the hint. They CONSUME `Lock`/`Unlock`,
+which is what makes them the thing that locks when logind says lock. So that
+route would have accepted a real stale-value false-alarm risk in exchange for
+almost no yield, against exactly the population it was chosen for.
+
+It is recorded rather than quietly replaced because the note asserted the
+premise as fact for a day, and because this is the failure mode the file already
+names twice: reasoning about a mechanism and then writing the check from the
+reasoning. The measurement was cheap and it reversed the design.
+
+### What replaced it: a LIVE query, on the interface they do implement
+
+The same strings show light-locker and xfce4-screensaver both implementing
+`GetActive`/`SetActive`/`ActiveChanged`, so `report` now asks
+`org.freedesktop.ScreenSaver` at rung `open`, in `_screensaver_active`. Three
+properties, each measured rather than argued:
+
+- **No stale case at all**, which is what made the exclusion the hint needed
+  unnecessary instead of merely cheaper. A live query asks whoever owns the name
+  at that instant, so a rival that died leaves nothing behind to misread.
+- **ACQUIRED, never merely activatable.** On a live box `org.gnome.ScreenSaver`
+  is listed activatable and unowned, so calling the name blind has D-Bus START a
+  screensaver daemon. Vigilance must not spawn a rival locker in the act of
+  asking whether one exists. This is a safety rule, not an optimisation.
+- **Nothing owning the name reports "cannot tell", never "no".** The failure
+  direction is an absent claim, which is the same contract exit 78 carries.
+
+WARN AND NOT FAIL, deliberately. A desktop that owns its own locking raises its
+screensaver with this ladder correctly at `open`, so a FAIL there would set
+`RRC=1` permanently on every such box, and a report that is always non-zero is
+one nobody reads. The disagreement is real and the remedy is the integrator's:
+route that locker through `go lock atleast`, or expect the line.
+
+STILL NOT SEEN: a locker that answers nothing at all. i3lock is exactly that,
+which is why `test/fault-rival-locker.t` keeps its bounded assertions and the
+third outcome above is the one its rival produces.
 
 ## 4. Defence in depth: what is watching what
 

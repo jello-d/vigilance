@@ -1024,8 +1024,8 @@ t report
 = coherence-open-claim-is-bounded
 f bin/vigilant
 t report
-- " something else is not visible to this check)"
-+ ")"
+- " nothing is still not visible here)" ;;
++ ")" ;;
 
 # A SEVERITY IS PART OF A CLAIM. The sentence is identical under _r_info, only
 # the marker moves, so a report would MENTION a declared unit that is missing
@@ -1045,3 +1045,14 @@ f bin/vigilant
 t report
 -       _r_warn "$_url: $_urf is installed on this box but DECLARED NONE, so"\
 +       _r_info "$_url n/a (this box declares none)" #\
+
+# THE FOREIGN-SCREENSAVER FINDING IS A WARN, AND THE SEVERITY IS THE CLAIM.
+# `_r_bad` sets RRC=1, so a FAIL here makes every box whose desktop raises its
+# own screensaver with this ladder at `open` report non-zero for ever. A
+# message-only assertion would pass this mutation, which is exactly how the
+# unit-role downgrade survived two days ago.
+= coherence-foreign-screensaver-is-a-warn
+f bin/vigilant
+t report
+-           0) _r_warn "depth says 'open' but $SSAVER_NAME reports the screen"\
++           0) _r_bad "depth says 'open' but $SSAVER_NAME reports the screen"\

@@ -84,7 +84,8 @@ done
 LIVE_OK='_rep_machinery _rep_unit_runnable _rep_idle_armed _r_session
 _r_locker_up cmd_rescue cmd_report _rep_budget_secs
 _proc_pids _proc_running _proc_pid
-_unit_known _unit_state_ok _rep_unit_role'
+_unit_known _unit_state_ok _rep_unit_role
+_trig_blocked _screensaver_active _rep_coherence'
 
 _offenders=$(awk -v ok="$LIVE_OK" '
   BEGIN { n = split(ok, a, /[[:space:]]+/)
@@ -94,8 +95,17 @@ _offenders=$(awk -v ok="$LIVE_OK" '
   # The host-state tokens. Deliberately narrow: these are reads of the RUNNING
   # machine, not of anything the test controls. The last two are the process
   # probes, named so that calling one counts as the /proc read it performs.
+  # `busctl ` JOINED THE LIST 2026-10-04, and adding it immediately made a
+  # PRE-EXISTING live read visible: the inhibitor query in _trig_blocked, which
+  # is declared above rather than changed. A D-Bus call is as much a read of the
+  # running machine as a pgrep is, and the token list had never said so, which
+  # is the reach-by-spelling gap the process helpers closed by naming
+  # themselves. NO APOSTROPHES IN THIS COMMENT: the awk program is
+  # SINGLE-QUOTED, so one closes it and the shell then parses the rest as code.
+  # That is exactly how this edit failed the first time.
   /\/sys\/|\/proc\/|pgrep |systemctl |loginctl |journalctl |hostname -s/ ||
-  /_proc_running |_proc_pid / {
+  /busctl / ||
+  /_proc_running |_proc_pid |_screensaver_active / {
     if ($0 ~ /^[[:space:]]*#/) next          # prose
     if ($0 ~ /VIGILANCE_[A-Z_]+/) next       # behind an override
     if (fn != "" && (fn in allow)) next      # declared live
