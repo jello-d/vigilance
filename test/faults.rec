@@ -337,3 +337,25 @@ m locker-up, report's coherence section, and the depth record
 f a REAL foreign locker (i3lock on :98) holds the screen with no edge crossed
 e RECOVER: the ladder still locks afterwards; detection is MEASURED, see below
 t fault-rival-locker
+
+# THE OTHER HALF OF THE RIVAL QUESTION, and a separate cell because the rivals
+# differ in the one way that decides what can be asserted. `rival-locker` above
+# uses i3lock, which answers NOTHING, so detection there is measured and
+# printed. This one uses a rival that IMPLEMENTS the interface report asks, so
+# the finding itself is assertable.
+#
+# IT EXISTS BECAUSE THE WIDENING WAS SHIPPED FIXTURE-COVERED. All three outcomes
+# of `_screensaver_active` were driven through VIGILANCE_SCREENSAVER, a knob
+# holding the author's model of a rival, on the same day the design it replaced
+# was retracted for resting on a measured-false premise. A probe chosen from a
+# measurement should not then be verified against an assumption.
+#
+# ACT, not DEGRADE: the response is a WARN naming the holder, which is a thing
+# report must positively DO. The severity is part of it, because `_r_bad` sets
+# RRC=1 and a desktop that owns its own locking would then read non-zero for
+# ever.
+= rival-screensaver
+m report's coherence section, via the org.freedesktop.ScreenSaver probe
+f a REAL screensaver owns the bus name and reports ACTIVE at rung `open`
+e ACT: coherence WARNs and names the holder; idle and no-owner stay quiet
+t fault-rival-screensaver

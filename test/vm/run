@@ -126,7 +126,23 @@ case $FLAVOUR in
     # xfconf and xfce4-settings arrive with xfce4-session, and upower with the
     # power manager, so they are not listed: a package list that repeats what a
     # dependency already guarantees rots the moment the dependency changes.
-    PKGS_FLAVOUR='xfce4-session xfwm4 xfce4-power-manager xfce4-notifyd' ;;
+    #
+    # xfce4-screensaver IS NAMED EXPLICITLY, and the reason is measured rather
+    # than preferential. xfce4-session Recommends
+    # `light-locker | xfce4-screensaver | xscreensaver | mate-screensaver`, and
+    # apt installs the FIRST alternative only, so the guest got light-locker and
+    # neither of the others. light-locker then cannot own
+    # org.freedesktop.ScreenSaver in the session tier at all: it asks logind for
+    # the session of its own pid, finds none as root, and exits with
+    # "session_id is not set". Supplying XDG_SESSION_ID, which its own message
+    # offers as the fallback, did not change that: measured twice.
+    #
+    # So the DEFAULT rival cannot answer the interface report asks, and the
+    # alternative that implements GetActive/SetActive has to be asked for by
+    # name. That is not a less faithful guest: installing a screensaver is what
+    # an integrator who wants one does, and this is the xfce-native one.
+    PKGS_FLAVOUR='xfce4-session xfwm4 xfce4-power-manager xfce4-notifyd
+xfce4-screensaver' ;;
   *)
     echo "vm: unknown flavour '$FLAVOUR'" >&2
     echo "vm: known flavours: lean xfce" >&2
