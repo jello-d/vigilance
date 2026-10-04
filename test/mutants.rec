@@ -105,25 +105,25 @@ t plan
 +     if false
 
 = screen-dark-accepts-lit
-f libexec/vigilance/hooks/screen-dark
+f libexec/hooks/screen-dark
 t screen-dark
 - if ! hook_luma_is_dark "$_l"; then
 + if false; then
 
 = screen-dark-judges-lit-rungs
-f libexec/vigilance/hooks/screen-dark
+f libexec/hooks/screen-dark
 t screen-dark
 - if [ "$_intent" != dark ]; then
 + if false; then
 
 = screen-dark-unmeasurable-passes
-f libexec/vigilance/hooks/screen-dark
+f libexec/hooks/screen-dark
 t screen-dark
 -   exit 78
 +   exit 0
 
 = luma-counts-alpha
-f libexec/vigilance/hook_lib
+f lib/hook_lib
 t screen-dark lock-blank
 -         | timeout 25 magick - -alpha off -colorspace Gray \
 +         | timeout 25 magick - -colorspace Gray \
@@ -207,19 +207,19 @@ t watchdog
 +       0) ;;
 
 = watchdog-silence-at-lock-is-a-fault
-f libexec/vigilance/hooks/swayidle-watchdog
+f libexec/hooks/swayidle-watchdog
 t swayidle-watchdog
 -   lock|sleep|suspend)
 +  nosuchrung)
 
 = watchdog-judges-a-fresh-boot
-f libexec/vigilance/hooks/swayidle-watchdog
+f libexec/hooks/swayidle-watchdog
 t swayidle-watchdog
 - if [ "$_up" -lt "$QUIET" ]; then
 + if false; then
 
 = watchdog-reports-a-not-running-timer
-f libexec/vigilance/hooks/swayidle-watchdog
+f libexec/hooks/swayidle-watchdog
 t swayidle-watchdog
 - if ! pgrep -x swayidle >/dev/null 2>&1; then
 + if false; then
@@ -237,7 +237,7 @@ t swayidle-mgr
 +    true
 
 = watchdog-uptime-reads-the-host
-f libexec/vigilance/hooks/swayidle-watchdog
+f libexec/hooks/swayidle-watchdog
 t swayidle-watchdog
 - _up=$(cut -d' ' -f1 "${VIGILANCE_UPTIME_FILE:-/proc/uptime}" 2>/dev/null \
 + _up=$(cut -d' ' -f1 /proc/uptime 2>/dev/null \
@@ -249,85 +249,85 @@ t log-contract
 +   :
 
 = lock-blank-ignores-the-backlight-gate
-f libexec/vigilance/hooks/lock-blank
+f libexec/hooks/lock-blank
 t lock-blank
 -   *)      if _has_backlight; then _gated=1; fi ;;
 +   *)      : ;;
 
 = lock-blank-gates-the-restore-too
-f libexec/vigilance/hooks/lock-blank
+f libexec/hooks/lock-blank
 t lock-blank
 - if [ "$_gated" = 1 ] && { [ "$_intent" = dark ] || [ ! -f "$MARK" ]; }; then
 + if [ "$_gated" = 1 ]; then
 
 = lock-blank-counts-a-zero-max-device
-f libexec/vigilance/hooks/lock-blank
+f libexec/hooks/lock-blank
 t lock-blank
 -     if [ "$_lbm" -gt 0 ]; then return 0; fi
 +     if [ "$_lbm" -ge 0 ]; then return 0; fi
 
 = hook-dark-trusts-the-save-file
-f libexec/vigilance/hook_lib
+f lib/hook_lib
 t hook_lib
 -   if [ ! -f "$_sf" ]; then
 +   if [ -f "$_sf" ]; then return 0; elif true; then
 
 = hook-dark-clobbers-a-pre-existing-save
-f libexec/vigilance/hook_lib
+f lib/hook_lib
 t hook_lib
 -     if [ "$_hld_new" = 1 ]; then rm -f "$_sf"; fi
 +     rm -f "$_sf"
 
 = screen-dark-ignores-the-backlight
-f libexec/vigilance/hooks/screen-dark
+f libexec/hooks/screen-dark
 t screen-dark
 -   if [ "$_sbc" -le $((_sbm / 10)) ]; then
 +   if [ false ]; then
 
 = screen-dark-passes-any-backlight
-f libexec/vigilance/hooks/screen-dark
+f libexec/hooks/screen-dark
 t screen-dark
 -   if [ "$_sbc" -le $((_sbm / 10)) ]; then
 +   if [ true ]; then
 
 = luma-compared-as-a-string
-f libexec/vigilance/hook_lib
+f lib/hook_lib
 t screen-dark
 -   awk -v v="$1" 'BEGIN { exit !(v + 0 <= 0.01) }' 2>/dev/null
 +   case "$1" in 0|0.00*) return 0 ;; *) return 1 ;; esac
 
 = luma-garbage-reads-as-dark
-f libexec/vigilance/hook_lib
+f lib/hook_lib
 t screen-dark
 -     ''|*[!0-9.eE+-]*) return 1 ;;
 +     '') return 1 ;;
 
 = idle-clock-answers-with-no-devices
-f libexec/vigilance/hooks/input-counters
+f libexec/hooks/input-counters
 t input-counters
 - if [ "$_seen" = 0 ]; then
 + if [ false ]; then
 
 = idle-clock-resets-on-a-quiet-pass
-f libexec/vigilance/hooks/input-counters
+f libexec/hooks/input-counters
 t input-counters
 - _save "$_psig" "$_pat" "$_pmax" "$_pfirst"
 + _save "$_psig" "$_now" "$_pmax"
 
 = idle-clock-answers-on-first-sample
-f libexec/vigilance/hooks/input-counters
+f libexec/hooks/input-counters
 t input-counters
 - if [ -z "$_psig" ] || [ -z "$_pat" ]; then
 + if false; then
 
 = idle-clock-counts-a-parent-twice
-f libexec/vigilance/hooks/input-counters
+f libexec/hooks/input-counters
 t input-counters
 -       case " $_parents " in *" $_p "*) ;; *) _parents="$_parents $_p" ;; esac
 +       _parents="$_parents $_p"
 
 = idle-clock-loses-the-ceiling
-f libexec/vigilance/hooks/input-counters
+f libexec/hooks/input-counters
 t input-counters
 -   if [ "$_ended" -gt "$_pmax" ]; then _pmax=$_ended; fi
 + :
@@ -345,7 +345,7 @@ t report
 + if false; then
 
 = dpms-claims-success-with-no-wlopm
-f libexec/vigilance/hooks/dpms
+f libexec/hooks/dpms
 t dpms
 -   exit 78
 +   exit 0
@@ -357,7 +357,7 @@ t audit
 +     if false; then
 
 = generic-lit-drops-a-save-on-refusal
-f libexec/vigilance/hook_lib
+f lib/hook_lib
 t hook_lib
 -   if ! level_get >/dev/null 2>&1; then
 +   if ! level_set "$_hll_lvl" >/dev/null 2>&1; then
@@ -386,13 +386,13 @@ t standing-recheck coverage
 +   if true \
 
 = watchdog-judges-an-unarmed-timer
-f libexec/vigilance/hooks/swayidle-watchdog
+f libexec/hooks/swayidle-watchdog
 t swayidle-watchdog
 - MARK=${VIGILANCE_HEARTBEAT_MARK:-idle-tick}
 + MARK=
 
 = verify-dark-calls-a-reasserted-device-drift
-f libexec/vigilance/hook_lib
+f lib/hook_lib
 t hook_lib
 -       if [ -f "$_sf" ] && [ "$_cur" = "$(cat "$_sf" 2>/dev/null)" ]; then
 +       if false; then
@@ -506,25 +506,25 @@ t atleast
 +     if [ "$_dnow" -ge "$_dto" ]; then
 
 = lost-lock-race-reported-as-failure
-f libexec/vigilance/providers/swaylock
+f libexec/providers/swaylock
 t lock-race
 -     active)
 +     nosuchstate)
 
 = provider-starts-a-locker-that-is-already-up
-f libexec/vigilance/providers/swaylock
+f libexec/providers/swaylock
 t lock-race
 - case "$(_unit_state)" in active|activating|reloading) exit 0 ;; esac
 + case "$(_unit_state)" in nosuchstate) exit 0 ;; esac
 
 = lock-failure-always-reported-as-success
-f libexec/vigilance/providers/swaylock
+f libexec/providers/swaylock
 t lock-race
 -     *) break ;;                       # inactive or failed; it is not coming
 +     *) ;;
 
 = a-settling-unit-is-called-a-failure
-f libexec/vigilance/providers/swaylock
+f libexec/providers/swaylock
 t lock-race
 -     activating|reloading) ;;          # still coming up; keep waiting
 +     nosuchstate) ;;
@@ -608,20 +608,20 @@ t standing-recheck
 +   _ci_e=$(( $(date +%s) - _ct ))
 
 = phantom-guard-blocks-on-a-backward-clock
-f libexec/vigilance/hooks/phantom-guard
+f libexec/hooks/phantom-guard
 t block
 - [ "$_at" -le "$_now" ] || exit 0
 + true
 
 
 = logind-hint-accepts-a-dash-seat
-f libexec/vigilance/hooks/logind-hint
+f libexec/hooks/logind-hint
 t logind-hint
 -     $3 == u && $4 != "" && $4 != "-" { print $1; exit }')
 +     $3 == u && $4 != "" { print $1; exit }')
 
 = logind-hint-trusts-an-unseated-session-id
-f libexec/vigilance/hooks/logind-hint
+f libexec/hooks/logind-hint
 t logind-hint
 - _seated "$_sid" || _sid=
 + true
@@ -631,7 +631,7 @@ t logind-hint
 # replaces the FIRST match, so a record naming it would mutate the wrong branch,
 # change nothing the test exercises, and report SURVIVED about a covered guard.
 = logind-hint-fails-instead-of-declining
-f libexec/vigilance/hooks/logind-hint
+f libexec/hooks/logind-hint
 t logind-hint
 -   echo "logind-hint: no seated session for $(id -un); nothing to report" >&2
 +   exit 1
@@ -644,13 +644,13 @@ t runtime-dir
 
 
 = swayidle-due-matches-an-edge-inside-a-path
-f libexec/vigilance/hooks/swayidle-due
+f libexec/hooks/swayidle-due
 t swayidle-due
 -         if (secs ~ /^[0-9]+$/ && cmd ~ ("(^|[^a-zA-Z])" e "([^a-zA-Z]|$)")) {
 +         if (secs ~ /^[0-9]+$/ && index(cmd, e) > 0) {
 
 = swayidle-due-ignores-the-argv-override
-f libexec/vigilance/hooks/swayidle-due
+f libexec/hooks/swayidle-due
 t swayidle-due
 - if [ -n "${VIGILANCE_IDLE_CMDLINE:-}" ]; then
 + if false; then
@@ -680,7 +680,7 @@ t runtime-dir
 +   if false; then
 
 = level-dark-short-circuits-on-the-save-file
-f libexec/vigilance/hook_lib
+f lib/hook_lib
 t level-rules
 -   if [ ! -f "$_sf" ]; then
 + if [ -f "$_sf" ]; then return 0; elif true; then
@@ -698,25 +698,25 @@ t report
 +     _r_info "$IDLE_PROCESS NOT running: nothing will lock on idle"
 
 = level-dark-calls-an-unwritable-save-a-missing-device
-f libexec/vigilance/hook_lib
+f lib/hook_lib
 t level-rules
 -     if ! printf '%s\n' "$_hld_lvl" > "$_sf" 2>/dev/null; then
 + if false; then
 
 = level-dark-conflates-the-device-read-with-the-save-write
-f libexec/vigilance/hook_lib
+f lib/hook_lib
 t level-rules
 -     if ! _hld_lvl=$(level_get 2>/dev/null); then
 + if ! _hld_lvl=$(level_get) || ! printf '%s' "$_hld_lvl" >"$_sf"; then
 
 = idle-clock-credits-a-gap-it-did-not-watch
-f libexec/vigilance/hooks/input-counters
+f libexec/hooks/input-counters
 t input-counters
 -   if [ "$_gap" -lt 0 ] || [ "$_gap" -gt "$MAXGAP" ]; then _gapped=1; fi
 +   if [ "$_gap" -lt 0 ]; then _gapped=1; fi
 
 = idle-clock-keeps-a-ceiling-it-cannot-vouch-for
-f libexec/vigilance/hooks/input-counters
+f libexec/hooks/input-counters
 t input-counters
 -   _pmax=0
 +   _pmax=$_pmax
@@ -746,7 +746,7 @@ t coverage
 +       elif [ "$_dca" -ge "$_ds" ]; then
 
 = idle-clock-does-not-attribute-a-moving-device
-f libexec/vigilance/hooks/input-counters
+f libexec/hooks/input-counters
 t input-counters
 -       if [ "${_dp:-}" != "$_dc" ] && [ "$_PHASE" != settle ]; then
 +       if false; then
@@ -764,13 +764,13 @@ t coverage
 + " it reports to itself: a hook in"\\
 
 = idle-clock-counts-our-own-pass
-f libexec/vigilance/hooks/input-counters
+f libexec/hooks/input-counters
 t input-counters
 - if [ "$_PHASE" = settle ]; then
 + if false; then
 
 = idle-attribution-stamps-our-own-pass
-f libexec/vigilance/hooks/input-counters
+f libexec/hooks/input-counters
 t input-counters
 -       if [ "${_dp:-}" != "$_dc" ] && [ "$_PHASE" != settle ]; then
 +       if [ "${_dp:-}" != "$_dc" ]; then
@@ -794,13 +794,13 @@ t standing-recheck
 +   if false; then
 
 = throttle-applies-to-an-explicit-verify
-f libexec/vigilance/hook_lib
+f lib/hook_lib
 t standing-recheck
 -   if [ -z "${VIGILANCE_RECHECK:-}" ]; then
 +   if false; then
 
 = throttle-trusts-a-stamp-from-the-future
-f libexec/vigilance/hook_lib
+f lib/hook_lib
 t hook_lib
 -   if [ -n "$_ht_at" ] && [ "$_ht_at" -le "$_ht_now" ] \
 +   if [ -n "$_ht_at" ] \
@@ -897,7 +897,7 @@ t soak
 # because the RUNNER is in the loop there and a green helper never proved the
 # chain.
 = throttle-never-elapses
-f libexec/vigilance/hook_lib
+f lib/hook_lib
 t cadence
 -      && [ "$(( _ht_now - _ht_at ))" -lt "$_ht_every" ]; then
 +      && [ "$(( _ht_now - _ht_at ))" -ge 0 ]; then
@@ -907,7 +907,7 @@ t cadence
 # plausible values are ordinary (xfce4-screensaver is 17), and the
 # consequence is a correctly locked box reporting no locker.
 = proc-truncation-hooklib
-f libexec/vigilance/hook_lib
+f lib/hook_lib
 t proc-identity lock-blank locker-up
 -   _hpn=$(printf '%.15s' "$1")
 +   _hpn=$(printf '%s' "$1")
@@ -925,7 +925,7 @@ t proc-identity
 # what `pgrep -x` did with an ERE: `.*` matched every process, so
 # locker-up would certify a secured session with nothing locking.
 = proc-match-is-exact-hooklib
-f libexec/vigilance/hook_lib
+f lib/hook_lib
 t proc-identity locker-up
 -     if [ "$_hpc" = "$_hpn" ]; then
 +     if [ -n "$_hpc" ]; then
@@ -949,7 +949,7 @@ t proc-identity
 # sets VIGILANCE_LOCKER_UP, which short-circuits it, so this site was
 # covered by nothing at all until that file grew a real-process case.
 = proc-callsite-locker-up
-f libexec/vigilance/hooks/locker-up
+f libexec/hooks/locker-up
 t locker-up
 -   hook_proc_running "$LOCKER"
 +   pgrep -x "$LOCKER" >/dev/null 2>&1
@@ -958,7 +958,7 @@ t locker-up
 # and `-x` and the sweep grepped for `pkill -x`. With pkill an
 # over-wide pattern SIGNALS THE WHOLE BOX rather than answering wrong.
 = proc-callsite-lock-blank-signal
-f libexec/vigilance/hooks/lock-blank
+f libexec/hooks/lock-blank
 t proc-identity lock-blank
 - if ! hook_proc_signal "$_sig" "$LOCKER"; then
 + if ! pkill -"$_sig" -x "$LOCKER" 2>/dev/null; then
@@ -967,7 +967,7 @@ t proc-identity lock-blank
 # above that certifies the exact state this statistic was added for: a black
 # OLED with a bright spot held still on it.
 = luma-peak-threshold
-f libexec/vigilance/hook_lib
+f lib/hook_lib
 t screen-dark hook_lib
 -   awk -v v="$1" 'BEGIN { exit !(v + 0 <= 0.02) }' 2>/dev/null
 +   awk -v v="$1" 'BEGIN { exit !(v + 0 <= 1.01) }' 2>/dev/null
@@ -976,7 +976,7 @@ t screen-dark hook_lib
 # the tier off rather than merely annoying it. Shared by both thresholds, so
 # this one record covers the mean's guard and the peak's.
 = luma-number-guard
-f libexec/vigilance/hook_lib
+f lib/hook_lib
 t screen-dark hook_lib
 -     ''|*[!0-9.eE+-]*) return 1 ;;
 +     XX-no-such-case) : ;;
@@ -985,7 +985,7 @@ t screen-dark hook_lib
 # measuring the mean alone, which calls a white cursor on black DARK by a
 # factor of 22.
 = screen-dark-ignores-the-peak
-f libexec/vigilance/hooks/screen-dark
+f libexec/hooks/screen-dark
 t screen-dark
 - if ! hook_luma_peak_is_dark "$_p"; then
 + if false; then
@@ -994,7 +994,7 @@ t screen-dark
 # answer gets `0 peak=0`, the number guard rejects it, and a pitch-black
 # screen reads as LIT. lock-blank did exactly that and its test caught it.
 = luma-is-dark-takes-field-1
-f libexec/vigilance/hook_lib
+f lib/hook_lib
 t lock-blank screen-dark
 -   set -- "${1%% *}"
 +   set -- "$1"
@@ -1003,7 +1003,7 @@ t lock-blank screen-dark
 # measure and the pointer on a black lock surface stays invisible to it. Two
 # independent blindnesses: either one alone still certifies the state.
 = luma-capture-omits-the-cursor
-f libexec/vigilance/hook_lib
+f lib/hook_lib
 t screen-dark
 -     _slg="timeout 25 grim -c -s 0.05 -"
 +     _slg="timeout 25 grim -s 0.05 -"

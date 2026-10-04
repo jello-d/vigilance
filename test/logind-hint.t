@@ -34,7 +34,7 @@ set -eu
 . "$(dirname "$0")/harness_lib"
 harness_init logind-hint
 
-HOOK=$HERE/libexec/vigilance/hooks/logind-hint
+HOOK=$HERE/libexec/hooks/logind-hint
 mkdir -p "$T/bin"
 PATH="$T/bin:$PATH"; export PATH
 

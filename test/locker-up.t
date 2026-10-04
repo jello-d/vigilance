@@ -17,7 +17,7 @@ set -eu
 . "$(dirname "$0")/scenario_lib"
 scenario_init locker-up
 
-H=$HERE/libexec/vigilance/hooks/locker-up
+H=$HERE/libexec/hooks/locker-up
 
 _v() {   # <edge> <up|down> -> hook exit status
   _u=0; [ "$2" = up ] && _u=1

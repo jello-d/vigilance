@@ -49,7 +49,7 @@
 set -eu
 
 _self=$(readlink -f "$0")
-. "$(dirname "$_self")/../hook_lib"
+. "$(dirname "$_self")/../../lib/hook_lib"
 
 # VERIFY ONLY. It actuates nothing: there is no "make the screen dark" here,
 # because choosing a mechanism is exactly what this hook refuses to do.

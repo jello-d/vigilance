@@ -50,7 +50,7 @@ that let it get here was granted somewhere that is not one"
     || fail "vigilant is not on PATH; setup.sh install did not publish it"
   # The libexec tree by the hooks' own self-location rule, so the tier cannot
   # disagree with the package about where its plugins live.
-  PLUGINS=$(dirname "$(readlink -f "$VIGILANT")")/../libexec/vigilance
+  PLUGINS=$(dirname "$(readlink -f "$VIGILANT")")/../libexec
   [ -d "$PLUGINS/hooks" ] || fail "no shipped hooks under $PLUGINS"
 
   for _t in swaylock swayidle; do
@@ -187,7 +187,7 @@ account needs the SHARED install, not the tier user's own prefix"
   # sits at `activating` for ever, and a probe of mine "tested" the whole lid
   # chain with exactly that unit before I noticed.
   mkdir -p /etc/systemd/user
-  sed "s#@PLUGINS@#/opt/vigilance/libexec/vigilance#g" \
+  sed "s#@PLUGINS@#/opt/vigilance/libexec#g" \
     "$HERE/systemd/vigilance-logind.service" > "$LOCKABLE_UNIT" \
     || fail "could not render the logind listener unit"
   lockable_as systemctl --user daemon-reload >/dev/null 2>&1 || true

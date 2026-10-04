@@ -88,7 +88,7 @@ this whole file exists to prevent" || :
 # --- every SHIPPED PLUGIN is in the README inventory ------------------------
 # A plugin nobody documents is one an integrator never wires. swayidle-due
 # shipped undocumented and was invisible until a sweep found it.
-_plug="$HERE/libexec/vigilance"
+_plug="$HERE/libexec"
 for _p in "$_plug"/hooks/* "$_plug"/providers/* "$_plug"/triggers/*; do
   [ -f "$_p" ] || continue
   _n=$(basename "$_p")
@@ -168,9 +168,9 @@ done
 # nothing asked. This is what asks.
 _undoc=
 for _k in $(grep -ohE 'VIGILANCE_[A-Z_]+' "$HERE"/bin/* \
-              "$HERE"/libexec/vigilance/hook_lib \
-              "$HERE"/libexec/vigilance/hooks/* \
-              "$HERE"/libexec/vigilance/providers/* 2>/dev/null | sort -u); do
+              "$HERE"/lib/hook_lib \
+              "$HERE"/libexec/hooks/* \
+              "$HERE"/libexec/providers/* 2>/dev/null | sort -u); do
   grep -qE "\b$_k\b" "$M" "$HERE/README.md" 2>/dev/null || _undoc="$_undoc $_k"
 done
 [ -z "$_undoc" ] || fail "knob(s) referenced in code and documented nowhere:
@@ -192,8 +192,8 @@ whoever reads the source and nobody else."
 _orphan=
 for _k in $(grep -ohE 'VIGILANCE_[A-Z0-9_]+' "$M" "$HERE/README.md" \
             2>/dev/null | sort -u); do
-  grep -rqE "\b$_k\b" "$HERE"/bin "$HERE"/libexec "$HERE"/setup.sh \
-    "$HERE"/systemd 2>/dev/null || _orphan="$_orphan $_k"
+  grep -rqE "\b$_k\b" "$HERE"/bin "$HERE"/lib "$HERE"/libexec \
+    "$HERE"/setup.sh "$HERE"/systemd 2>/dev/null || _orphan="$_orphan $_k"
 done
 [ -z "$_orphan" ] || fail "knob(s) DOCUMENTED but absent from the code:$_orphan
 

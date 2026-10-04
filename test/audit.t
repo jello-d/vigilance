@@ -206,7 +206,7 @@ esac
 # Asserted through the REAL hook rather than a fixture, because the bug was in
 # the hook's own claim. A fixture would have agreed with whatever it said.
 rm -f "$VIGILANCE_HOOK_ROOT"/audit.d/*
-_SRC=$HERE/libexec/vigilance/hooks/logind-sleep-audit
+_SRC=$HERE/libexec/hooks/logind-sleep-audit
 # 30 days, not 1: the window only has to be wide enough to contain a sleep.
 _edges=$(VIGILANCE_AUDIT_SINCE='-30 days' "$_SRC" 2>/dev/null \
            | awk '{print $2}' | sort -u)

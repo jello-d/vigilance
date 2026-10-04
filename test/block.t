@@ -48,7 +48,7 @@ expect_stderr "block hook 10-veto errored (rc=1); ALLOWING"
 
 # --- the phantom guard: scoped to the idle source --------------------------
 rm -f "$VIGILANCE_HOOK_ROOT/lock.block.d/10-veto"
-ln -sf "$HERE/libexec/vigilance/hooks/phantom-guard" \
+ln -sf "$HERE/libexec/hooks/phantom-guard" \
   "$VIGILANCE_HOOK_ROOT/lock.block.d/10-phantom"
 VIGILANCE_RUN_DIR=$VIGILANCE_RUN_DIR
 export VIGILANCE_RUN_DIR

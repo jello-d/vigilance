@@ -30,7 +30,7 @@ set -eu
 . "$(dirname "$0")/harness_lib"
 harness_init hook_lib
 
-. "$HERE/libexec/vigilance/hook_lib"
+. "$HERE/lib/hook_lib"
 
 # A brightnessctl that can be made to fail on demand, so the denial path is
 # exercised rather than assumed. It is an ACTUATOR, which the suite's rule
@@ -386,7 +386,7 @@ _thr_dir=$T/throttle
 mkdir -p "$_thr_dir"
 _thr() {   # <recheck> <seconds> -> 0 if it says SKIP
   VIGILANCE_RECHECK=$1 VIGILANCE_STATE_DIR=$_thr_dir \
-    sh -c '. "'"$HERE/libexec/vigilance/hook_lib"'"
+    sh -c '. "'"$HERE/lib/hook_lib"'"
            hook_throttle "'"$2"'"'
 }
 

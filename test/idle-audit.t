@@ -29,7 +29,7 @@ set -eu
 . "$(dirname "$0")/scenario_lib"
 scenario_init idle-audit
 
-SRC=$HERE/libexec/vigilance/hooks/swayidle-idle-audit
+SRC=$HERE/libexec/hooks/swayidle-idle-audit
 export SWAYIDLE_LOG_DIR=$T/swayidle-mgr
 mkdir -p "$SWAYIDLE_LOG_DIR"
 EVENTS=$SWAYIDLE_LOG_DIR/events.log

@@ -89,7 +89,7 @@ guards when written, so this has lost coverage rather than gained it"
 while IFS= read -r _line; do
   case "$_line" in
     'f '*) case "${_line#??}" in
-             bin/*|libexec/*|systemd/*|install|setup.sh) ;;
+             bin/*|lib/*|libexec/*|systemd/*|install|setup.sh) ;;
              *) fail "a record targets '${_line#??}', which is not shipped
 code. The corpus must guard what the package installs, not a fixture" ;;
            esac ;;

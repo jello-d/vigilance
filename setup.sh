@@ -231,7 +231,7 @@ _payload_stage() {
   _payold=$_pay.old
   rm -rf -- "$_paynew" "$_payold"
   mkdir -p "$_paynew"
-  for _pd in bin libexec man; do
+  for _pd in bin lib libexec man; do
     if [ -d "$_root/$_pd" ]; then cp -R "$_root/$_pd" "$_paynew/$_pd"; fi
   done
   mkdir -p "$(dirname "$_pay")"
@@ -278,13 +278,21 @@ do_install() {
   # plugin runs where is policy, and policy is the integrator's. One that
   # shipped pre-enabled would be vigilance deciding policy, which is the
   # mistake mute-on-lock was moved out to avoid.
-  if [ -d "$_root/libexec/$PKG" ]; then
+  if [ -d "$_root/libexec" ]; then
     mkdir -p "$_lib"
     if [ "${VIGILANCE_INSTALL_COPY:-0}" = 1 ]; then
       # rm first: cp -a of a directory ONTO an existing one nests it rather
       # than replacing it, which would leave a stale tree one level down.
       rm -rf "$_lib/$PKG"
-      cp -a "$_root/libexec/$PKG" "$_lib/$PKG"
+      for _cd in lib libexec; do
+        _cdst=$PREFIX/$_cd
+        case $_cdst in
+        /*/"$_cd") ;;
+        *) echo "$PKG: refusing to replace '$_cdst'" >&2; return 1 ;;
+        esac
+        rm -rf -- "$_cdst"
+        cp -a "$_root/$_cd" "$_cdst"
+      done
       # THE SAME `cp -a` TRAP _place DOCUMENTS, and which _place fixed only for
       # the BINARIES. --preserve=all carries the SOURCE's ownership AND mode
       # across even when the copy runs as root, and the clone lives in a user's
@@ -363,7 +371,7 @@ do_install() {
 # all, which is why this stopped being a symlink.
 _render_unit() {   # <src> <dst>
   sed -e "s|@VIGILANT@|$_bin/vigilant|g" \
-      -e "s|@PLUGINS@|$_lib/$PKG|g" "$1" > "$2.tmp" \
+      -e "s|@PLUGINS@|$_lib|g" "$1" > "$2.tmp" \
     && mv -f "$2.tmp" "$2"
 }
 
@@ -482,7 +490,16 @@ do_uninstall() {
     rm -f "$_usr/$_eu"
   done
   if [ "${VIGILANCE_INSTALL_COPY:-0}" = 1 ]; then
+    # Both FHS dirs the copy install places, plus the legacy nested one so a
+    # box installed either side of the flattening is left clean.
     rm -rf "$_lib/$PKG"
+    for _cd in lib libexec; do
+      _cdst=$PREFIX/$_cd
+      case $_cdst in
+      /*/"$_cd") rm -rf -- "$_cdst" ;;
+      *) echo "$PKG: refusing to remove '$_cdst'" >&2 ;;
+      esac
+    done
   else
     # The STRUCK ROOT again, for a box that still has the old one. Only when it
     # is a link into this clone, as on install.
@@ -738,12 +755,13 @@ do_check() {
   # a conversion that leaves its own verifier pointing at the old layout turns a
   # success into a wall of red.
   _plugin_root() {
-    if [ "${VIGILANCE_INSTALL_COPY:-0}" = 1 ]; then printf '%s' "$_lib/$PKG"
-    else printf '%s' "$_pay/libexec/$PKG"; fi
+    if [ "${VIGILANCE_INSTALL_COPY:-0}" = 1 ]
+    then printf '%s' "$PREFIX/libexec"
+    else printf '%s' "$_pay/libexec"; fi
   }
   _pr=$(_plugin_root)
   for _k in hooks providers triggers; do
-    for _h in "$_root"/libexec/"$PKG"/"$_k"/*; do
+    for _h in "$_root"/libexec/"$_k"/*; do
       [ -x "$_h" ] || continue
       _n=$(basename "$_h")
       if [ -x "$_pr/$_k/$_n" ]; then ok "${_k%s} $_n available"
@@ -773,10 +791,10 @@ do_check() {
       bad "no $_pay/bin/vigilant, so every trigger and provider in the payload
   resolves its command to nothing and the hooks silently stop existing"
     fi
-    if [ -r "$_pay/libexec/$PKG/hook_lib" ]; then
-      ok "plugins can source hook_lib at ../hook_lib"
+    if [ -r "$_pay/lib/hook_lib" ]; then
+      ok "plugins can source hook_lib at ../../lib/hook_lib"
     else
-      bad "no $_pay/libexec/$PKG/hook_lib, so every shipped hook exits 2"
+      bad "no $_pay/lib/hook_lib, so every shipped hook exits 2"
     fi
     # AND NOTHING MAY RESOLVE BACK INTO THE SOURCE TREE. This is the rule the
     # conversion exists for, and the only assertion that can see a half-done

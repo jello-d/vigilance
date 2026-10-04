@@ -44,7 +44,7 @@ done
 [ -x "$PAY/bin/vigilant" ] \
   || fail "no $PAY/bin/vigilant, so every trigger and provider in the payload
 resolves its command to nothing"
-[ -r "$PAY/libexec/vigilance/hook_lib" ] \
+[ -r "$PAY/lib/hook_lib" ] \
   || fail "no hook_lib in the payload, so every shipped hook exits 2"
 # Proven by RUNNING one through the payload path, not by checking the files are
 # adjacent: the hook sources hook_lib by a relative path and only an execution
@@ -52,7 +52,7 @@ resolves its command to nothing"
 env VIGILANCE_KIND=verify VIGILANCE_EDGE=sleep \
     VIGILANCE_SYS_BACKLIGHT="$T/nobl" VIGILANCE_SCREEN_LUMA=0 \
     VIGILANCE_SCREEN_PEAK=0 \
-    sh "$PAY/libexec/vigilance/hooks/screen-dark" sleep >/dev/null 2>&1 \
+    sh "$PAY/libexec/hooks/screen-dark" sleep >/dev/null 2>&1 \
   || fail "a shipped hook could not run from inside the payload, so its
 relative source of hook_lib does not resolve there"
 [ -e "$CFG/systemd/user/vigilance-logind.service" ] \
@@ -66,7 +66,7 @@ for _u in vigilance-enforce.service vigilance-enforce.timer \
 done
 
 # libexec: the shipped hooks are installed AVAILABLE...
-[ -x "$PAY/libexec/vigilance/providers/swaylock" ] \
+[ -x "$PAY/libexec/providers/swaylock" ] \
   || fail "a shipped provider is not reachable through the install"
 # ...AND THE STRUCK ROOT IS NOT RECREATED. `~/.local/libexec/<pkg>` is gone as a
 # concept: it was a symlink into the clone, so it dangled on every re-clone, and
@@ -147,9 +147,12 @@ crun install >/dev/null 2>&1 || fail "copy install errored"
 [ -f "$CBIN/vigilant" ] || fail "copy mode did not place vigilant"
 [ -L "$CBIN/vigilant" ] \
   && fail "copy mode left a SYMLINK; it must be a real file"
-[ -f "$T/copy/libexec/vigilance/hooks/ddc-monitor" ] \
+[ -f "$T/copy/libexec/hooks/ddc-monitor" ] \
   || fail "copy mode did not copy the plugin tree"
-[ -L "$T/copy/libexec/vigilance" ] \
+[ -f "$T/copy/lib/hook_lib" ] \
+  || fail "copy mode did not copy lib/, so every plugin exits 2 unable to
+source hook_lib"
+[ -L "$T/copy/libexec" ] \
   && fail "copy mode symlinked libexec; a system prefix cannot follow it"
 [ -x "$CBIN/vigilant" ] || fail "the copied vigilant is not executable"
 
@@ -165,11 +168,12 @@ _leak=$(find "$T/copy" -type l 2>/dev/null | while read -r _l; do
 # Re-copying is idempotent (apply re-runs every time to avoid staleness), and
 # a nested tree would mean cp -a landed a directory INSIDE the old one.
 crun install >/dev/null 2>&1 || fail "second copy install errored"
-[ -e "$T/copy/libexec/vigilance/vigilance" ] \
-  && fail "re-copy nested the plugin tree inside itself"
+[ -e "$T/copy/libexec/libexec" ] || [ -e "$T/copy/lib/lib" ] \
+  && fail "re-copy nested a tree inside itself"
 
 crun uninstall >/dev/null 2>&1 || fail "copy uninstall errored"
 [ -e "$CBIN/vigilant" ] && fail "copy uninstall left vigilant behind"
-[ -d "$T/copy/libexec/vigilance" ] && fail "copy uninstall left the tree behind"
+[ -d "$T/copy/libexec" ] && fail "copy uninstall left the libexec tree behind"
+[ -d "$T/copy/lib" ] && fail "copy uninstall left the lib tree behind"
 
 pass "install + check + uninstall + copy mode"

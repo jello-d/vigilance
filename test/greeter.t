@@ -137,10 +137,10 @@ esac
 # as a comment. A greeter has no locker and never will: it IS the locked state.
 # Wired machine-side, its verify fails on every greeter edge and teaches whoever
 # reads the alerts to ignore them.
-cp "$HERE/libexec/vigilance/hooks/locker-up" \
+cp "$HERE/libexec/hooks/locker-up" \
    "$VIGILANCE_MACHINE_HOOKS/lock.verify.d/50-locker-up" 2>/dev/null \
   || { mkdir -p "$VIGILANCE_MACHINE_HOOKS/lock.verify.d"
-       cp "$HERE/libexec/vigilance/hooks/locker-up" \
+       cp "$HERE/libexec/hooks/locker-up" \
           "$VIGILANCE_MACHINE_HOOKS/lock.verify.d/50-locker-up"; }
 chmod +x "$VIGILANCE_MACHINE_HOOKS/lock.verify.d/50-locker-up"
 VIGILANCE_LOCKER_UP=0 "$VIGILANT" verify lock >/dev/null 2>>"$T/stderr" \

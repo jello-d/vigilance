@@ -243,7 +243,7 @@ runcmd:
       mount -o ro /dev/disk/by-label/VIGILANCE /mnt/repo
       cp -a /mnt/repo/. /root/vigilance/
       cd /root/vigilance
-      chmod +x bin/* setup.sh test/run libexec/vigilance/hooks/* || true
+      chmod +x bin/* setup.sh test/run libexec/hooks/* || true
       # THE COPY IS A GIT REPO THAT GIT REFUSES TO OPEN. The ISO carries `.git`,
       # and `cp -a` preserves the developer's uid on every file, so a guest
       # running as root meets git's dubious-ownership guard. Measured rather

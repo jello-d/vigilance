@@ -24,7 +24,7 @@ set -eu
 . "$(dirname "$0")/harness_lib"
 harness_init ddc-monitor
 
-HOOK=$HERE/libexec/vigilance/hooks/ddc-monitor
+HOOK=$HERE/libexec/hooks/ddc-monitor
 mkdir -p "$T/bin" "$T/state"
 
 # Each bus declares its own D6 values through DDC_CAPS_<bus>, so one fixture

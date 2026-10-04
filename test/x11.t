@@ -20,8 +20,8 @@ set -eu
 . "$(dirname "$0")/harness_lib"
 harness_init x11
 
-DPMS=$HERE/libexec/vigilance/hooks/x11-dpms
-IDLE=$HERE/libexec/vigilance/hooks/x11-idle
+DPMS=$HERE/libexec/hooks/x11-dpms
+IDLE=$HERE/libexec/hooks/x11-idle
 mkdir -p "$T/bin" "$T/state"
 PATH=$T/bin:$PATH; export PATH
 

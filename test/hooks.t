@@ -15,7 +15,7 @@ set -eu
 . "$(dirname "$0")/scenario_lib"
 scenario_init hooks
 
-HOOKS=$HERE/libexec/vigilance/hooks
+HOOKS=$HERE/libexec/hooks
 LEVEL=$T/level            # the stub device's current brightness
 export VIGILANCE_STATE_DIR=$T/state
 mkdir -p "$VIGILANCE_STATE_DIR"

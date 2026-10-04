@@ -37,8 +37,8 @@ set -eu
 . "$(dirname "$0")/harness_lib"
 harness_init level-rules
 
-PLUGINS=$HERE/libexec/vigilance
-HOOKLIB=$PLUGINS/hook_lib
+PLUGINS=$HERE/libexec
+HOOKLIB=$HERE/lib/hook_lib
 [ -f "$HOOKLIB" ] || fail "no hook_lib at $HOOKLIB"
 
 # --- the table --------------------------------------------------------------

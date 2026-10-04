@@ -32,7 +32,7 @@ set -eu
 . "$(dirname "$0")/harness_lib"
 harness_init swayidle-due
 
-HOOK=$HERE/libexec/vigilance/hooks/swayidle-due
+HOOK=$HERE/libexec/hooks/swayidle-due
 
 # The live argv from manifold, verbatim.
 {

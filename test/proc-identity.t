@@ -38,7 +38,7 @@ set -eu
 . "$(dirname "$0")/harness_lib"
 . "$(dirname "$0")/scenario_lib"
 scenario_init proc-identity
-. "$HERE/libexec/vigilance/hook_lib"
+. "$HERE/lib/hook_lib"
 
 LONG=xfce4-screensaver      # 17 bytes; comm holds xfce4-screensav
 SHORT=lockXsafe             # 9 bytes, and an ERE dot in its place matches it

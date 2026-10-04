@@ -33,7 +33,8 @@ vigilance installs its hooks AVAILABLE but never ENABLED. Symlink the wanted
 ones into `~/.config/vigilance/hooks/<edge>.d/`. `panel-power`'s inventory,
 translated:
 
-    sleep.d/10-ddc-monitor      -> ~/.local/libexec/vigilance/hooks/ddc-monitor
+    (<payload> = ~/.local/share/vigilance)
+    sleep.d/10-ddc-monitor      -> <payload>/libexec/hooks/ddc-monitor
     sleep.d/20-panel-backlight  -> ...hooks/panel-backlight
     sleep.d/30-kbd-backlight    -> ...hooks/kbd-backlight
     sleep.d/40-mute-leds        -> ...hooks/mute-leds

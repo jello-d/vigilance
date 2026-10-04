@@ -36,7 +36,7 @@ set -eu
 . "$(dirname "$0")/harness_lib"
 harness_init lock-blank
 
-HOOK=$HERE/libexec/vigilance/hooks/lock-blank
+HOOK=$HERE/libexec/hooks/lock-blank
 mkdir -p "$T/bin" "$T/state"
 
 # $T/bin STAYS ON PATH, and it is worth saying what for now that pgrep and pkill
@@ -274,7 +274,7 @@ esac
 # was never called for two days; here it is a fixture and deliberate.
 FAILDIR=$T/failsig
 mkdir -p "$FAILDIR/hooks"
-cp "$HERE/libexec/vigilance/hook_lib" "$FAILDIR/hook_lib"
+cp "$HERE/lib/hook_lib" "$FAILDIR/hook_lib"
 printf 'hook_proc_signal() { return 1; }\n' >> "$FAILDIR/hook_lib"
 cp "$HOOK" "$FAILDIR/hooks/lock-blank"
 chmod +x "$FAILDIR/hooks/lock-blank"

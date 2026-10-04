@@ -22,7 +22,7 @@ set -eu
 . "$(dirname "$0")/harness_lib"
 harness_init screen-dark
 
-HOOK=$HERE/libexec/vigilance/hooks/screen-dark
+HOOK=$HERE/libexec/hooks/screen-dark
 mkdir -p "$T/bin"
 
 # THE BACKLIGHT ROOT IS PINNED AND EMPTY BY DEFAULT. Every case here is about

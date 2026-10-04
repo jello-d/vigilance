@@ -102,7 +102,7 @@ stdout can hold the lock edge open until systemd reaps the suspend unit, and
 the machine sleeps unlocked"
 fi
 
-# --- 4. `fx:mean` AVERAGES ALPHA (libexec/vigilance/hook_lib) -------------
+# --- 4. `fx:mean` AVERAGES ALPHA (lib/hook_lib) -------------
 # hook_screen_luma passes `-alpha off` for exactly one reason, and it is not
 # tidiness: without it an opaque all-black grab reads 0.25, and the tier that
 # measures a blanked screen called a working mechanism broken while the user was

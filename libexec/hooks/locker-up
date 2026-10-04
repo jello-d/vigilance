@@ -58,7 +58,7 @@
 set -eu
 
 _self=$(readlink -f "$0")
-. "$(dirname "$_self")/../hook_lib"
+. "$(dirname "$_self")/../../lib/hook_lib"
 
 edge=${1:-${VIGILANCE_EDGE:-}}
 

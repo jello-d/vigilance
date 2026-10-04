@@ -22,7 +22,7 @@ set -eu
 . "$(dirname "$0")/scenario_lib"
 scenario_init dpms
 
-DPMS=$HERE/libexec/vigilance/hooks/dpms
+DPMS=$HERE/libexec/hooks/dpms
 CALLS=$T/wlopm-calls
 
 # A recorder wlopm. With no arguments it LISTS (the hook uses a bare `wlopm` as

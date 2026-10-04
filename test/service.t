@@ -62,7 +62,7 @@ $_left"
 done
 grep -q "ExecStart=$PREFIX/bin/vigilant " "$USR/vigilance-enforce.service" \
   || fail "@VIGILANT@ did not render to the prefix this install actually used"
-grep -q "ExecStart=$PREFIX/libexec/vigilance/triggers/logind-lock" \
+grep -q "ExecStart=$PREFIX/libexec/triggers/logind-lock" \
   "$USR/vigilance-logind.service" \
   || fail "@PLUGINS@ did not render to this install's plugin tree"
 

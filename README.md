@@ -252,7 +252,7 @@ down by a machine hook must be back before a user hook tries to unmute it.
 single-instance idle timer; `idle-capture` and `lock-watch` are opt-in
 diagnostics.
 
-`libexec/vigilance/` holds plugins that are **available and wired by nobody**.
+`libexec/` holds plugins that are **available and wired by nobody**.
 An integrator chooses which run on which edge, because that is policy:
 
     hooks/ddc-monitor      real screen-off over DDC/CI (VCP D6), modeset-safe

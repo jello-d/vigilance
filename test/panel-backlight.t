@@ -29,7 +29,7 @@ set -eu
 . "$(dirname "$0")/harness_lib"
 harness_init panel-backlight
 
-HOOK=$HERE/libexec/vigilance/hooks/panel-backlight
+HOOK=$HERE/libexec/hooks/panel-backlight
 mkdir -p "$T/bin" "$T/state"
 
 # A brightnessctl that models a machine with NO backlight device and one leds

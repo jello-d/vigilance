@@ -17,8 +17,8 @@ _vskip=
 # `dash -n` finds in 0.05s. A probe is worse placed to absorb that, because the
 # cost of a broken one is somebody's cooperation rather than a rerun.
 for _f in "$HERE"/bin/* "$HERE"/setup.sh \
-          "$HERE"/libexec/vigilance/hook_lib \
-          "$HERE"/libexec/vigilance/hooks/* "$HERE"/test/probe/*; do
+          "$HERE"/lib/hook_lib \
+          "$HERE"/libexec/hooks/* "$HERE"/test/probe/*; do
   [ -f "$_f" ] || continue
   # DOCUMENTATION IS NOT A SCRIPT. Skipped by extension rather than by dropping
   # non-executable files, because "skip what is not executable" would silently
@@ -59,9 +59,9 @@ done
 #
 # `dash -n` cannot see this: two definitions are perfectly valid shell.
 _dupes=
-for _f in "$HERE"/bin/* "$HERE"/libexec/vigilance/hook_lib \
-          "$HERE"/libexec/vigilance/hooks/* \
-          "$HERE"/libexec/vigilance/providers/*; do
+for _f in "$HERE"/bin/* "$HERE"/lib/hook_lib \
+          "$HERE"/libexec/hooks/* \
+          "$HERE"/libexec/providers/*; do
   [ -f "$_f" ] || continue
   _d=$(grep -oE '^[_a-zA-Z][_a-zA-Z0-9]*\(\)' "$_f" | sort | uniq -d)
   [ -n "$_d" ] && _dupes="$_dupes $(basename "$_f"):$(echo $_d | tr ' ' ',')"
@@ -73,5 +73,5 @@ the old body behind passes every test (the shadowing copy behaves the same)
 right up until someone fixes the copy that is never called."
 
 pass "$(ls "$HERE"/bin | wc -l | tr -d ' ') tools + $(ls \
-  "$HERE"/libexec/vigilance/hooks | wc -l | tr -d ' ') hooks + setup.sh\
+  "$HERE"/libexec/hooks | wc -l | tr -d ' ') hooks + setup.sh\
  parse${_vskip:+ (not checked:$_vskip)}"

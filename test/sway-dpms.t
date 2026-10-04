@@ -23,7 +23,7 @@ set -eu
 . "$(dirname "$0")/harness_lib"
 harness_init sway-dpms
 
-HOOK=$HERE/libexec/vigilance/hooks/sway-dpms
+HOOK=$HERE/libexec/hooks/sway-dpms
 mkdir -p "$T/bin"
 
 # A swaymsg that can be made absent, unreachable, or answerable on demand, and

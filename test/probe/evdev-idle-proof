@@ -96,7 +96,7 @@ actuator and only the observation phase could run"
 # partly a sandbox, which has bitten this project before.
 CTL_STATE=$D/state
 mkdir -p "$CTL_STATE"
-COUNTERS=$HERE/../../libexec/vigilance/hooks/input-counters
+COUNTERS=$HERE/../../libexec/hooks/input-counters
 # FIELD ONE, as every consumer of an idle source takes it. The answer line now
 # carries what the clock has DEMONSTRATED after the number ("0 ceiling=93
 # age=93"), so echoing the whole thing printed "idle 0 ceiling=93 age=93s" in

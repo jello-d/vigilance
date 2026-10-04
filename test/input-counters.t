@@ -19,7 +19,7 @@ set -eu
 . "$(dirname "$0")/harness_lib"
 harness_init input-counters
 
-HOOK=$HERE/libexec/vigilance/hooks/input-counters
+HOOK=$HERE/libexec/hooks/input-counters
 # NO `device` ENTRY UP FRONT. Creating it as a DIRECTORY means a later
 # `ln -sfn` drops the symlink INSIDE it instead of replacing it, so the USB
 # parent is never reached and the urbnum case passes on the i8042 counter

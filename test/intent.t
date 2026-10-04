@@ -15,7 +15,7 @@ set -eu
 . "$(dirname "$0")/scenario_lib"
 scenario_init intent
 
-. "$HERE/libexec/vigilance/hook_lib"
+. "$HERE/lib/hook_lib"
 # THE WHOLE LADDER REGION COMES WITH IT. _intent_of used to carry the entire
 # vocabulary in a case statement and could be lifted alone. It is DERIVED now,
 # from LADDER_TABLE, through an eval that flattens the table into lookup

@@ -217,10 +217,10 @@ hibernate but not reboot. That is correct: a boot means we are at the top.
 Shipped by vigilance, AVAILABLE but not enabled (a hook that ships enabled is
 vigilance making a policy decision):
 
-    libexec/vigilance/hooks/ddc-monitor       DDC/MCCS, any external panel
-    libexec/vigilance/hooks/panel-backlight   brightnessctl, any laptop
-    libexec/vigilance/hooks/kbd-backlight     discovered LED, not hardcoded
-    libexec/vigilance/hooks/mute-leds         brightnessctl; see 10.3
+    libexec/hooks/ddc-monitor       DDC/MCCS, any external panel
+    libexec/hooks/panel-backlight   brightnessctl, any laptop
+    libexec/hooks/kbd-backlight     discovered LED, not hardcoded
+    libexec/hooks/mute-leds         brightnessctl; see 10.3
 
 Shipped by the integrator (tackup), because it is inventory:
 
@@ -402,7 +402,7 @@ Each stage lands independently and leaves the box working.
 1. LADDER, RUNNER, HOOKS. Deletes panel-power's inventory, kills the silent
    `execl`, removes the `link/bin/panel-power` shim.
    BUILT so far: `bin/vigilant` (ladder, depth invariant, loud hook failure,
-   `verify` as the shared oracle); `libexec/vigilance/hooks/{ddc-monitor,
+   `verify` as the shared oracle); `libexec/hooks/{ddc-monitor,
    panel-backlight,kbd-backlight,mute-leds}` plus `hook_lib`; `setup.sh`
    installs libexec AVAILABLE-but-unwired; the shared scenario vocabulary and
    four scenarios. NOT yet done: retire `panel-power` itself, and point

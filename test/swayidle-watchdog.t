@@ -19,7 +19,7 @@ set -eu
 . "$(dirname "$0")/harness_lib"
 harness_init swayidle-watchdog
 
-HOOK=$HERE/libexec/vigilance/hooks/swayidle-watchdog
+HOOK=$HERE/libexec/hooks/swayidle-watchdog
 mkdir -p "$T/bin" "$T/state/swayidle-mgr"
 LOG=$T/state/swayidle-mgr/events.log
 

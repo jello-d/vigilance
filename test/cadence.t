@@ -101,7 +101,7 @@ mkdir -p "$VIGILANCE_HOOK_ROOT/lock.verify.d"
 cat > "$VIGILANCE_HOOK_ROOT/lock.verify.d/10-throttled" <<EOF
 #!/bin/sh
 set -eu
-. "$HERE/libexec/vigilance/hook_lib"
+. "$HERE/lib/hook_lib"
 hook_throttle 3600 && exit 75
 echo "checked"
 EOF
@@ -172,7 +172,7 @@ mkdir -p "$VIGILANCE_HOOK_ROOT/sleep.verify.d"
 cat > "$VIGILANCE_HOOK_ROOT/sleep.verify.d/10-interval" <<EOF
 #!/bin/sh
 set -eu
-. "$HERE/libexec/vigilance/hook_lib"
+. "$HERE/lib/hook_lib"
 hook_throttle 3600 && exit 75
 printf 'ran\n' >> $T/interval-runs
 EOF
