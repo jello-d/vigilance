@@ -149,6 +149,39 @@ crun install >/dev/null 2>&1 || fail "copy install errored"
   && fail "copy mode left a SYMLINK; it must be a real file"
 [ -f "$T/copy/libexec/hooks/ddc-monitor" ] \
   || fail "copy mode did not copy the plugin tree"
+# THE PRIVILEGED BRANCH, WHICH THIS TEST CANNOT EXECUTE, so it is asserted
+# STATICALLY instead. copy-mode install chowns the tree root:root and strips
+# group/other write, because a greeter executes those hooks and the login user
+# must not be able to rewrite them. That runs only under `id -u` = 0, so a test
+# running as a user reaches `cp` and never `chown`. That is exactly how the
+# flattening shipped a chown still naming the vacated libexec/<pkg> path. The
+# install then died on `chown: cannot access` and took tackup's lock phase with
+# it, on a real box, with this suite green.
+#
+# ASSERTED AS "the same variable the copy used", not as "not the old path": a
+# chown of a SEPARATELY WRITTEN path is the defect, whatever that path says
+# today, and one variable for cp, chown and chmod cannot drift from itself.
+# Anchored on the comment unique to this block, not on the INSTALL_COPY test:
+# that test appears four times (here, _place, uninstall, check) and a range from
+# the first one lands in _place.
+_cpblk=$(sed -n '/THE .cp -a. TRAP _place DOCUMENTS/,/^      done$/p' \
+         "$HERE/setup.sh")
+[ -n "$_cpblk" ] || fail "premise: cannot extract the copy-mode install block"
+printf '%s' "$_cpblk" | grep -q 'cp -a "$_root/$_cd" "$_cdst"' \
+  || fail "copy-mode install no longer copies through \$_cdst, so the check
+below cannot tell whether chown follows the copy"
+for _pv in chown chmod; do
+  _tgts=$(printf '%s' "$_cpblk" | grep -E "^\s*$_pv -R " \
+          | grep -oE '"\$[A-Za-z_]+"' | sort -u)
+  [ -n "$_tgts" ] || fail "copy-mode install has no $_pv -R: the privileged
+hardening that keeps a greeter-executed hook out of the login user's reach is
+gone, and no test here can execute that branch to notice"
+  [ "$_tgts" = '"$_cdst"' ] \
+    || fail "copy-mode $_pv -R targets $_tgts, not \"\$_cdst\" (the path the
+copy writes). A separately written path is what broke when the tree flattened:
+the copy moved, this did not, and the install died on a missing directory."
+done
+
 [ -f "$T/copy/lib/hook_lib" ] \
   || fail "copy mode did not copy lib/, so every plugin exits 2 unable to
 source hook_lib"

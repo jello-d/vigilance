@@ -284,20 +284,11 @@ do_install() {
       # rm first: cp -a of a directory ONTO an existing one nests it rather
       # than replacing it, which would leave a stale tree one level down.
       rm -rf "$_lib/$PKG"
-      for _cd in lib libexec; do
-        _cdst=$PREFIX/$_cd
-        case $_cdst in
-        /*/"$_cd") ;;
-        *) echo "$PKG: refusing to replace '$_cdst'" >&2; return 1 ;;
-        esac
-        rm -rf -- "$_cdst"
-        cp -a "$_root/$_cd" "$_cdst"
-      done
-      # THE SAME `cp -a` TRAP _place DOCUMENTS, and which _place fixed only for
-      # the BINARIES. --preserve=all carries the SOURCE's ownership AND mode
-      # across even when the copy runs as root, and the clone lives in a user's
-      # home with a user's umask. So a root install produced
-      # /opt/vigilance/libexec/vigilance owned jello:jello and group-WRITABLE.
+      # THE `cp -a` TRAP _place DOCUMENTS, and which _place fixed only for the
+      # BINARIES. --preserve=all carries the SOURCE's ownership AND mode across
+      # even when the copy runs as root, and the clone lives in a user's home
+      # with a user's umask. So a root install produced a /opt/vigilance tree
+      # owned jello:jello and group-WRITABLE.
       #
       # That is not untidiness once the tree is shared: the machine-scope hook
       # wiring symlinks into it, and a GREETER executes those hooks. A file the
@@ -307,12 +298,28 @@ do_install() {
       #
       # Found on a real box after the migration: 19 entries under /opt/vigilance
       # were jello:jello, including every hook and hook_lib itself.
-      if [ "$(id -u)" = 0 ]; then
-        chown -R root:root "$_lib/$PKG"
-        # Strip group/other write as well. Ownership alone is not enough: a
-        # 0775 root-owned dir is still writable by anyone in the root group.
-        chmod -R go-w "$_lib/$PKG"
-      fi
+      #
+      # IN THE LOOP, AGAINST THE SAME VARIABLE THAT WAS COPIED, which is the
+      # whole point rather than a tidy-up: it used to chown a SEPARATELY WRITTEN
+      # path, and when the tree flattened the copy moved and the chown did not,
+      # so it named a directory that no longer existed. The install then died on
+      # `chown: cannot access`, which took tackup's lock phase down with it. One
+      # variable for rm, cp, chown and chmod cannot drift from itself.
+      for _cd in lib libexec; do
+        _cdst=$PREFIX/$_cd
+        case $_cdst in
+        /*/"$_cd") ;;
+        *) echo "$PKG: refusing to replace '$_cdst'" >&2; return 1 ;;
+        esac
+        rm -rf -- "$_cdst"
+        cp -a "$_root/$_cd" "$_cdst"
+        if [ "$(id -u)" = 0 ]; then
+          chown -R root:root "$_cdst"
+          # Strip group/other write as well. Ownership alone is not enough: a
+          # 0775 root-owned dir is still writable by anyone in the root group.
+          chmod -R go-w "$_cdst"
+        fi
+      done
     else
       # THE STRUCK ROOT. `~/.local/libexec/<pkg>` is gone as a concept: it was
       # a symlink into the clone, so it dangled on every re-clone, and the
@@ -649,11 +656,20 @@ _check_stale_trees() {
   # copy went unmentioned. A warning that fingers the live tree is worse than no
   # warning: it sends you to delete the thing that is working.
   _inuse=
+  _inuse_pfx=
   for _p in "$MACHINE_HOOK_ROOT"/*/* "$_cfg/$PKG/hooks"/*/*; do
     if [ ! -e "$_p" ]; then continue; fi
     _t=$(readlink -f "$_p" 2>/dev/null || true)
     case "${_t:-}" in
-      */libexec/$PKG/*) _inuse=${_t%%/libexec/$PKG/*}/libexec/$PKG; break ;;
+      # THE LEGACY NESTED SHAPE FIRST, because the flat pattern below matches a
+      # nested path too and would answer one level too high. Both are live:
+      # a box runs whichever tree its last install placed.
+      */libexec/$PKG/*)
+        _inuse=${_t%%/libexec/$PKG/*}/libexec/$PKG
+        _inuse_pfx=${_t%%/libexec/$PKG/*}; break ;;
+      */libexec/*)
+        _inuse=${_t%%/libexec/*}/libexec
+        _inuse_pfx=${_t%%/libexec/*}; break ;;
     esac
   done
   for _st in "$_lib/$PKG" /opt/$PKG/libexec/$PKG /usr/local/libexec/$PKG; do
@@ -699,19 +715,35 @@ _check_root_inputs() {
   # nothing executes while the executed one went unexamined, which is how it
   # read "[OK] user-owned, correct for a user prefix" on a box whose live tree
   # was 19 files owned by the login user.
-  _tree=${_inuse:-$_lib/$PKG}
-  case "$_tree" in
+  # BOTH IMPLEMENTATION DIRS, since the flattening: a hook the greeter executes
+  # SOURCES lib/hook_lib, so a login-user-writable lib/ is the same escalation
+  # as a writable libexec/ and was not being looked at.
+  #
+  # AND COUNTING WHAT IT EXAMINED, because the previous form returned 0 when its
+  # ONE path was absent, and after the flattening it always was: it reported
+  # nothing at all, silently, where the whole point of this function is
+  # to refuse a tree the login user can rewrite. An empty examination must stay
+  # silent, but it must not be reachable by naming the wrong directory.
+  _pfx=${_inuse_pfx:-$PREFIX}
+  case "$_pfx" in
     /usr/*|/etc/*|/opt/*|/var/*)
-      if [ ! -d "$_tree" ]; then
+      _nonroot=0; _writable=0; _seen=0
+      for _td in lib libexec; do
+        [ -d "$_pfx/$_td" ] || continue
+        _seen=$((_seen + 1))
+        _nonroot=$((_nonroot + $(find "$_pfx/$_td" \! -user root 2>/dev/null \
+          | wc -l)))
+        _writable=$((_writable + $(find "$_pfx/$_td" -perm /022 2>/dev/null \
+          | wc -l)))
+      done
+      if [ "$_seen" = 0 ]; then
         return 0
       fi
-      _nonroot=$(find "$_tree" \! -user root 2>/dev/null | wc -l)
-      _writable=$(find "$_tree" -perm /022 2>/dev/null | wc -l)
       if [ "$_nonroot" = 0 ] && [ "$_writable" = 0 ]; then
         ok "shared plugin tree is root-owned and not writable by anyone else"
       else
         bad "shared plugin tree has $_nonroot non-root and $_writable"\
-" group/other-writable entries under $_tree; a greeter executes these"\
+" group/other-writable entries under $_pfx; a greeter executes these"\
 " hooks, so the login user must not be able to rewrite them"
       fi ;;
     "$HOME"/*) ok "plugin tree is user-owned, correct for a user prefix" ;;
