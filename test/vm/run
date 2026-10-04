@@ -49,9 +49,23 @@ RELEASE=${VIGILANCE_VM_RELEASE:-resolute}
 # disk is cheap and a repavable guest saves more time than it costs. What a
 # desktop actually buys is a COMPETING ACTUATOR, and that is a question about
 # coexistence rather than about whether the hooks work.
+#
+# `acl` IS HERE FOR A BRANCH, NOT FOR A TEST. Without it `plan.t` case 5 simply
+# did not run in this tier, which is how it was noticed, but the real cost was
+# larger: `_plan_reach` gates its ACL arm on `command -v getfacl`, so with the
+# package absent the whole believe-a-named-grant branch is DEAD CODE in the
+# guest. This is the only tier with a greeter-shaped context, and an ACL is
+# exactly how an integrator deliberately opens a path to the greeter, so that
+# branch guards a privilege boundary and was exercised on a developer's box
+# alone. One package carries both getfacl and setfacl.
+#
+# NOT root-sensitive, which is what makes it worth having here: `_plan_reach`
+# COMPUTES from the mode bits and the ACL about another uid rather than
+# attempting access, so running as root does not make the case pass vacuously
+# the way `chmod a-w` does in the fault cells.
 PKGS='dash util-linux sway swaylock swayidle dbus-user-session wayfire git
 greetd xvfb x11-xserver-utils xprintidle i3lock imagemagick
-xserver-xorg-core'
+xserver-xorg-core acl'
 
 # --- FLAVOURS ---------------------------------------------------------------
 # A FLAVOUR IS A DESKTOP ENVIRONMENT, and it exists because the interesting
