@@ -578,17 +578,76 @@ _check_access() {
 # as its own user with its own home. Checking only the first cried wolf at once:
 # all four units reported "not placed" on a correctly wired box while systemd
 # had them active from /etc/systemd/user. Caught by running the new check.
+# AND THE RENDERED PATH STILL RESOLVES, which is a PLACEMENT question and so
+# belongs here rather than with the liveness ones above. These units carry a
+# SUBSTITUTED @VIGILANT@ or @PLUGINS@, so a layout change moves the target out
+# from under a unit already on disk, and that is the one failure neither this
+# check nor `vigilant report` could see.
+#
+# MEASURED 2026-10-04, and it is why this exists: a copy-mode install placed the
+# flattened libexec and then DIED before re-rendering, leaving
+# vigilance-logind.service pointing at a triggers/ path one directory level that
+# no longer had. systemd read `active (running)` for 23 hours, because the
+# process had been started while the file still existed and the kernel holds the
+# inode of a deleted one. So the Session.Lock listener worked and could never
+# RESTART: the next logout, reboot or crash would have left AC lid-close and
+# `loginctl lock-session` silently not locking. For the one unit that crosses
+# the lock edge, that is the dangerous direction.
+# THE SYSTEM --user UNIT DIR IS A SEAM, for the reason VIGILANCE_CHECK_PATH is
+# one: without it a SANDBOXED check falls back to the host's /etc/systemd/user
+# and renders a verdict about the developer's box rather than about the install
+# under test. Found immediately: the ExecStart assertion below read the host's
+# real (and genuinely broken) logind unit from inside a scratch prefix.
+SYS_USER_UNITS=${VIGILANCE_SYS_USER_UNITS:-/etc/systemd/user}
+SYS_UNITS=${VIGILANCE_SYS_UNITS:-/etc/systemd/system}
+
+_check_unit_exec() {   # <unit> <unit-file>
+  _ex=$(sed -n 's/^ExecStart=\([^ ]*\).*/\1/p' "$2" | head -1)
+  [ -n "$_ex" ] || return 0
+  # systemd's prefixes: `-` tolerates failure, `@` overrides argv0. Neither is
+  # part of the path.
+  _ex=${_ex#-}; _ex=${_ex#@}
+  # ANY systemd SPECIFIER IS SKIPPED, %h included, and that is the scope rather
+  # than a shortcut. This asks whether a SUBSTITUTED path still resolves: the
+  # rendering replaces @VIGILANT@ and @PLUGINS@ with absolute paths this
+  # installer chose, so it is answerable for those. `%h/.local/bin/swayidle-mgr`
+  # is the unit's own fixed contract, expanded per user by systemd, and its
+  # absence means the tool is not installed, which the binary checks above
+  # already report. Expanding it against OUR $HOME also answers the wrong
+  # question for a /etc/systemd/user unit: each user there has its own.
+  case $_ex in
+    *%*) return 0 ;;
+  esac
+  if [ -x "$_ex" ]; then
+    ok "$1 ExecStart resolves"
+  else
+    bad "$1 ExecStart is $_ex, which is not an executable"\
+" file. The unit cannot RESTART, and systemd can read it active meanwhile"\
+" from a process started while the file still existed. Re-render it with"\
+" './setup.sh service'."
+  fi
+}
 _check_units() {
   for _u in vigilance-logind.service vigilance-enforce.timer \
             vigilance-audit.timer vigilance-idle.service; do
-    if [ -e "$_usr/$_u" ]; then ok "--user unit $_u placed (this user)"
-    elif [ -e "/etc/systemd/user/$_u" ]; then
-      ok "--user unit $_u placed (/etc/systemd/user; every user)"
+    _uf=
+    if [ -e "$_usr/$_u" ]; then
+      _uf=$_usr/$_u; ok "--user unit $_u placed (this user)"
+    elif [ -e "$SYS_USER_UNITS/$_u" ]; then
+      _uf=$SYS_USER_UNITS/$_u
+      ok "--user unit $_u placed ($SYS_USER_UNITS; every user)"
     else warn "--user unit $_u not placed (run './setup.sh service')"; fi
+    if [ -n "$_uf" ]; then _check_unit_exec "$_u" "$_uf"; fi
   done
   # Root-placed, so their absence is an integrator task rather than our failure.
+  # THEIR ExecStart IS CHECKED TOO, and these are the more security-critical
+  # pair: lock-on-sleep is the Before=sleep.target oneshot that BLOCKS suspend
+  # until the screen is locked, so a stale path there suspends UNLOCKED.
+  # Covering the --user units and not these is one gap invisible in two places.
   for _u in lock-on-sleep.service vigilance-resume.service; do
-    if [ -e "/etc/systemd/system/$_u" ]; then ok "SYSTEM unit $_u placed"
+    if [ -e "$SYS_UNITS/$_u" ]; then
+      ok "SYSTEM unit $_u placed"
+      _check_unit_exec "$_u" "$SYS_UNITS/$_u"
     else warn "SYSTEM unit $_u not placed (needs root; $_root/systemd)"; fi
   done
 }

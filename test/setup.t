@@ -88,7 +88,13 @@ done
 # whatever their box happens to have installed: a verdict about the host rather
 # than about this install. Set to the sandbox bindir alone, so the
 # assertion is both meaningful and about the thing under test.
+# AND THE SYSTEM UNIT DIRS ARE SANDBOXED for the same reason as PATH above:
+# _check_units falls back to /etc/systemd/user when this prefix has no copy, so
+# without these the check reads the HOST's units and renders a verdict about the
+# developer's box. Caught the moment the ExecStart assertion was added: a
+# scratch install reported the host's real broken logind unit.
 PATH="$BIN:$PATH" VIGILANCE_CHECK_PATH="$BIN" \
+  VIGILANCE_SYS_USER_UNITS="$T/sysuser" VIGILANCE_SYS_UNITS="$T/sys" \
   run check >"$T/check.out" 2>&1 || { cat "$T/check.out" >&2
     fail "check failed post-install"; }
 
