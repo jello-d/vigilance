@@ -267,6 +267,14 @@ An integrator chooses which run on which edge, because that is policy:
     hooks/swayidle-watchdog  is the idle timer FIRING, not merely running?
     hooks/input-counters   idle.d: seconds since input, from kernel counters
     hooks/x11-idle         idle.d: the same, ASKED of an X server (xprintidle)
+    hooks/cursor-autohide  cursor.d: is the POINTER auto-hidden on this seat?
+                           Only asked where the panel is darkened by painting
+                           black, because there a notification brings the
+                           pointer up and those pixels emit. Answers for
+                           wayfire (the plugin must be MAPPED, not merely
+                           configured) and for X11 helpers; 78 elsewhere,
+                           because a config-only mechanism such as sway's
+                           `hide_cursor` cannot be asked at run time
     hooks/kbd-backlight    the keyboard backlight (vendor LED, discovered)
     hooks/mute-leds        the mute / mic-mute indicator LEDs
     hooks/logind-hint      SetLockedHint, so the rest of the desktop knows

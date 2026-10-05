@@ -680,6 +680,45 @@ And a disagreement is a WARN rather than a FAIL, because a desktop that owns
 its own locking will raise its screensaver with this ladder correctly at
 .BR open ,
 and a report that is permanently non-zero is one nobody reads.
+.SS cursor.d: is the POINTER auto-hidden
+.PP
+A CROSS\-CUTTING tier, like
+.IR idle.d " and " audit.d ,
+because the pointer belongs to the SEAT rather than to any edge. The runner asks
+it in one place, the
+.B cursor
+section of
+.BR report ,
+and only where the answer matters: a box whose panel is darkened by PAINTING
+BLACK rather than by a backlight or a monitor power state. There the pixels are
+off only while nothing brighter appears, and a notification brings the pointer
+up. Hiding the cursor once when the locker fires does not survive that; the
+mechanism has to be a compositor\-level AUTO\-hide.
+.PP
+THE CONTRACT, and the third value is the point of having a tier at all:
+.TP
+.B 0
+something auto\-hides the pointer. Name it on stdout; the report quotes it.
+.TP
+.B 1
+this platform is RECOGNISED and the mechanism is ABSENT. A real no.
+.TP
+.B 78
+cannot tell here, which is NOT the same as no and is the default answer.
+.PP
+ONE YES IS ENOUGH and one no is not decisive: two mechanisms may be available
+with only one in use, so a single hook answering 0 settles it while a single 1
+must not overrule another that would have said otherwise.
+.PP
+WHY THIS IS A TIER AND NOT A SETTING. There is no platform\-neutral way to
+detect it: no Wayland protocol advertises cursor\-hide state, sway's
+.B hide_cursor
+is a config directive rather than a runtime query, wayfire is answerable only by
+its plugin being MAPPED into the compositor, and X11 only by a helper process
+being alive. A knob would have been a promise; a hook that returns 0 is a
+measurement, and the shipped
+.B cursor\-autohide
+answers for wayfire and for X11 helpers and declines elsewhere.
 .SS Policy and bounds
 .TP
 .B VIGILANCE_HOOK_TIMEOUT

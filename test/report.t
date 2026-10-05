@@ -434,5 +434,90 @@ service: vigilance would launch a screensaver in the act of asking whether one
 is running. Measured on a live box, org.gnome.ScreenSaver is exactly such a
 name."
 
+
+# --- cursor.d: THE POINTER QUESTION, ASKED ONLY WHERE IT MATTERS -------------
+# A box whose panel is darkened by PAINTING BLACK has its pixels off only while
+# nothing brighter appears, and a notification brings the pointer up. Hiding it
+# once when the locker fires does not survive a toast; only a compositor-level
+# auto-hide does. Nothing paired those two reaches until now.
+#
+# THE GATE IS ASSERTED FIRST, and it is the half that keeps this quiet: on a box
+# with a usable backlight the panel goes dark whatever is drawn, so a pointer
+# costs nothing and a warning here would fire on every laptop in the world.
+_cur() {   # <backlight-root> -> the cursor section only
+  VIGILANCE_SYS_BACKLIGHT="$1" "$VIGILANT" report 2>/dev/null \
+    | awk '/^-- cursor --$/ { f = 1; next } /^-- / { f = 0 } f' || true
+}
+mkdir -p "$T/cur-bl/p0" "$T/cur-none" "$VIGILANCE_HOOK_ROOT/cursor.d"
+printf '400\n' > "$T/cur-bl/p0/max_brightness"
+printf '300\n' > "$T/cur-bl/p0/actual_brightness"
+rm -f "$VIGILANCE_HOOK_ROOT"/cursor.d/* 2>/dev/null || true
+
+_o=$(_cur "$T/cur-bl")
+case "$_o" in
+  *'[--]'*'darkens its panel'*) ;;
+  *'[WARN]'*) fail "a box with a usable BACKLIGHT was warned about the pointer.
+There the panel emits nothing whatever is drawn, so this would fire on every
+laptop and the section would be switched off:
+$_o" ;;
+  *) fail "with a backlight present the cursor section must say the question
+does not apply here, rather than going quiet (quiet reads as checked):
+$_o" ;;
+esac
+
+# NOTHING WIRED IS THE FINDING, not an absence of one: that is precisely the
+# box reaching for the painted-black mode with no auto-hide beside it.
+_o=$(_cur "$T/cur-none")
+case "$_o" in
+  *'[WARN]'*'NOTHING is wired'*'cursor.d'*) ;;
+  *) fail "on a box that darkens by PAINTING, with no cursor.d hook at all,
+report said nothing actionable. The whole point is that the reach for the
+painted-black mode and the reach for auto-hide belong together:
+$_o" ;;
+esac
+
+# ALL DECLINED IS NOT A NO. 78 means the platform cannot be asked, and treating
+# that as a fault would warn for ever on every stack this cannot answer for.
+printf '#!/bin/sh\nexit 78\n' > "$VIGILANCE_HOOK_ROOT/cursor.d/10-na"
+chmod +x "$VIGILANCE_HOOK_ROOT/cursor.d/10-na"
+_o=$(_cur "$T/cur-none")
+case "$_o" in
+  *'[--]'*'cannot be told'*) ;;
+  *'[WARN]'*) fail "every cursor.d hook DECLINED and report treated it as a
+fault. 78 is not 0 and it is not 1: it means the platform cannot be asked, and
+warning on it is how a tier gets switched off:
+$_o" ;;
+  *) fail "a declined cursor.d tier must SAY the question could not be
+answered here: $_o" ;;
+esac
+
+# A REAL NO WARNS, and names which hook said so.
+printf '#!/bin/sh\nexit 1\n' > "$VIGILANCE_HOOK_ROOT/cursor.d/20-no"
+chmod +x "$VIGILANCE_HOOK_ROOT/cursor.d/20-no"
+_o=$(_cur "$T/cur-none")
+case "$_o" in
+  *'[WARN]'*'NOT auto-hidden'*'20-no'*) ;;
+  *) fail "a cursor.d hook answering 1 (recognised platform, mechanism absent)
+must warn AND name the hook that said so:
+$_o" ;;
+esac
+
+# AND ONE YES OUTRANKS A NO, which is the asymmetry the contract rests on: two
+# mechanisms may be available with only one in use, so a hook that can SEE one
+# settles the question while a hook that cannot must not overrule it.
+printf '#!/bin/sh\necho "a test mechanism"\nexit 0\n' \
+  > "$VIGILANCE_HOOK_ROOT/cursor.d/30-yes"
+chmod +x "$VIGILANCE_HOOK_ROOT/cursor.d/30-yes"
+_o=$(_cur "$T/cur-none")
+case "$_o" in
+  *'[OK]'*'auto-hidden here, per a test mechanism'*) ;;
+  *) fail "with one hook answering YES beside one answering NO, report must
+take the YES and quote what it named. Otherwise a box with auto-hide in place
+is warned at because a second hook could not see it:
+$_o" ;;
+esac
+rm -f "$VIGILANCE_HOOK_ROOT"/cursor.d/*
+
 pass "reporters, the rc carve-out, coherence's three dark outcomes, the\
- bounded claim at 'open' and the foreign-screensaver widening"
+ bounded claim at 'open', the foreign-screensaver widening and cursor.d's\
+ four outcomes"

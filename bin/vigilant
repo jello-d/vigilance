@@ -244,7 +244,7 @@ NEVER_ENFORCED='suspend'
 
 # The cross-cutting tiers are NOT edges. Listing them beside edges is what once
 # made an audit hook read as wired while nothing would ever run it.
-CROSS_KINDS='audit alert idle watchdog'
+CROSS_KINDS='audit alert cursor idle watchdog'
 
 _lt() { printf '%s\n' "$LADDER_TABLE"; }
 
@@ -2548,6 +2548,41 @@ _trig_holder() {   # <handler> -> "a, b" or nothing
     END { if (s != "") print s }'
 }
 
+_rep_cursor() {
+  # ITS OWN SECTION, for the reason `triggers` has one: an assertion can then be
+  # scoped to it rather than to report's single exit code over a dozen of them.
+  #
+  # ASKED ONLY WHERE THE ANSWER MATTERS. On a box with a usable backlight the
+  # panel genuinely goes dark whatever is drawn, so a visible pointer costs
+  # nothing and a line here would be noise on every laptop in the world. The
+  # gate is `lock-blank`'s own predicate, from the same inputs.
+  echo "-- cursor --"
+  if ! _paints_to_darken; then
+    _r_info "n/a: this box darkens its panel, so what is DRAWN does not matter"\
+" (the pointer question is only about a painted-black surface)"
+    return 0
+  fi
+  CURSOR_BY=
+  _crc=0
+  _cursor_hidden || _crc=$?
+  case $_crc in
+    0) _r_ok "the pointer is auto-hidden here, per $CURSOR_BY" ;;
+    1) _r_warn "a cursor.d hook reports the pointer is NOT auto-hidden"\
+" ($CURSOR_BY), and this box darkens by PAINTING BLACK: a notification brings"\
+" the pointer up and those pixels emit. Hiding it once when the locker fires"\
+" does not survive a toast; the mechanism has to be a compositor-level"\
+" AUTO-hide" ;;
+    2) _r_info "cursor.d is wired and every hook declined, so whether the"\
+" pointer is auto-hidden cannot be told on this platform. screen-dark's PEAK"\
+" is what still measures the outcome" ;;
+    *) _r_warn "this box darkens by PAINTING BLACK and NOTHING is wired to say"\
+" whether the pointer is auto-hidden (cursor.d is empty). A notification"\
+" brings the pointer up on a surface whose pixels are otherwise off, so the"\
+" painted-black mode wants pairing with a compositor-level auto-hide, and a"\
+" cursor.d hook is how this box would say so" ;;
+  esac
+}
+
 _rep_triggers() {
   # ITS OWN SECTION, so an assertion can be scoped to it rather than to report's
   # single exit code over a dozen of them.
@@ -3391,6 +3426,7 @@ cmd_report() {
   _rep_verify
   _rep_cadence
   _rep_coverage
+  _rep_cursor
   _rep_triggers
   _rep_deadlines
   _rep_machinery
@@ -3659,6 +3695,94 @@ _idle_bound() {   # <seconds> -> the same, bounded by the last ascent
     if [ "$_ibs" -lt "$_ibv" ]; then _ibv=$_ibs; fi
   fi
   printf '%s' "$_ibv"
+}
+
+# IS THE POINTER AUTO-HIDDEN? A cross-cutting question like idle time, and for
+# the same reason: it belongs to the SEAT rather than to any edge.
+#
+# WHY IT IS A TIER AND NOT A KNOB. There is no platform-neutral way to DETECT
+# this, measured 2026-10-04: no Wayland protocol advertises cursor-hide state at
+# all, sway's `hide_cursor` is a config directive rather than a runtime query,
+# wayfire is only answerable by its plugin being mapped into the compositor, and
+# X11 only by a helper process being alive. Four stack-specific probes, three of
+# which can be confidently wrong. So the framework asks the question and a
+# PLUGIN answers it, which is the same bargain every other tier here makes: we
+# ship the extension point, the integrator supplies the mechanism. A hook that
+# returns 0 is a MEASUREMENT; a knob would only have been a promise.
+#
+# WHY THE QUESTION IS WORTH ASKING AT ALL. On a panel whose only darkening
+# mechanism is a painted-black lock surface, the pixels are off only while
+# NOTHING BRIGHTER APPEARS, and a notification brings the pointer up. Hiding the
+# cursor once when the locker fires does not survive that; only a
+# compositor-level AUTO-hide does. The reach for the painted-black mode and the
+# reach for auto-hide belong together, and nothing said so.
+#
+#   0  a mechanism answered YES, and NAMES itself on stdout
+#   1  a mechanism answered NO: it knows this platform and the thing is absent
+#   2  wired, and every hook DECLINED (HOOK_NA): cannot tell here
+#   3  nothing wired, so the question has no answer on this box
+#
+# ONE YES IS ENOUGH, and that asymmetry is deliberate: two mechanisms may be
+# available and only one in use, so a single hook saying "hidden" settles it
+# while a single "not hidden" must not overrule another that says otherwise.
+_cursor_hidden() {
+  _chl=$(_hooks_for cursor)
+  [ -n "$_chl" ] || return 3
+  _chsaw=0
+  _chno=
+  _chifs=$IFS
+  IFS='
+'
+  for _chh in $_chl; do
+    IFS=$_chifs
+    [ -n "$_chh" ] || continue
+    _cho=$RUN_DIR/cursor.$$
+    _chrc=0
+    # Through a FILE rather than $(...), like every other bounded tier: a
+    # command substitution waits for the PIPE to close, so a hook that leaves a
+    # child on stdout defeats the bound outright. Measured at 21s against 2s.
+    _chsd=$STATE_ROOT/$(basename "$_chh")
+    mkdir -p "$_chsd" 2>/dev/null || true
+    VIGILANCE_KIND=cursor VIGILANCE_STATE_DIR="$_chsd" PATH="$HOOK_PATH" \
+      $HOOK_TMO "$_chh" > "$_cho" 2>/dev/null || _chrc=$?
+    case $_chrc in
+      0)  CURSOR_BY=$(head -1 "$_cho" 2>/dev/null)
+          [ -n "$CURSOR_BY" ] || CURSOR_BY=$(basename "$_chh")
+          rm -f "$_cho" 2>/dev/null || true
+          IFS=$_chifs
+          return 0 ;;
+      "$HOOK_NA") _chsaw=1 ;;
+      *)  _chsaw=1
+          _chno="${_chno:+$_chno }$(basename "$_chh")" ;;
+    esac
+    rm -f "$_cho" 2>/dev/null || true
+  done
+  IFS=$_chifs
+  if [ -n "$_chno" ]; then CURSOR_BY=$_chno; return 1; fi
+  [ "$_chsaw" = 1 ] && return 2
+  return 3
+}
+
+# DOES THIS BOX DARKEN BY PAINTING? The gate for the question above, and it is
+# the SAME CHEAP PREDICATE `lock-blank` decides with, read from the same two
+# inputs so the two cannot come to disagree: a usable sysfs backlight, and the
+# operator's own override. That hook's comment says the predicate is
+# deliberately cheap rather than honest (the honest one needs the output list
+# and ddcutil on the lock path), and re-deriving it here from anything else
+# would be a second answer to one question.
+_paints_to_darken() {
+  case "${VIGILANCE_LOCK_BLANK:-auto}" in
+    never) return 1 ;;
+    always) return 0 ;;
+  esac
+  for _pd in "$SYS_BACKLIGHT"/*; do
+    [ -r "$_pd/max_brightness" ] || continue
+    _pdm=$(cat "$_pd/max_brightness" 2>/dev/null || echo 0)
+    case $_pdm in ''|*[!0-9]*) continue ;; esac
+    # max_brightness 0 IS NOT A BACKLIGHT, the same carve-out lock-blank makes.
+    [ "$_pdm" -gt 1 ] && return 1
+  done
+  return 0
 }
 
 _idle_secs() {   # -> seconds since last seat input, or empty if unknowable

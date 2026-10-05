@@ -1,0 +1,86 @@
+#!/bin/sh
+# cursor-autohide - does something auto-hide the pointer on this seat?
+#
+# A `cursor.d` HOOK, which is a cross-cutting tier like idle.d: the question
+# belongs to the SEAT rather than to any edge. The runner asks it only where the
+# answer matters, which is a box whose panel is darkened by PAINTING BLACK
+# rather than by a backlight or a monitor power state. There the pixels are off
+# only while nothing brighter appears, and a notification brings the pointer up.
+#
+# WHY THIS IS A PLUGIN AND NOT A CHECK IN THE RUNNER. There is no
+# platform-neutral way to answer it, measured 2026-10-04: no Wayland protocol
+# advertises cursor-hide state, sway's `hide_cursor` is a config directive
+# rather than a runtime query, wayfire is answerable only by its plugin being
+# mapped into the compositor, and X11 only by a helper process being alive. So
+# the knowledge lives here, where mechanism knowledge belongs, and the framework
+# only asks.
+#
+# THE CONTRACT, and the middle one is the whole point of having it:
+#
+#   exit 0   something auto-hides the pointer. Name it on stdout.
+#   exit 1   this platform is RECOGNISED and the mechanism is ABSENT.
+#   exit 78  cannot tell here. NOT the same as no, and the default answer:
+#            claiming otherwise is how a check that cannot look reports clean.
+#
+# ONLY WAYFIRE GETS A DEFINITE NO, deliberately. There we know the platform AND
+# the mechanism it would use, so an unmapped plugin is a real absence. On X11
+# several mechanisms exist (a desktop environment may hide the pointer itself),
+# so a known helper being absent proves nothing and the honest answer is 78.
+set -eu
+
+_self=$(readlink -f "$0")
+. "$(dirname "$_self")/../../lib/hook_lib"
+
+# --- wayfire: the plugin is MAPPED, which is the only thing that proves it ----
+# The metadata and the config both say what SHOULD load; /proc/<pid>/maps says
+# what did. That distinction has already cost this project once, when a config
+# key for a retired swaylock patch sat in a shipped file meaning nothing.
+if hook_proc_running wayfire; then
+  _cap=
+  for _p in $(hook_proc_pids wayfire); do
+    if grep -q 'libhide-cursor' "/proc/$_p/maps" 2>/dev/null; then
+      _cap=$_p; break
+    fi
+  done
+  if [ -n "$_cap" ]; then
+    echo "the wayfire hide-cursor plugin, loaded in pid $_cap"
+    exit 0
+  fi
+  # RECOGNISED AND ABSENT. Said as a NO rather than as a decline, because on
+  # this compositor we know both what would hide the pointer and that it is not
+  # loaded. The remedy is one line in wayfire.ini, and the plugin arms its timer
+  # in its own constructor, so loading it IS enabling it.
+  echo "wayfire is running and libhide-cursor is not loaded in it" >&2
+  exit 1
+fi
+
+# --- X11: a helper process, and nothing stronger -----------------------------
+# `unclutter` and `xbanish` are the common ones. Their ABSENCE is not a no: a
+# desktop environment may hide the pointer with no separate process at all, so
+# this can confirm and cannot refute.
+if [ -n "${DISPLAY:-}" ] && [ -z "${WAYLAND_DISPLAY:-}" ]; then
+  for _x in unclutter xbanish; do
+    if hook_proc_running "$_x"; then
+      echo "$_x is running on $DISPLAY"
+      exit 0
+    fi
+  done
+  echo "cursor-autohide: on X11 with no unclutter or xbanish; a desktop may"\
+" still hide the pointer itself, which this cannot see" >&2
+  exit "$HOOK_NA"
+fi
+
+# --- sway, and everything else: not answerable --------------------------------
+# sway's `seat <name> hide_cursor <timeout>` is CONFIGURATION, and `swaymsg -t
+# get_seats` does not report it, so a running sway can be correctly configured
+# and indistinguishable from one that is not. An integrator who knows their sway
+# config is the right place for that answer: wire a cursor.d hook of their own
+# that exits 0.
+if hook_proc_running sway; then
+  echo "cursor-autohide: sway hides the pointer via a seat CONFIG directive"\
+" that is not queryable at run time; wire a hook that knows this box" >&2
+  exit "$HOOK_NA"
+fi
+
+echo "cursor-autohide: no compositor this hook recognises" >&2
+exit "$HOOK_NA"
