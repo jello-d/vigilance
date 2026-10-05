@@ -177,4 +177,52 @@ _el=$(( $(date +%s) - _t0 ))
 ${_el}s against a 2s bound. The tier that watches for things not happening
 must not be the thing that stops happening"
 
+# --- THE WIRING QUESTION IS ASKED ON THE TIMER ------------------------------
+# The third unconditional check, and the one a WIRING fault cannot blind, which
+# is why it is here rather than only in `report`.
+#
+# MEASURED LIVE 2026-10-04 and this case is that incident: a layout change moved
+# the plugin tree while the wired symlinks still pointed at the old path, so
+# every hook became a dangling link. The lock edge then crossed with an empty
+# act tier and NOTHING DETECTED IT FOR 46 MINUTES, because the standing recheck
+# runs `verify`, whose hooks were dangling too, so it answered n/a and the
+# recheck treats n/a as NOT drift, correctly. The actuator, its verifier and the
+# recheck are all symlinks into one tree.
+#
+# `report` had rendered it as a FAIL the whole time and NOTHING RUNS REPORT: the
+# timer runs `enforce`. The finding existed, correct and unread.
+_wd_blocked() {   # wire a hook whose target has MOVED, as a deploy does
+  mkdir -p "$VIGILANCE_HOOK_ROOT/lock.d"
+  printf '#!/bin/sh\nexit 0\n' > "$T/target"; chmod +x "$T/target"
+  ln -sf "$T/target" "$VIGILANCE_HOOK_ROOT/lock.d/10-prov"
+  mv "$T/target" "$T/target-moved-away"
+}
+: > "$T/alerts"
+_wd_blocked
+VIGILANCE_ALERT_COOLDOWN=0 "$VIGILANT" enforce >/dev/null 2>&1 || true
+_alerts | grep -q 'wiring-blocked' \
+  || fail "a hook wired but UNRUNNABLE raised no alert from the supervision
+pass. That is the live fault: the record said 'lock', no locker existed, and
+the one check immune to the fault was in a verb nothing runs on a timer:
+$(_alerts)"
+# AND IT NAMES THE FILE, because 'something is wrong with the wiring' sends a
+# reader to look at everything. The live fault had the path in hand all along.
+_alerts | grep -q '10-prov' \
+  || fail "the wiring alert did not name the hook that cannot run, so it is not
+actionable: $(_alerts)"
+
+# THE CRY-WOLF HALF, which is what makes the check safe to put on a minute
+# timer. A blocked entry is never correct, so there is no innocent explanation
+# to exclude, and a healthy tree must be SILENT.
+rm -f "$VIGILANCE_HOOK_ROOT/lock.d/10-prov"
+printf '#!/bin/sh\nexit 0\n' > "$VIGILANCE_HOOK_ROOT/lock.d/10-prov"
+chmod +x "$VIGILANCE_HOOK_ROOT/lock.d/10-prov"
+: > "$T/alerts"
+VIGILANCE_ALERT_COOLDOWN=0 "$VIGILANT" enforce >/dev/null 2>&1 || true
+if _alerts | grep -q 'wiring-blocked'; then
+  fail "a HEALTHY wiring raised a wiring alert. This runs once a minute, so a
+false positive here is the cry-wolf that got an enforce timer stopped by hand
+once before: $(_alerts)"
+fi
+
 pass

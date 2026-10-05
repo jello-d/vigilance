@@ -3872,6 +3872,33 @@ _flatten() {   # multi-line transcript -> one line, vigilant's own echo removed
     | sed 's/  */ /g; s/^ //; s/ $//'
 }
 
+# A WIRED HOOK THAT CANNOT RUN IS REPORTED ON A TIMER, not only when a human
+# happens to run `report`. See the call site in cmd_enforce for the incident
+# this exists for and for why it is asked before the other two.
+#
+# THE MESSAGE IS BOUNDED AND STABLE, and both properties are load-bearing. The
+# live fault put FIFTY-NINE entries in this state at once, so naming them all
+# would be a toast nobody can read; and the dedup key is cksum(kind + message),
+# so the text must not change while the condition is unchanged or every pass
+# hashes as a fresh onset and the storm this package already paid for returns.
+# A count plus the first three paths is stable for a stable fault and genuinely
+# different for a different one.
+_enforce_wiring() {
+  _ewb=$(_blocked_all)
+  [ -n "$_ewb" ] || return 0
+  # `grep -c .` PRINTS 0 AND EXITS 1 on no match, which is the trap this tree
+  # has paid for twice, so the count is awk's.
+  _ewn=$(printf '%s\n' "$_ewb" | awk 'NF { n++ } END { print n + 0 }')
+  [ "$_ewn" -gt 0 ] || return 0
+  _ewh=$(printf '%s\n' "$_ewb" | awk 'NF { print; if (++n == 3) exit }' \
+         | tr '\n' ' ')
+  _ewm="$_ewn wired hook(s) cannot run, so they do not EXIST for this session"
+  _ewm="$_ewm and the edges they are wired to will cross with nothing: $_ewh"
+  if [ "$_ewn" -gt 3 ]; then _ewm="$_ewm(and others; run 'vigilant report')"; fi
+  _alert wiring-blocked "$_ewm"
+  return 1
+}
+
 _enforce_recheck() {   # from
   # A CROSSING IN FLIGHT IS NOT DRIFT.
   #
@@ -4006,10 +4033,37 @@ cmd_enforce() {
   # the one between the end of the last pass and the start of this one, in which
   # vigilance did nothing at all.
   _idle_secs >/dev/null 2>&1 || true   # the reading this pass judges
-  # Asked FIRST, and unconditionally: whether a deadline exists is a separate
-  # question from whether the machine is still in the state it claims, and
-  # every early return below would otherwise skip it.
   _erc=0
+  # THE WIRING QUESTION, ASKED FIRST BECAUSE IT IS THE ONLY ONE OF THE THREE
+  # THAT A WIRING FAULT CANNOT BLIND. Measured on a live box, 2026-10-04:
+  #
+  #   18:04  a package layout change moved the plugin tree in /opt while the
+  #          wired symlinks still pointed at the old path, so EVERY hook became
+  #          a dangling link.
+  #   18:33  `cross lock: open -> lock` with an empty act tier. No locker, rc=0,
+  #          clean log. The session was recorded as secured by nothing.
+  #   46 MINUTES OF SILENCE, then the wiring was repaired and the standing
+  #          recheck reported drift 38 SECONDS LATER.
+  #
+  # Detection was never slow, it was ABSENT, and the cause is structural: the
+  # recheck runs `verify`, whose hooks were dangling too, so it answered
+  # HOOK_NA and the recheck treats that as NOT drift, correctly. The actuator,
+  # its verifier and the recheck are all symlinks into ONE tree, so losing the
+  # tree loses all three at once. "Defence in depth" was not depth here.
+  #
+  # THIS CHECK READS DIRECTORY ENTRIES AND ASKS -x, running nothing, so it is
+  # immune by construction to the fault it reports: `_hooks_blocked` already
+  # tests -L precisely so a dangling link cannot hide. `report` has rendered it
+  # as a FAIL all along, and NOTHING RAN REPORT: the timer runs `enforce`. The
+  # finding existed, correct and unread, which is this project's oldest shape.
+  #
+  # A BLOCKED ENTRY IS NEVER CORRECT, so there is no innocent explanation to
+  # exclude and no cry-wolf risk: the greeter-unreachable case is a different
+  # one (reachable by US, not by _greetd) and is `plan`'s trailing `!`.
+  _enforce_wiring || _erc=1
+  # Asked unconditionally for the same reason: whether a deadline exists is a
+  # separate question from whether the machine is still in the state it claims,
+  # and every early return below would otherwise skip it.
   _enforce_recheck "$_from" || _erc=1
   # UNCONDITIONAL, for the same reason the standing recheck is: whether a
   # deadline exists is a different question from whether the machinery that
