@@ -62,11 +62,14 @@ _cleanup_alt() {
 }
 _cleanup_alt
 
-wire lock '' swaylock
-# THE PROVIDER IS NAMED AFTER ONE LOCKER AND STARTS ANY, which is a wrinkle
-# worth naming rather than fixing here: tackup wires `lock.d/10-swaylock` by
-# that path, so renaming it is a cross-repo change of the same shape as
-# hooklib.sh, not a tidy-up.
+wire lock '' systemd-locker
+# THE PROVIDER FILE IS `systemd-locker` NOW, named for the mechanism rather
+# than for one locker, since this file is the proof it starts any. Done as the
+# cross-repo change it is, shaped like hooklib.sh: tackup resolves the provider
+# under EITHER name first (_provider_path), so no deploy order can leave
+# `lock.d/10-swaylock` dangling, which would not fail but would make the lock
+# provider cease to EXIST. The WIRED name is unchanged and still accurate: it
+# is the integrator's label for what it wired on a box that runs swaylock.
 
 VIGILANCE_LOCKER=$LOCKER; export VIGILANCE_LOCKER
 VIGILANCE_LOCKER_ARGV=-n; export VIGILANCE_LOCKER_ARGV

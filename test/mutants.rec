@@ -506,25 +506,25 @@ t atleast
 +     if [ "$_dnow" -ge "$_dto" ]; then
 
 = lost-lock-race-reported-as-failure
-f libexec/providers/swaylock
+f libexec/providers/systemd-locker
 t lock-race
 -     active)
 +     nosuchstate)
 
 = provider-starts-a-locker-that-is-already-up
-f libexec/providers/swaylock
+f libexec/providers/systemd-locker
 t lock-race
 - case "$(_unit_state)" in active|activating|reloading) exit 0 ;; esac
 + case "$(_unit_state)" in nosuchstate) exit 0 ;; esac
 
 = lock-failure-always-reported-as-success
-f libexec/providers/swaylock
+f libexec/providers/systemd-locker
 t lock-race
 -     *) break ;;                       # inactive or failed; it is not coming
 +     *) ;;
 
 = a-settling-unit-is-called-a-failure
-f libexec/providers/swaylock
+f libexec/providers/systemd-locker
 t lock-race
 -     activating|reloading) ;;          # still coming up; keep waiting
 +     nosuchstate) ;;

@@ -104,12 +104,13 @@ esac
 # so the fixture builds exactly that: a real directory of that name, symlinked
 # into lock.d the way an integrator wires it.
 mkdir -p "$T/plug/providers"
-printf '#!/bin/sh\nexit 0\n' > "$T/plug/providers/swaylock"
-chmod +x "$T/plug/providers/swaylock"
+_prov=$T/plug/providers/systemd-locker
+printf '#!/bin/sh\nexit 0\n' > "$_prov"
+chmod +x "$_prov"
 
 rm -rf "$VIGILANCE_HOOK_ROOT/lock.d"
 mkdir -p "$VIGILANCE_HOOK_ROOT/lock.d"
-ln -sf "$T/plug/providers/swaylock" "$VIGILANCE_HOOK_ROOT/lock.d/05-provider"
+ln -sf "$_prov" "$VIGILANCE_HOOK_ROOT/lock.d/05-provider"
 _hook_n lock.d 3                      # 3 plain hooks, all sorting AFTER 05-
 _out=$(VIGILANCE_HOOK_TIMEOUT=10 _rep)
 case "$_out" in
@@ -134,7 +135,7 @@ esac
 # ...and ordering it LAST puts them back, which is the same fixture proving the
 # position is what is being read rather than the mere presence of a provider.
 rm -f "$VIGILANCE_HOOK_ROOT/lock.d/05-provider"
-ln -sf "$T/plug/providers/swaylock" "$VIGILANCE_HOOK_ROOT/lock.d/99-provider"
+ln -sf "$_prov" "$VIGILANCE_HOOK_ROOT/lock.d/99-provider"
 _out=$(VIGILANCE_HOOK_TIMEOUT=10 _rep)
 case "$_out" in
   *"LOCK itself can take 48s"*) ;;
@@ -161,7 +162,7 @@ rm -rf "$VIGILANCE_HOOK_ROOT/lock.d"
 mkdir -p "$VIGILANCE_HOOK_ROOT/lock.d"
 printf '#!/bin/sh\nexit 0\n' > "$VIGILANCE_HOOK_ROOT/lock.d/10-first"
 chmod +x "$VIGILANCE_HOOK_ROOT/lock.d/10-first"
-ln -sf "$T/plug/providers/swaylock" "$VIGILANCE_HOOK_ROOT/lock.d/20-provider"
+ln -sf "$_prov" "$VIGILANCE_HOOK_ROOT/lock.d/20-provider"
 _hook_n lock.block.d 1
 _out=$(VIGILANCE_HOOK_TIMEOUT=10 _rep)
 case "$_out" in

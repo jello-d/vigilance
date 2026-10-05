@@ -25,7 +25,7 @@ trap '_unmount; session_done; rm -rf "$T"' EXIT INT TERM HUP
 RUN=${XDG_RUNTIME_DIR:-/run/user/0}/vigilance
 mkdir -p "$RUN"
 
-wire lock ''      swaylock
+wire lock '' systemd-locker
 wire lock .verify locker-up
 
 # --- the runtime dir becomes unwritable, to root included -------------------

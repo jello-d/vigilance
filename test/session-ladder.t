@@ -19,7 +19,7 @@ trap 'session_done; rm -rf "$T"' EXIT INT TERM HUP
 # claim to test THE wiring, only that the shipped hooks work when wired in a
 # reasonable way. The set is chosen from where the defects were: the lock
 # provider, the thing that verifies it, the idle clock and the watchdog.
-wire lock ''        swaylock
+wire lock '' systemd-locker
 wire lock   .verify locker-up
 wire unlock .verify locker-up
 wire sleep  .verify locker-up
@@ -86,7 +86,7 @@ the wake edge anyway"
 # actually failed four times: both requests reach a real systemd-run, one is
 # refused with "unit already exists", and neither may report failure.
 session_reset
-wire lock '' swaylock
+wire lock '' systemd-locker
 _before=$(crossed lock)
 ( "$VIGILANT" go lock >>"$T/a.out" 2>&1; echo "$?" > "$T/a.rc" ) &
 ( "$VIGILANT" go lock >>"$T/b.out" 2>&1; echo "$?" > "$T/b.rc" ) &

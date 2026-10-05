@@ -124,7 +124,7 @@ DEPS="swaylock swayidle wlopm ddcutil brightnessctl"
 # one shared message ("powers spanning/DDC") was wrong for most of them.
 _dep_why() {   # dep -> what stops working without it
   case "$1" in
-    swaylock)      echo "the swaylock lock provider" ;;
+    swaylock)      echo "the DEFAULT locker (VIGILANCE_LOCKER names another)" ;;
     swayidle)      echo "the idle timer (nothing will lock on idle)" ;;
     wlopm)         echo "the dpms hook (wlroots output power)" ;;
     ddcutil)       echo "the ddc-monitor hook (external-monitor standby)" ;;

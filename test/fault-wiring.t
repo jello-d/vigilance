@@ -70,7 +70,7 @@ _restore_wiring() {
 trap '_restore_wiring; session_done; rm -rf "$T"' EXIT INT TERM HUP
 
 session_reset
-wire lock '' swaylock
+wire lock '' systemd-locker
 mkdir -p "$USER_LOCK"
 [ -n "$(ls "$USER_LOCK" 2>/dev/null)" ] \
   || fail "the tier wired no lock provider, so there is nothing to break and

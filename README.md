@@ -284,7 +284,7 @@ An integrator chooses which run on which edge, because that is policy:
     hooks/locker-up        VERIFY the session is locked (or is not)
     hooks/logind-sleep-audit  did each real sleep produce its `lock` edge?
     hooks/swayidle-idle-audit did each idle timer firing produce its `lock`?
-    providers/swaylock     bring a locker up as a transient systemd unit
+    providers/systemd-locker  bring a locker up as a transient systemd unit
     triggers/logind-lock   cross `lock` on logind's Session.Lock
 
 `dpms` is deliberately asymmetric: it issues `wlopm --on` and **never** turns an

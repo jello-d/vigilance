@@ -19,7 +19,7 @@ trap 'session_done; rm -rf "$T"' EXIT INT TERM HUP
 
 NOTCHECKED=
 
-wire lock ''        swaylock
+wire lock '' systemd-locker
 wire lock   .verify locker-up
 wire_cross idle     input-counters
 wire_cross watchdog swayidle-watchdog

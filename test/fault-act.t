@@ -31,7 +31,7 @@ _badhook() {   # <name> <body>
   chmod +x "$HOOKS/lock.d/$1"
 }
 
-wire lock ''      swaylock
+wire lock '' systemd-locker
 wire lock .verify locker-up
 
 # --- 1. A HOOK THAT HANGS MUST NOT STOP THE LOCK ---------------------------
@@ -66,7 +66,7 @@ other names the bound that fired"
 # cross and the failure must be LOUD: exit 1 from the runner means "crossed
 # but a hook failed", which is a different claim from "did not cross".
 session_reset
-wire lock ''      swaylock
+wire lock '' systemd-locker
 wire lock .verify locker-up
 _badhook 05-fail 'exit 1'
 _rc=0

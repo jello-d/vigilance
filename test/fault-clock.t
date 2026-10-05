@@ -57,7 +57,7 @@ printf '#!/bin/sh\nprintf "%%s|%%s\\n" "$1" "$2" >> %s\n' "$T/alerts" \
   > "$HOOKS/alert.d/10-sink"
 chmod +x "$HOOKS/alert.d/10-sink"
 ln -sf "$PLUGINS/hooks/phantom-guard" "$HOOKS/lock.block.d/10-phantom"
-wire lock ''      swaylock
+wire lock '' systemd-locker
 wire lock .verify locker-up
 
 # A DETERMINISTIC FINDING, with a STABLE message. The dedup key is the message

@@ -1,5 +1,12 @@
 #!/bin/sh
-# swaylock - LOCK PROVIDER, wired as a lock.d hook.
+# systemd-locker - LOCK PROVIDER, wired as a lock.d hook.
+#
+# NAMED FOR THE MECHANISM, NOT FOR ONE LOCKER: it brings up whatever
+# VIGILANCE_LOCKER names as a transient --user unit, with the unit as the span
+# of the lock. It was called `swaylock` until 2026-10-05, which was false: only
+# the DEFAULTS here are swaylock's, and a real i3lock has been driven through
+# this file end to end. Nothing dispatches on the filename either, because
+# `report` identifies a provider by its `providers/` DIRECTORY.
 #
 # Replaces bin/smart-lock. Everything that script hand-rolled to own the
 # lock's LIFETIME is now systemd's, verified against a real swaylock in

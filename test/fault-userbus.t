@@ -57,7 +57,7 @@ _restore_bus() {
 }
 trap '_restore_bus; session_done; rm -rf "$T"' EXIT INT TERM HUP
 
-wire lock ''      swaylock
+wire lock '' systemd-locker
 wire lock .verify locker-up
 
 # --- given: the lock works, so the fault is the only difference -------------

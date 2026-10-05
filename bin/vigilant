@@ -3223,7 +3223,7 @@ _rep_hookcount() {   # <suffix>... -> how many hooks across those tiers
 #
 # Identified by CONVENTION rather than configuration: a lock provider resolves
 # into a `providers/` directory (vigilance ships its own at
-# libexec/vigilance/providers/swaylock and an integrator symlinks it into
+# libexec/providers/systemd-locker and an integrator symlinks it into
 # lock.d). That keeps the fact in one place: no second declaration to drift
 # from the wiring, which is the failure this project keeps paying for.
 #

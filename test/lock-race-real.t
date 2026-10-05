@@ -23,7 +23,7 @@ set -eu
 scenario_init lock-race-real
 require systemd userbus
 
-HOOK=$HERE/libexec/providers/swaylock
+HOOK=$HERE/libexec/providers/systemd-locker
 UNIT=vigilance-test-lock-$$.service
 export VIGILANCE_LOCK_UNIT=$UNIT
 _cleanup() { systemctl --user stop "$UNIT" >/dev/null 2>&1 || true

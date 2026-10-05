@@ -19,7 +19,7 @@ set -eu
 session_init fault-locker
 trap 'session_done; rm -rf "$T"' EXIT INT TERM HUP
 
-wire lock ''      swaylock
+wire lock '' systemd-locker
 wire lock .verify locker-up
 
 # --- given: a genuinely locked machine --------------------------------------
@@ -74,7 +74,7 @@ locker; the recovery left the provider unable to work"
 # in for a machine. That is the line test/faults.rec draws: a device, a
 # process, a filesystem or a clock may not be faked, and this fakes none.
 session_reset
-wire lock ''      swaylock
+wire lock '' systemd-locker
 wire lock .verify locker-up
 mkdir -p "$T/bin"
 printf '#!/bin/sh\nexit 1\n' > "$T/bin/deadlocker"
@@ -122,7 +122,7 @@ allowing a suspend"
 # record BEHIND the world, which every tier that trusts the record then agrees
 # with. A loud wrong beats a silent one.
 session_reset
-wire lock ''      swaylock
+wire lock '' systemd-locker
 wire lock .verify locker-up
 printf '#!/bin/sh\nexit 0\n' > "$T/bin/delegatinglocker"
 chmod +x "$T/bin/delegatinglocker"
@@ -134,7 +134,7 @@ chmod +x "$T/bin/delegatinglocker"
 # leave the other free to report a successful lock.
 for _ty in simple forking; do
   session_reset
-  wire lock ''      swaylock
+  wire lock '' systemd-locker
   wire lock .verify locker-up
   _zrc=0
   VIGILANCE_LOCKER="$T/bin/delegatinglocker" VIGILANCE_LOCKER_TYPE="$_ty" \

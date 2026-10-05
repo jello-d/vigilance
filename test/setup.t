@@ -66,7 +66,7 @@ for _u in vigilance-enforce.service vigilance-enforce.timer \
 done
 
 # libexec: the shipped hooks are installed AVAILABLE...
-[ -x "$PAY/libexec/providers/swaylock" ] \
+[ -x "$PAY/libexec/providers/systemd-locker" ] \
   || fail "a shipped provider is not reachable through the install"
 # ...AND THE STRUCK ROOT IS NOT RECREATED. `~/.local/libexec/<pkg>` is gone as a
 # concept: it was a symlink into the clone, so it dangled on every re-clone, and

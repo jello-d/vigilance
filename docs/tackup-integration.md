@@ -22,6 +22,12 @@ Ordered so the box is never worse off between steps.
 >   nothing outside the locker can repaint a locked screen, so
 >   `hooks/lock-blank` drives it with SIGUSR2 / SIGRTMIN and the patch in
 >   tackup is `swaylock-blank-signal.patch`.
+> - **The provider file is `providers/systemd-locker`, not
+>   `providers/swaylock`.** Renamed 2026-10-05: it brings up whatever
+>   VIGILANCE_LOCKER names as a transient unit, and only its defaults were ever
+>   swaylock's. The WIRED name is still `10-swaylock`, which is the integrator's
+>   label for what it wired on a box that does run swaylock, so the paths below
+>   pair a current link name with a file name that has moved.
 >
 > For what tackup wires today, read `vigilant plan` on the box: it prints every
 > scope, edge, tier and resolved target, and ends in a fingerprint that

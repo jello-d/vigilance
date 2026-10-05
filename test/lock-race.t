@@ -35,7 +35,7 @@ set -eu
 . "$(dirname "$0")/harness_lib"
 harness_init lock-race
 
-HOOK=$HERE/libexec/providers/swaylock
+HOOK=$HERE/libexec/providers/systemd-locker
 mkdir -p "$T/bin"
 PATH=$T/bin:$PATH; export PATH
 # A locker that exists but is never actually run: the hook only checks that the
