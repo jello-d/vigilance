@@ -183,4 +183,52 @@ record is the requirement; silence is not the way to meet it"
 grep -q "second line of trouble" "$VIGILANCE_LOG" \
   || fail "only the first line of a multi-line hook message survived"
 
+# --- 8. A CROSSING SAYS WHO ASKED -------------------------------------------
+# VIGILANCE_SOURCE reached block hooks from the start and was never recorded,
+# so a lock nobody expected was unattributable. Measured on 2026-10-05: a user
+# asked whether a lock was theirs, the agent's, or a phantom, and the log could
+# answer for none of that day's three crossings. The idle timer and logind were
+# excluded by OTHER logs; the one field that would have answered directly was
+# passed to hooks and discarded.
+rm -f "$VIGILANCE_HOOK_ROOT/lock.verify.d/10-multiline"
+: > "$VIGILANCE_LOG"
+go open
+VIGILANCE_SOURCE=manual go lock
+grep -q 'cross lock: .* src=manual' "$VIGILANCE_LOG" \
+  || fail "a crossing did not record WHO asked. Without it a lock cannot be
+attributed after the fact, which is the whole question a phantom lock raises:
+
+$(grep 'cross lock' "$VIGILANCE_LOG")"
+
+# UNATTRIBUTED MUST LOOK UNATTRIBUTED. Omitting the field when nothing set it
+# would make an unexplained crossing read exactly like an explained one, which
+# is the conflation exit 78 exists to break, one tier out.
+: > "$VIGILANCE_LOG"
+go open
+go lock
+grep -q 'cross lock: .* src=unset' "$VIGILANCE_LOG" \
+  || fail "a crossing with no source recorded no src= field at all, so 'nobody
+said' is indistinguishable from any other line:
+
+$(grep 'cross lock' "$VIGILANCE_LOG")"
+
+# AND A HOSTILE SOURCE CANNOT BREAK THE RECORD. This is third-party input: a
+# keybind, a unit, or a hook author sets it. A newline would split one record
+# into two, which is exactly the defect section 7 exists for, so the two claims
+# are asserted together: the value is rejected AND the log stays well formed.
+: > "$VIGILANCE_LOG"
+go open
+VIGILANCE_SOURCE="$(printf 'man\nual; rm -rf /')" go lock
+grep -q 'cross lock: .* src=invalid' "$VIGILANCE_LOG" \
+  || fail "a source carrying a newline was not rejected:
+
+$(grep 'cross lock' "$VIGILANCE_LOG")"
+_bad8=$(grep -vcE '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2} ' \
+  "$VIGILANCE_LOG" || true)
+[ "${_bad8:-0}" = 0 ] || fail "a hostile VIGILANCE_SOURCE split a record across
+lines, so an attacker or a careless keybind can put debris between the entries
+the audit tier reads:
+
+$(cat "$VIGILANCE_LOG")"
+
 pass

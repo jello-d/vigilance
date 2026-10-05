@@ -306,6 +306,36 @@ _log() {   # message
 
 log() { printf '%s: %s\n' "$PKG" "$*" >&2; _log "$*"; }
 
+# WHO ASKED, written DOWN rather than only handed to hooks. VIGILANCE_SOURCE has
+# always reached block hooks (it is why phantom-guard can allow a manual lock
+# while debouncing an idle one) and was never recorded, so a lock nobody
+# expected could not be attributed from the record. Measured on 2026-10-05: a
+# user asked whether a lock was theirs, mine or a phantom, and the log could
+# answer for none of the three crossings that day. The field existed at crossing
+# time and was thrown away.
+#
+# ALWAYS EMITTED, `unset` included, so an unattributed crossing LOOKS
+# unattributed instead of looking like every other line. Same reason a verify
+# that could not look says 78 rather than 0.
+#
+# VALIDATED, because this is third-party input: a keybind, a unit or a hook
+# author sets it. A NEWLINE in it would split one record into two and break the
+# one-record-one-line contract the audit tier parses by, which is a defect this
+# log has already paid for. The `case` guard is the convention seven other
+# untrusted-input sites here already use, and the width bound is for the same
+# reason: a record is a line, not a place to put a paragraph.
+#
+# SAFE TO APPEND, checked rather than assumed: audit reconciles with
+# `-> <edge>( |$)`, so a trailing field still matches, and every test that
+# quotes a crossing matches it as a PREFIX.
+_src_tag() {
+  case "${VIGILANCE_SOURCE:-}" in
+    '')            printf 'unset' ;;
+    *[!a-z0-9-]*)  printf 'invalid' ;;
+    *)             printf '%.32s' "$VIGILANCE_SOURCE" ;;
+  esac
+}
+
 # PROVENANCE travels in the ENVIRONMENT, never in argv: `vigilant go lock`
 # takes no arguments by contract, and depth stays the only authoritative
 # state. VIGILANCE_SOURCE says WHO asked (idle, logind, lid, manual, suspend),
@@ -1248,7 +1278,7 @@ _cross_one() {   # edge leaving to [note]
   # suppressed the LOCK. Suppressing a lock is a security failure; a wrong
   # record is only a reporting one, and _set_depth already logs it.
   _set_depth "$3" || true
-  _log "cross $1: $2 -> $3${4:+ ($4)}"
+  _log "cross $1: $2 -> $3${4:+ ($4)} src=$(_src_tag)"
   # An ASCENT is the most recent evidence of activity vigilant can have, and it
   # is the one evidence an idle clock can never be blind to. See _idle_secs.
   if ! _is_descent "$1"; then _note_ascent; fi
@@ -1405,6 +1435,45 @@ _cmd_go() {   # <state> [force|only|atleast]
     # verb the lid, the idle lock and lock-on-sleep use, and its whole purpose
     # is "make sure the session is secured".
     _secreq=1
+    _mode=
+  fi
+
+  # THE MIRROR OF `atleast`, for a RESTORE gesture rather than a security one.
+  # `atleast` exists because "secure this session" must never ascend: handed to
+  # a declarative verb, a lid close at the `sleep` rung LIT THE PANEL and left
+  # it lit for thirty minutes (2026-09-22). That fix built one half of the
+  # problem. This is the other half, and it was missing for a year.
+  #
+  # A RESTORE GESTURE MUST NEVER DESCEND. "Turn the display back on" means
+  # ascend from a dark rung, and at a lit rung it means NOTHING. Given a plain
+  # `go lock` it instead LOCKS THE SCREEN, because `go` travels whichever way
+  # reaches the target. That is how `command_display_on` in this fleet's
+  # compositor config (<ctrl><super> KEY_P, an always_binding, so it fires even
+  # under a fullscreen client) could lock a machine somebody was typing on, and
+  # it is indistinguishable from a phantom lock in the record.
+  #
+  # NAMED FOR THE SYMMETRY, because the pair is the point: `atleast` is "be at
+  # least this deep", so this is "be at most this deep". Anyone who knows one
+  # knows the other, and a reader meeting `go lock atmost` on a display-on key
+  # can see what it refuses without consulting anything.
+  #
+  # STRICTLY SHALLOWER, for exactly the reason `atleast` compares strictly: the
+  # equal case needs no branch, because falling through reaches the shared
+  # "already at 'X'; nothing to do" every other caller logs. `-le` here would
+  # print a sentence contradicting itself about a descent that was never on the
+  # table, which is the live defect 79859db fixed on the other side.
+  #
+  # AND IT SETS NO _secreq, deliberately: this is the opposite of a security
+  # request, so the stale-record re-assertion that `atleast` earns must not
+  # follow from it. A restore gesture has no business re-arming a locker.
+  if [ "$_mode" = atmost ]; then
+    _dnow=$(_depth_of "$(_depth)") || _dnow=0
+    if [ "$_dnow" -lt "$_dto" ]; then
+      # LOGGED rather than silent, and the words mirror the other side so the
+      # audit tier can anchor on the asserted rung either way.
+      log "already at '$(_depth)', shallower than '$_to'; not descending"
+      return 0
+    fi
     _mode=
   fi
 
@@ -4622,7 +4691,7 @@ _audit_verdict() {
   return 0
 }
 
-_U="usage: vigilant go <open|lock|sleep|suspend> [atleast]
+_U="usage: vigilant go <open|lock|sleep|suspend> [atleast|atmost]
                  | force <state> | only <state> | status
                  | verify [edge] | hooks [edge] | plan [edge]
                  | report | rescue
@@ -4642,7 +4711,7 @@ case "$_sub" in
     # safety qualifier, and this stack has already paid for one dead config
     # word (`blank-after`) that nothing validated.
     case "${2:-}" in
-      ''|atleast) ;;
+      ''|atleast|atmost) ;;
       *) echo "vigilant: 'go' has no mode '$2'" >&2; echo "$_U" >&2; exit 2 ;;
     esac
     cmd_go "$1" "${2:-}" ;;

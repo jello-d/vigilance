@@ -4,7 +4,7 @@ vigilance \- edge framework for what a machine does when you step away
 .SH SYNOPSIS
 .B vigilant go
 .RB { open | lock | sleep | suspend }
-.RI [ atleast ]
+.RI [ atleast | atmost ]
 .br
 .B vigilant force
 .IR state ", " "vigilant only " state
@@ -67,6 +67,20 @@ toward it, so a machine already at
 .B sleep
 stays dark. Use it wherever the intent is security rather than placement.
 Answering a lid\-close with the plain verb lit the panel and left it lit.
+.PP
+.B atmost
+is its mirror, for a RESTORE gesture: it raises toward the state and never
+descends toward it, so a key meaning "turn the display back on" brings a dark
+machine up to
+.B lock
+and does nothing at all when the screen is already lit. Given the plain verb
+such a key LOCKS a machine in use, because
+.B go
+travels whichever way reaches the target. Use
+.B atleast
+where the intent is to secure, and
+.B atmost
+where it is to restore.
 .PP
 .B "vigilant go suspend"
 does NOT suspend. It fires that edge's hooks, invoked BY the unit ordered

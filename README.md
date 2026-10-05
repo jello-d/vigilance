@@ -59,6 +59,7 @@ check enforces which invariant: `THEORY.md`.
 
     vigilant go <state>       traverse to state, crossing every edge between
     vigilant go <state> atleast   deepen to state; never raise toward it
+    vigilant go <state> atmost    raise to state; never descend toward it
     vigilant force <state>    assert state, ignoring the recorded depth
     vigilant only <state>     cross exactly one edge into state
     vigilant status           where we are, and where hooks live

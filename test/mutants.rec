@@ -1105,3 +1105,39 @@ f bin/swayidle-mgr
 t idle-suspend
 -   set -- "$@" after-resume true
 +   set -- "$@"
+
+= crossing-does-not-say-who-asked
+f bin/vigilant
+t log-contract
+-   _log "cross $1: $2 -> $3${4:+ ($4)} src=$(_src_tag)"
++   _log "cross $1: $2 -> $3${4:+ ($4)}"
+
+= unattributed-crossing-looks-normal
+f bin/vigilant
+t log-contract
+-     '')            printf 'unset' ;;
++     '')            printf '' ;;
+
+= source-is-not-validated
+f bin/vigilant
+t log-contract
+-     *[!a-z0-9-]*)  printf 'invalid' ;;
++     *[!a-z0-9-]*)  printf '%s' "$VIGILANCE_SOURCE" ;;
+
+= atmost-descends-and-locks
+f bin/vigilant
+t atleast
+-   if [ "$_mode" = atmost ]; then
++   if [ false ]; then
+
+= atmost-never-ascends
+f bin/vigilant
+t atleast
+-     if [ "$_dnow" -lt "$_dto" ]; then
++     if true; then
+
+= atmost-equal-takes-a-branch
+f bin/vigilant
+t atleast
+-     if [ "$_dnow" -lt "$_dto" ]; then
++     if [ "$_dnow" -le "$_dto" ]; then

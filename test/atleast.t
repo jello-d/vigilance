@@ -201,4 +201,61 @@ still tried to re-assert. Nothing there could raise a locker, so this would be
 an empty tier run once a minute for ever:
 record: $(cat "$RECORD")"
 
+# --- 8. `atmost` IS THE MIRROR, AND BOTH HALVES MATTER ----------------------
+# `atleast` exists because a SECURITY gesture must never ascend. A RESTORE
+# gesture has the opposite hazard and had no qualifier at all for a year: given
+# the plain verb, a key meaning "turn the display back on" LOCKS a machine that
+# is already lit, because `go` travels whichever way reaches the target.
+#
+# NOT HYPOTHETICAL. This fleet's compositor config binds
+# `command_display_on = vigilant go lock` to <ctrl><super> KEY_P as an
+# always_binding, so it fires even under a fullscreen client, and at rung `open`
+# it locks. On 2026-10-05 a user was typing and the screen locked with no idle
+# event, no logind Lock, and nothing in the record able to say what asked.
+_atmost() {   # <state>
+  CROSS_RC=0
+  "$VIGILANT" go "$1" atmost >>"$T/out" 2>>"$T/stderr" || CROSS_RC=$?
+}
+
+# FROM A SHALLOWER RUNG IT MUST NOT DESCEND. This is the defect itself: a lit
+# machine asked to light itself must not lock.
+go open
+expect_depth open
+true > "$RECORD"
+true > "$T/stderr"
+_atmost lock
+expect_rc 0
+expect_depth open
+expect_record ""
+grep -q "shallower than 'lock'; not descending" "$T/stderr" \
+  || fail "the decline was silent. A refused restore gesture must say so, for
+the same reason a refused security request must. stderr held:
+$(tail -3 "$T/stderr")"
+
+# ...AND FROM A DEEPER RUNG IT MUST STILL ASCEND, or "never descends" is
+# satisfied by a mode that does nothing at all, which leaves a dark machine dark
+# and the key dead. The pair is the test, exactly as for `atleast`.
+go sleep
+expect_depth sleep
+true > "$RECORD"
+_atmost lock
+expect_rc 0
+expect_depth lock
+expect_record "wake sleep 10-rec"
+
+# THE EQUAL CASE TAKES NO BRANCH OF ITS OWN, asserted rather than assumed: `-le`
+# instead of `-lt` would print a sentence contradicting itself about a descent
+# that was never on the table, which is the live defect 79859db fixed on the
+# other side. It must reach the shared no-op wording instead.
+true > "$T/stderr"
+_atmost lock
+expect_rc 0
+expect_depth lock
+grep -q "already at 'lock'; nothing to do" "$T/stderr" \
+  || fail "the equal case did not reach the shared no-op message:
+$(tail -3 "$T/stderr")"
+grep -q 'shallower' "$T/stderr" \
+  && fail "the equal case took the shallower branch and described a descent
+that was never on the table: the 79859db defect, mirrored"
+
 pass
