@@ -359,3 +359,19 @@ m report's coherence section, via the org.freedesktop.ScreenSaver probe
 f a REAL screensaver owns the bus name and reports ACTIVE at rung `open`
 e ACT: coherence WARNs and names the holder; idle and no-owner stay quiet
 t fault-rival-screensaver
+
+# THE FAULT THAT TOOK THE LOCK AWAY FOR 84 MINUTES, live on 2026-10-04. A layout
+# change moved the plugin tree while the wired symlinks still pointed at the old
+# path, so every hook became a dangling link, the lock edge crossed with an
+# empty act tier and rc=0, and the record then declined every later request.
+#
+# ITS OWN CELL BECAUSE THE SHAPE IS NOT "a hook failed". `_hooks_in` lists a
+# hook only `if [ -x ]`, so a dangling link does not FAIL, it ceases to EXIST:
+# no log, no alert, no missing-hook warning. That took out the actuator AND its
+# verifier AND the standing recheck together, because all three are symlinks
+# into one tree, which is why nothing detected it for 46 minutes.
+= wiring-blocked
+m the supervision pass, the act tier's status, and the atleast decline
+f a wired hook is present but UNRUNNABLE, as a moved install target leaves it
+e ALERT: named on the timer, the edge does not claim success, the lock happens
+t fault-wiring
