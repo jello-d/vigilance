@@ -1099,3 +1099,9 @@ f libexec/hooks/screen-dark
 t screen-dark
 -     _sbc=$(cat "$_sb/actual_brightness" 2>/dev/null || echo)
 +     _sbc=$(cat "$_sb/brightness" 2>/dev/null || echo)
+
+= swayidle-arms-no-logind-event
+f bin/swayidle-mgr
+t idle-suspend
+-   set -- "$@" after-resume true
++   set -- "$@"

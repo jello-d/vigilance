@@ -119,6 +119,29 @@ echo "$out" | grep -q 'idle-tick' \
   || fail "argv did not report the heartbeat, which is the one thing a stale
 daemon is missing and therefore the whole reason to compare"
 
+# A LOGIND-DEPENDENT EVENT MUST BE ARMED, and it looks like a no-op, which is
+# exactly why it needs an assertion: swayidle only opens its logind connection
+# when one is configured, and without that connection it never reads
+# BlockInhibited, so a `what=idle` inhibitor is taken correctly by the asking
+# app and consulted by nobody. That is how a Zoom call reached the 480s
+# deadline on a live box and got the microphone muted mid meeting.
+#
+# ANYONE TIDYING would delete `after-resume true` as dead weight, and nothing
+# observable would change until the next call. Measured in
+# test/session-inhibit.t: timeout/resume alone FIRES through a held inhibitor,
+# and either of these arms defers it.
+# ONLY THESE TWO TOKENS, and not `lock`/`unlock`, for two reasons. They are the
+# arms measured to work, and `lock`/`unlock` are rejected by design because
+# they duplicate vigilance's own Session.Lock listener. But the deciding reason
+# is mechanical: the FIRST version of this assertion accepted `(^| )lock `, and
+# it matched ` lock ` inside the `vigilant go lock` COMMAND, so it passed with
+# the arm deleted. A mutation caught it. Same shape as swayidle-due's old
+# `index(cmd, "lock")`, which also matched "unlock".
+echo "$out" | grep -Eq '(^| )(after-resume|before-sleep) ' \
+  || fail "argv arms no logind-dependent event, so swayidle never connects to
+logind and a held idle inhibitor is read by nothing. An app in a call cannot
+defer the idle lock. argv was: $out"
+
 # IT MUST NOT LAUNCH. The comparison runs on every apply, and a query that
 # starts a second idle timer would be worse than the drift it detects.
 #

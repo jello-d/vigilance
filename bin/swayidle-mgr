@@ -239,6 +239,41 @@ _run() {
   if [ -n "$SUSPEND_TIMEOUT" ] && [ -n "$SUSPEND_CMD" ]; then
     set -- "$@" timeout "$SUSPEND_TIMEOUT" "$SUSPEND_CMD"
   fi
+  # A NO-OP ARM THAT EXISTS ONLY TO PUT swayidle ON THE LOGIND BUS, and it is
+  # load-bearing despite doing nothing. swayidle honours a logind idle
+  # inhibitor (what=idle, i.e. "an app is in a call, do not lock") by reading
+  # logind's BlockInhibited, but it only opens that connection when a
+  # logind-DEPENDENT event is armed. With only `timeout` and `resume` arms it
+  # never connects, so the inhibitor is taken correctly by the asking app and
+  # consulted by nobody.
+  #
+  # MEASURED, in test/session-inhibit.t, six shapes against a real swayidle:
+  #
+  #     timeout/resume only          FIRED      both orderings
+  #     plus `before-sleep true`     deferred   both orderings
+  #     plus `after-resume true`     deferred   both orderings
+  #
+  # THE COST OF LEARNING THIS FROM THE BINARY INSTEAD: swayidle CARRIES the
+  # code either way (it holds BlockInhibited, a PropertiesChanged match rule
+  # and the string "Not enabling timeouts: idle inhibitor found"), so reading
+  # the strings said yes and the machine said no. Present is not honoured.
+  #
+  # `after-resume` RATHER THAN `before-sleep`, deliberately, and the other two
+  # candidates are worse:
+  #   before-sleep  works, and puts swayidle back on the SLEEP path and makes
+  #                 it take a delay inhibitor. The suspend guarantee here is
+  #                 the SYSTEM oneshot precisely so that it does not rest on a
+  #                 wedge-prone daemon, and this would walk that back.
+  #   lock/unlock   opens the connection and DUPLICATES the Session.Lock
+  #                 listener vigilance already ships, which is the
+  #                 two-responders race paid for on 2026-09-23.
+  #   after-resume  a logind signal, so it opens the same connection, while
+  #                 taking no inhibitor and duplicating nothing.
+  #
+  # `true` is the whole command on purpose: resume handling belongs to the
+  # `resume` arms above and to vigilance-resume.service, so anything real here
+  # would be a second owner of it.
+  set -- "$@" after-resume true
   # BEFORE the exec, so this is swayidle's OWN pid: exec replaces the process
   # and keeps it. Written for `stop`, which used to pkill every swayidle on the
   # box by name: a blunt instrument that would also kill an unrelated or
