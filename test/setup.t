@@ -155,6 +155,42 @@ crun install >/dev/null 2>&1 || fail "copy install errored"
   && fail "copy mode left a SYMLINK; it must be a real file"
 [ -f "$T/copy/libexec/hooks/ddc-monitor" ] \
   || fail "copy mode did not copy the plugin tree"
+# A RETIRED UNIT'S ENABLE LINK IS SWEPT, by name and only when it dangles.
+# Found live: default.target.wants/smart-trigger.service pointed at a unit
+# retired with the tool on 2026-09-01 and nothing had ever removed it.
+mkdir -p "$CFG/systemd/user/default.target.wants"
+ln -sfn /nonexistent/smart-trigger.service \
+  "$CFG/systemd/user/default.target.wants/smart-trigger.service"
+# AND A LIVE ONE IS SPARED, which is the half that matters: a generic sweep of
+# dangling .wants links would remove this package's OWN logind enable link
+# whenever the privileged tree is mid-reinstall, silently disabling the
+# lid-close lock. Modelled with a link whose target exists.
+: > "$CFG/systemd/user/vigilance-logind.service"
+ln -sfn "$CFG/systemd/user/vigilance-logind.service" \
+  "$CFG/systemd/user/default.target.wants/vigilance-logind.service"
+run install >/dev/null 2>&1 || :   # the retirement sweep is on INSTALL
+[ -h "$CFG/systemd/user/default.target.wants/smart-trigger.service" ] \
+  && fail "the retired unit's enable link survived; it outlives the package and
+reads as an enabled unit to anyone looking"
+# NAME-SCOPED: nothing but the two retired names is considered at all, which is
+# what keeps this away from the package's own enable links.
+[ -h "$CFG/systemd/user/default.target.wants/vigilance-logind.service" ] \
+  || fail "the sweep reached a name it was not given. A generic one would
+remove this link whenever the privileged tree is mid-reinstall, silently
+disabling the Session.Lock listener, which is the lid-close lock"
+# AND THE DANGLE GUARD IS REAL, tested on the case it is actually for: a
+# RETIRED name whose unit exists anyway, which means an integrator wrote their
+# own under that name. Ours is gone, so a file there is not ours to delete.
+: > "$CFG/systemd/user/smart-trigger.service"
+ln -sfn "$CFG/systemd/user/smart-trigger.service" \
+  "$CFG/systemd/user/default.target.wants/smart-trigger.service"
+run install >/dev/null 2>&1 || :
+[ -h "$CFG/systemd/user/default.target.wants/smart-trigger.service" ] \
+  || fail "swept a retired-name enable link whose unit EXISTS. The name is
+retired for US; a file an integrator put there under it is theirs"
+rm -f "$CFG/systemd/user/default.target.wants/smart-trigger.service" \
+  "$CFG/systemd/user/smart-trigger.service"
+
 # THE PRIVILEGED BRANCH, WHICH THIS TEST CANNOT EXECUTE, so it is asserted
 # STATICALLY instead. copy-mode install chowns the tree root:root and strips
 # group/other write, because a greeter executes those hooks and the login user

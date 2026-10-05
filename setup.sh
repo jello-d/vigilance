@@ -404,6 +404,28 @@ do_install() {
         ;;
     esac
   done
+  # AND THEIR SYSTEMD ENABLE LINKS, which nothing swept. Found on a real box
+  # 2026-10-05: default.target.wants/smart-trigger.service in the --user unit
+  # dir, still pointing at /etc/systemd/user/smart-trigger.service, retired
+  # with the tool on 2026-09-01. Inert (measured: user manager running, zero
+  # failed units, nothing in the journal, since systemd ignores a .wants link
+  # with no target) but it outlives the package forever and reads as an enabled
+  # unit to anyone looking.
+  #
+  # BY RETIRED NAME, AND ONLY WHEN IT DANGLES, deliberately narrow. A GENERIC
+  # sweep of dangling .wants links is the obvious idea and is dangerous here:
+  # between a clone wipe and the next PRIVILEGED reinstall, this package's own
+  # vigilance-logind.service target is legitimately absent, so a generic sweep
+  # would remove its enable link and silently disable the Session.Lock
+  # listener, which is the lid-close lock. A retired name cannot come back.
+  for _gone in smart-lock.service smart-trigger.service; do
+    for _gw in "$_usr"/*.wants/"$_gone"; do
+      [ -h "$_gw" ] || continue
+      [ -e "$_gw" ] && continue       # the unit exists: not ours to judge
+      rm -f "$_gw"
+      echo "$PKG: swept $_gw (enable link for a unit retired 2026-09-01)"
+    done
+  done
   if [ "${VIGILANCE_INSTALL_COPY:-0}" = 1 ]; then
     echo "$PKG: COPIED the tools (+ man, hooks) into $PREFIX"
   else
