@@ -115,4 +115,64 @@ run_hook sleep || _rc=$?
 78; it must decline rather than claim work it could not do"
 [ -f "$SAVE" ] && fail "absent brightnessctl still wrote a save file"
 
+# --- AN ACT TIER THAT RAN NOTHING CANNOT CLAIM THE EDGE ---------------------
+# MEASURED LIVE 2026-10-04: `cross lock: open -> lock` with both wired hooks
+# dangling after a layout change, rc=0, and a clean log. The rung meaning "the
+# session is secured" was recorded with nothing having secured it, which is the
+# conflation HOOK_NA was introduced to break for the VERIFY tier and which the
+# ACT tier never got.
+#
+# THE DISCRIMINATOR IS present-but-BLOCKED, and that is what makes it safe to
+# assert at all: `_hooks_for` returns empty both when nothing is wired (a
+# greeter, legitimately) and when everything wired is unrunnable. Those read
+# identically to the runner, so failing on "ran nothing" alone would cry wolf on
+# every greeter crossing. All three directions are asserted below.
+# A PREVIOUS CASE NARROWED PATH to $T/minbin and did not restore it, so this
+# block inherits a PATH with no mkdir and failed with "mkdir: not found".
+# Restored HERE rather than changed there, because the narrowing is
+# load-bearing for that case: it is how a hook is made to look absent.
+PATH=$T/bin:/usr/bin:/bin
+
+_dangle() {   # wire a hook whose target has MOVED, as a deploy does
+  mkdir -p "$VIGILANCE_HOOK_ROOT/lock.d"
+  printf '#!/bin/sh\nexit 0\n' > "$T/tgt"; chmod +x "$T/tgt"
+  ln -sf "$T/tgt" "$VIGILANCE_HOOK_ROOT/lock.d/10-prov"
+  mv "$T/tgt" "$T/tgt-gone"
+}
+rm -f "$VIGILANCE_HOOK_ROOT"/lock.d/* 2>/dev/null || true
+go open
+_dangle
+go lock
+[ "$CROSS_RC" != 0 ] \
+  || fail "the lock edge crossed with every wired hook UNRUNNABLE and reported
+SUCCESS. Nothing actuated, and the rung that means the session is secured was
+recorded anyway: that is the live fault, and the status is what lock-on-sleep
+and the keybind read"
+grep -q "ran NOTHING" "$VIGILANCE_LOG" \
+  || fail "the edge actuated nothing and the log does not say so. The status
+alone reaches a unit; the log is what reaches a human reading back"
+# THE RECORD STILL MOVES, deliberately and like _set_depth's own tolerance: a
+# hook that could not run is not a reason to lie about where the machine was
+# asked to be, and the drift is then visible to coherence and the recheck.
+expect_depth lock
+
+# A HEALTHY TIER MUST BE SILENT, or every crossing on every box fails.
+rm -f "$VIGILANCE_HOOK_ROOT/lock.d/10-prov"
+hook lock 10-prov
+go open
+go lock
+[ "$CROSS_RC" = 0 ] \
+  || fail "a healthy lock edge now reports failure (rc=$CROSS_RC)"
+
+# AND NOTHING WIRED IS NOT A FAILURE, which is the greeter: it sits at `lock`
+# with no provider, forever and correctly. Failing here would make every
+# greeter crossing red, which is how a check gets switched off.
+rm -f "$VIGILANCE_HOOK_ROOT"/lock.d/*
+go open
+go lock
+[ "$CROSS_RC" = 0 ] \
+  || fail "an edge with NOTHING wired reported failure (rc=$CROSS_RC). That is
+the greeter shape and it is correct: demanding a hook there asserts something
+no mechanism in that session can satisfy"
+
 pass

@@ -1258,6 +1258,37 @@ _cross_one() {   # edge leaving to [note]
   # actually collide.
   _crc=0
   _run_hooks "$1" "$2" || _crc=1
+  # AN ACT TIER THAT RAN NOTHING BECAUSE EVERYTHING WIRED TO IT IS BLOCKED
+  # CANNOT CLAIM THE EDGE. Measured live 2026-10-04: `cross lock: open -> lock`
+  # with both wired hooks dangling after a layout change, rc=0, and a clean
+  # log. The rung meaning "the session is secured" was recorded with nothing
+  # having secured it, which is exactly the conflation HOOK_NA was introduced
+  # to break for the VERIFY tier and which the ACT tier never got.
+  #
+  # THE DISCRIMINATOR IS `_hooks_blocked`, and it is the whole reason this can
+  # be said safely. `_hooks_for` returns EMPTY in two completely different
+  # situations: nothing is wired here (a greeter has no lock provider and is
+  # legitimately the locked state, and a minimal integration may wire nothing
+  # on an edge) or everything wired here is UNRUNNABLE. Those read identically
+  # to the runner, so failing on "ran nothing" alone would cry wolf on every
+  # greeter crossing. Entries present-but-blocked is never correct on any edge,
+  # so that is what is asserted, and it needs no per-edge policy.
+  #
+  # TOLERANT OF THE RECORD, like _set_depth above: the depth is already
+  # committed and stays committed, because a hook that could not run is not a
+  # reason to lie about where the machine was asked to be. What changes is the
+  # STATUS and the log, so lock-on-sleep and the keybind learn that the edge
+  # did nothing.
+  if [ "$HOOKS_CHECKED" = 0 ] && [ "$HOOKS_NA" = 0 ]; then
+    _cob=$(_hooks_blocked "$HOOK_ROOT" "$1" ""
+           _hooks_blocked "$MACHINE_HOOK_ROOT" "$1" "")
+    if [ -n "$_cob" ]; then
+      _log "edge '$1' ran NOTHING: every hook wired to it is present but"\
+" UNRUNNABLE, so this crossing actuated nothing at all ($(printf '%s' "$_cob" \
+| tr '\n' ' '))"
+      _crc=1
+    fi
+  fi
   # A reporting failure is loud in the log but does NOT change the exit status:
   # the non-zero codes mean "the machine is not where you asked", and failing to
   # tell logind is not that. A unit must not restart or alarm because a bar was
