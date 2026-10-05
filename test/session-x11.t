@@ -117,7 +117,7 @@ fi
 # grabber is the platform and the MEASUREMENT is not. This is the only place the
 # X11 branch of hook_screen_luma runs for real.
 _ans=$(env -u WAYLAND_DISPLAY sh -c \
-  '. "$1"/hook_lib; hook_screen_luma' _ "$PLUGINS")
+  '. "$1"; hook_screen_luma' _ "$HOOKLIB")
 [ -n "$_ans" ] || fail "the luma probe returned NOTHING against a live X server.
 The probe found import capturing the root window, so either the grabber choice
 is not reaching the X11 branch or the capture itself failed"
@@ -146,7 +146,7 @@ measurement is wrong before any threshold is applied"
 # which short-circuits the pipeline, so only a real capture shows that
 # ImageMagick actually produces it.
 _peak=$(env -u WAYLAND_DISPLAY sh -c \
-  '. "$1"/hook_lib; hook_luma_peak "$2"' _ "$PLUGINS" "$_ans")
+  '. "$1"; hook_luma_peak "$2"' _ "$HOOKLIB" "$_ans")
 case "${_peak:-}" in
   ''|*[!0-9.e+-]*) fail "the real X11 capture produced no usable peak
 (answer '$_ans'). Without one screen-dark cannot ask whether ANYTHING is

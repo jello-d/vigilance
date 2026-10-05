@@ -52,6 +52,15 @@ that let it get here was granted somewhere that is not one"
   # disagree with the package about where its plugins live.
   PLUGINS=$(dirname "$(readlink -f "$VIGILANT")")/../libexec
   [ -d "$PLUGINS/hooks" ] || fail "no shipped hooks under $PLUGINS"
+  # hook_lib is a SIBLING of the plugin tree, not inside it: it is SOURCED, and
+  # libexec is for what a package EXECUTES, so the 2026-10-04 flattening moved
+  # it from libexec/<pkg>/ to lib/. Derived here rather than at each call site,
+  # because the one site that spelled it out kept `$PLUGINS/hook_lib` across
+  # that move and simply stopped sourcing anything.
+  HOOKLIB=$(dirname "$(readlink -f "$VIGILANT")")/../lib/hook_lib
+  [ -r "$HOOKLIB" ] || fail "no readable hook_lib at $HOOKLIB; a scenario that
+sources it would abort under set -e before printing a verdict, and the runner
+would report a suite failure with no test named"
 
   for _t in swaylock swayidle; do
     command -v "$_t" >/dev/null 2>&1 \
