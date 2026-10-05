@@ -1056,3 +1056,34 @@ f bin/vigilant
 t report
 -           0) _r_warn "depth says 'open' but $SSAVER_NAME reports the screen"\
 +           0) _r_bad "depth says 'open' but $SSAVER_NAME reports the screen"\
+
+# THE WIRING QUESTION IS ON THE UNCONDITIONAL LIST. Dropping the call restores
+# the live outage exactly: the one check a wiring fault cannot blind goes back
+# to living only in a verb nothing runs on a timer, and 46 minutes pass in
+# silence. Measured 2026-10-04.
+= enforce-asks-the-wiring-question
+f bin/vigilant
+t watchdog
+-   _enforce_wiring || _erc=1
++   : # _enforce_wiring
+
+# AN ACT TIER THAT RAN NOTHING CANNOT CLAIM THE EDGE. With this guard inert the
+# lock edge crosses with every wired hook dangling, returns 0, and records the
+# rung that means the session is secured. That is the measured live fault, and
+# the status is what lock-on-sleep reads on the way into a suspend nothing can
+# veto.
+= act-tier-ran-nothing-is-not-success
+f bin/vigilant
+t hooks
+-     if [ -n "$_cob" ]; then
++     if false; then   # mutation: the blocked-hook finding is discarded
+
+# A DECLINE RESTS ON A PREMISE. Inert, a security request stands on a record it
+# can see is false, which is how a transient wiring fault became an 84-minute
+# inability to lock: `already at 'lock'; nothing to do`, twelve times, while no
+# locker existed.
+= decline-checks-its-premise
+f bin/vigilant
+t atleast
+-     if [ -n "${_secreq:-}" ] && [ "$_to" = lock ] && ! _lock_holds; then
++     if false; then   # mutation: the premise is assumed rather than asked

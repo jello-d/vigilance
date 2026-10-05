@@ -1367,6 +1367,37 @@ _cmd_go() {   # <state> [force|only|atleast]
       # match can anchor on the ASSERTED one: "already at 'sleep'" alone cannot
       # satisfy an assertion about `lock` without teaching awk the rank order.
       log "already at '$(_depth)', deeper than '$_to'; not raising"
+      # RULED OUT, WITH THE MEASUREMENT: the deeper rung CANNOT be
+      # repaired in place, and this is where somebody will think of it again.
+      #
+      # TRIED 2026-10-05. `locker-up` requires our locker at lock, sleep and
+      # suspend alike, so a security request arriving here with none has found
+      # the same stale record the equal case above repairs, and re-asserting
+      # the lock act tier without moving the ladder looked like the answer. It
+      # is not, and the guest refused it on the first run:
+      #
+      #   already at 'sleep', deeper than 'lock'; not raising
+      #   but no locker is up at 'sleep' ... RE-ASSERTED in place, without
+      #     moving the ladder
+      #   crossing lock still held after 2s; crossing anyway
+      #   cross wake: sleep -> lock            <- THE LADDER MOVED
+      #
+      # THE LADDER MOVES AFTERWARDS, BY A PATH THAT IS NOT THE TRAVERSAL. The
+      # re-assertion raises a locker; where the locker cannot survive it exits,
+      # and the provider's ExecStopPost is wired to unwind the ladder, which
+      # from a dark rung crosses `wake` and LIGHTS THE PANEL. That is exactly
+      # the 5bea063 lid damage, reintroduced by the repair, and no amount of
+      # care inside this function prevents it: the ascent is the locker
+      # teardown's, not ours.
+      #
+      # WHY THE EQUAL CASE IS STILL SAFE, which is the distinction that matters:
+      # at `lock` the panel is already lit, so an unwind to `open` darkens
+      # nothing and MAKES THE RECORD TRUE. Here it would undo a dark rung.
+      #
+      # SO THE DEEPER CASE IS REPORTED AND NOT REPAIRED. The standing recheck
+      # names it every pass, `report` carries it as drift, and an operator can
+      # cross `open` by hand. A repair that lights a panel with the lid shut is
+      # worse than the stale record it fixes.
       return 0
     fi
     # REMEMBERED, because the mode is cleared on the next line and the equal
