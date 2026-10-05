@@ -34,7 +34,11 @@
 #                and it requires swayidle to re-evaluate on change.
 #
 #   SHAPE  bare  `swayidle timeout N CMD`, nothing else.
-#          prod  what swayidle-mgr actually arms: `-w`, plus a `resume` arm.
+#          noarm what swayidle-mgr arms TODAY: `-w` plus a `resume` arm and
+#                NO logind-dependent event. Named for what it is rather than
+#                for production, because that correspondence expires the moment
+#                swayidle-mgr arms one, and a cell whose name outlives its
+#                meaning is worse than no cell.
 #                Carried because a bare invocation may never put swayidle on
 #                the bus at all, and then a null result would be an artifact of
 #                MY argv rather than a fact about the timer. That is the
@@ -108,12 +112,12 @@ _fired() { [ -e "$FIRED" ]; }
 # inherits a held inhibitor and reads as a box that cannot lock.
 trap '_idle_stop; _inhibit_drop' EXIT
 
-_start_shape() {   # <bare|prod>
+_start_shape() {   # <bare|noarm|sleeparm|resumearm>
   case $1 in
     bare)
       swayidle timeout "$TIMEOUT" "touch $FIRED" >>"$T/idle.out" 2>&1 &
       ;;
-    prod)
+    noarm)
       swayidle -w timeout "$TIMEOUT" "touch $FIRED" resume true \
         >>"$T/idle.out" 2>&1 &
       ;;
@@ -122,11 +126,21 @@ _start_shape() {   # <bare|prod>
       # swayidle's four D-Bus match rules (lock, unlock, sleep, property
       # changed) and its BlockInhibited read may all live behind a logind
       # connection it only opens when a logind-dependent event is configured.
-      # Neither `bare`, `prod`, nor PRODUCTION arms one, so if this shape
-      # defers and prod does not, the remedy is one argument in swayidle-mgr
+      # Neither `bare` nor `noarm` arms one, and nor does production, so if
+      # this shape defers and `noarm` does not, the remedy is one argument in
+      # swayidle-mgr
       # rather than a whole bridge.
       swayidle -w timeout "$TIMEOUT" "touch $FIRED" resume true \
         before-sleep true >>"$T/idle.out" 2>&1 &
+      ;;
+    resumearm)
+      # THE MINIMAL-RISK CANDIDATE. `after-resume` is a logind signal too, so
+      # it should open the same connection, while taking NO delay inhibitor
+      # and duplicating nothing. If this defers, it is the arm to add, because
+      # `before-sleep` puts swayidle back on the sleep path that this package
+      # deliberately moved the suspend guarantee off.
+      swayidle -w timeout "$TIMEOUT" "touch $FIRED" resume true \
+        after-resume true >>"$T/idle.out" 2>&1 &
       ;;
     *) fail "unknown shape '$1'" ;;
   esac
@@ -185,10 +199,12 @@ _idle_stop
 printf '  shape order result\n' >&2
 _cell bare pre
 _cell bare post
-_cell prod pre
-_cell prod post
+_cell noarm pre
+_cell noarm post
 _cell sleeparm pre
 _cell sleeparm post
+_cell resumearm pre
+_cell resumearm post
 
 # --- WHAT IS ASSERTED, AND WHAT IS ONLY REPORTED ----------------------------
 # ASSERTED: that arming a logind event makes the inhibitor effective in BOTH
@@ -208,11 +224,34 @@ An app joins a call long after login, so a bridge targeting logind cannot
 work and must target zwp_idle_inhibit_manager_v1 instead. Table:$TABLE" ;;
 esac
 
-# ONLY REPORTED: the `bare` and `prod` cells. They read FIRED today, which is
-# precisely the defect being fixed, and ASSERTING them would be a test that
-# DEMANDS A DEFECT: the moment swayidle-mgr arms a logind event, prod becomes
-# `deferred` and a green assertion here would turn red on the fix. This suite
-# has shipped that mistake twice (requiring `$(...)` to defeat a timeout bound,
-# and requiring `go open` to tear a locker down), so the cells stay in the
-# verdict line as a measurement and nothing branches on them.
+# ASSERTED: that the logind ARM is what makes the difference. This is the
+# durable form of the finding, because it compares two locally-defined shapes
+# and so stays true whatever swayidle-mgr arms later.
+case $TABLE in
+  *noarm/post=FIRED*resumearm/post=deferred*) ;;
+  *) fail "the logind arm no longer changes the answer: noarm and resumearm
+agree. Either swayidle now reads BlockInhibited with no logind event armed
+(good, and this file should be simplified) or it no longer reads it at all
+(fatal to the bridge). Table:$TABLE" ;;
+esac
+
+case $TABLE in
+  *resumearm/pre=deferred*) ;;
+  *) fail "after-resume did not open the logind connection for a PRE-held
+inhibitor. Table:$TABLE" ;;
+esac
+case $TABLE in
+  *resumearm/post=deferred*) ;;
+  *) fail "after-resume did not honour an inhibitor taken AFTER swayidle
+armed, so it is not a usable arm and before-sleep is the only measured one,
+at the cost of putting swayidle back on the sleep path. Table:$TABLE" ;;
+esac
+
+# ONLY REPORTED, never asserted on their own: the `bare` and `noarm` cells.
+# `noarm` is the shape production uses today and FIRED is exactly the defect
+# being fixed, so pinning it green would be a test that DEMANDS A DEFECT and
+# would turn red on the remedy. This suite has shipped that mistake twice
+# (requiring `$(...)` to defeat a timeout bound, and requiring `go open` to
+# tear a locker down). They appear in the verdict line as a measurement, and
+# only the noarm-versus-resumearm RELATION above branches on them.
 pass "session-inhibit (control fires;$TABLE)"
