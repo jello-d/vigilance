@@ -305,20 +305,68 @@ do_install() {
       # so it named a directory that no longer existed. The install then died on
       # `chown: cannot access`, which took tackup's lock phase down with it. One
       # variable for rm, cp, chown and chmod cannot drift from itself.
+      # STAGED, THEN SWAPPED, so a failure never destroys a working tree.
+      #
+      # THIS IS THE LESSON FROM 2026-10-03 PAID FORWARD. The old form was
+      # `rm -rf` then `cp`, so when the chown below died mid-install the live
+      # /opt tree had ALREADY been replaced by a half-written one: the box was
+      # left worse than before the install ran, with the rendered units still
+      # naming the previous layout. The payload install has staged through
+      # `.new` since its conversion; the privileged one never did, and the
+      # privileged one is the half a greeter executes.
+      #
+      # THE WINDOW SHRINKS, IT DOES NOT CLOSE, and saying so matters: the swap
+      # is two renames, so the path is absent for microseconds rather than for
+      # the length of a whole recursive copy. A truly atomic replace needs a
+      # symlink flip, which would put an extra level under every wired hook
+      # path for a gap this narrow.
+      #
+      # NO GENERATION IS KEPT. Rolling back is a re-install from the clone at
+      # the last proven ref (tackup's install engine owns that), so a retained
+      # `.old` here would be a SECOND answer to "what was good", free to
+      # disagree with the first.
       for _cd in lib libexec; do
         _cdst=$PREFIX/$_cd
         case $_cdst in
         /*/"$_cd") ;;
         *) echo "$PKG: refusing to replace '$_cdst'" >&2; return 1 ;;
         esac
-        rm -rf -- "$_cdst"
-        cp -a "$_root/$_cd" "$_cdst"
+        # DERIVED FROM A PATH JUST GUARDED, which is the only form in which
+        # these names may reach `rm -rf`: the guard is immediately above.
+        _cnew=$_cdst.new
+        _cold=$_cdst.old
+        rm -rf -- "$_cnew" "$_cold"
+        # Everything that must be true of the live tree is made true of the
+        # STAGED one first, so the swap is the only thing that can half-happen.
+        if ! cp -a "$_root/$_cd" "$_cnew"; then
+          echo "$PKG: could not stage $_cd; $_cdst left as it was" >&2
+          rm -rf -- "$_cnew"; return 1
+        fi
         if [ "$(id -u)" = 0 ]; then
-          chown -R root:root "$_cdst"
           # Strip group/other write as well. Ownership alone is not enough: a
           # 0775 root-owned dir is still writable by anyone in the root group.
-          chmod -R go-w "$_cdst"
+          # ONE VERB PER LINE, at line start, because the static guard in
+          # test/setup.t reads these: the privileged branch cannot be executed
+          # by a test, so its only coverage is that it can be found and read.
+          _hard=0
+          chown -R root:root "$_cnew" || _hard=1
+          chmod -R go-w "$_cnew" || _hard=1
+          if [ "$_hard" != 0 ]; then
+            echo "$PKG: could not harden the staged $_cd; $_cdst left as it"\
+" was (a tree a greeter executes must be root-owned)" >&2
+            rm -rf -- "$_cnew"; return 1
+          fi
         fi
+        if [ -e "$_cdst" ] && ! mv -- "$_cdst" "$_cold"; then
+          echo "$PKG: could not move the live $_cd aside; left as it was" >&2
+          rm -rf -- "$_cnew"; return 1
+        fi
+        if ! mv -- "$_cnew" "$_cdst"; then
+          echo "$PKG: the $_cd swap failed; restoring the previous tree" >&2
+          [ -e "$_cold" ] && mv -- "$_cold" "$_cdst"
+          return 1
+        fi
+        rm -rf -- "$_cold"
       done
     else
       # THE STRUCK ROOT. `~/.local/libexec/<pkg>` is gone as a concept: it was

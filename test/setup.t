@@ -173,20 +173,29 @@ crun install >/dev/null 2>&1 || fail "copy install errored"
 _cpblk=$(sed -n '/THE .cp -a. TRAP _place DOCUMENTS/,/^      done$/p' \
          "$HERE/setup.sh")
 [ -n "$_cpblk" ] || fail "premise: cannot extract the copy-mode install block"
-printf '%s' "$_cpblk" | grep -q 'cp -a "$_root/$_cd" "$_cdst"' \
-  || fail "copy-mode install no longer copies through \$_cdst, so the check
-below cannot tell whether chown follows the copy"
+printf '%s' "$_cpblk" | grep -q 'cp -a "$_root/$_cd" "$_cnew"' \
+  || fail "copy-mode install no longer stages through \$_cnew, so the checks
+below cannot tell whether the hardening follows the copy"
 for _pv in chown chmod; do
-  _tgts=$(printf '%s' "$_cpblk" | grep -E "^\s*$_pv -R " \
+  _tgts=$(printf '%s' "$_cpblk" | grep -E "^\s*(if ! )?$_pv -R " \
           | grep -oE '"\$[A-Za-z_]+"' | sort -u)
   [ -n "$_tgts" ] || fail "copy-mode install has no $_pv -R: the privileged
 hardening that keeps a greeter-executed hook out of the login user's reach is
 gone, and no test here can execute that branch to notice"
-  [ "$_tgts" = '"$_cdst"' ] \
-    || fail "copy-mode $_pv -R targets $_tgts, not \"\$_cdst\" (the path the
-copy writes). A separately written path is what broke when the tree flattened:
-the copy moved, this did not, and the install died on a missing directory."
+  [ "$_tgts" = '"$_cnew"' ] \
+    || fail "copy-mode $_pv -R targets $_tgts, not \"\$_cnew\" (the path the
+copy stages into). Hardening a path the copy did not write is what broke when
+the tree flattened; hardening the LIVE tree instead would also defeat the
+staging, since the point is that nothing touches it until the swap."
 done
+# AND THE LIVE TREE IS NOT DESTROYED BEFORE THE STAGE, which is the atomicity
+# property itself and is checkable without root. The old form was `rm -rf` then
+# `cp` straight onto the live path, so a failure anywhere in the copy left the
+# box with no working tree at all; that is precisely what happened on
+# 2026-10-03 and left /opt flat while the units still named the old layout.
+printf '%s' "$_cpblk" | grep -qE '^\s*rm -rf -- "\$_cdst"' \
+  && fail "copy-mode install removes the LIVE tree (\$_cdst) directly, so a
+failure partway leaves no working tree. Stage into \$_cnew and swap."
 
 [ -f "$T/copy/lib/hook_lib" ] \
   || fail "copy mode did not copy lib/, so every plugin exits 2 unable to
