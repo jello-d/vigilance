@@ -131,6 +131,7 @@ know, which is what lets it judge every mechanism impartially"
 mkdir -p "$T/haslight/intel_backlight"
 printf '400\n' > "$T/haslight/intel_backlight/max_brightness"
 printf '0\n'   > "$T/haslight/intel_backlight/brightness"
+printf '0\n' > "$T/haslight/intel_backlight/actual_brightness"
 BL_ROOT=$T/haslight
 [ "$(_run sleep 0.276981)" = 0 ] || fail "a panel held dark by its backlight
 was reported as still emitting. That is the live manifold state exactly: bl=0
@@ -141,6 +142,7 @@ this hook was never able to make"
 # ...and the threshold matches hook_lib's, so the two tiers cannot disagree
 # about what "dark" means on a device that floors above zero.
 printf '40\n' > "$T/haslight/intel_backlight/brightness"     # exactly max/10
+printf '40\n' > "$T/haslight/intel_backlight/actual_brightness"
 [ "$(_run sleep 0.276981)" = 0 ] || fail "a backlight at max/10 was called lit;
 hook_lib treats that as dark, and two tiers disagreeing about the word is how a
 box reports drift and a fix that cannot clear it"
@@ -149,9 +151,52 @@ box reports drift and a fix that cannot clear it"
 # Without this, "always pass when a backlight exists" would satisfy the case
 # above while switching the hook off entirely on every laptop in the fleet.
 printf '400\n' > "$T/haslight/intel_backlight/brightness"
+printf '400\n' > "$T/haslight/intel_backlight/actual_brightness"
 [ "$(_run sleep 0.276981)" = 1 ] || fail "with the backlight at FULL and a lit
 framebuffer, the screen is emitting and the rung claims dark. Passing that
 would disable this check on every box that has a backlight"
+
+# --- THE REQUESTED VALUE IS NOT THE REPORTED ONE ---------------------------
+# This hook read `brightness` until 2026-10-05, which is what was ASKED FOR.
+# `actual_brightness` is what the hardware reports, and the kernel exposes both
+# precisely because they can differ: a write can be clamped, ignored, or
+# overridden by firmware or another driver.
+#
+# SO A VERIFIER ON THE REQUESTED VALUE SAYS "we asked for 0" AND NOT "it IS 0",
+# which is this package's signature false green arriving in the one tier whose
+# whole job is to catch it. The runner already read actual_brightness in both
+# coherence and the hardware section, so the two tiers could disagree about
+# whether this very panel is dark, while the comment further up carefully
+# guards the THRESHOLD against exactly that kind of drift.
+#
+# A/B'd AGAINST THE OLD HOOK, with the real tree layout reproduced so its
+# self-location worked: on this fixture the old one returned 0 and the new one
+# returns 1. Latent rather than live, because the two agree 80/80 on manifold.
+printf '0\n'   > "$T/haslight/intel_backlight/brightness"
+printf '300\n' > "$T/haslight/intel_backlight/actual_brightness"
+[ "$(_run sleep 0.276981)" = 1 ] || fail "the backlight was asked for 0 while
+the PANEL REPORTS 300 of 400, and this hook called the screen dark. It read the
+requested value, so it certified an intention rather than a state: the display
+is emitting, the rung claims dark, and the tier that exists to notice that said
+nothing"
+
+# AND A DEVICE WITHOUT actual_brightness FALLS BACK, NAMING THAT IT DID -------
+# The attribute is standard in the sysfs backlight ABI and present on every
+# device in this fleet, but a driver that omits it must not make this branch
+# vanish. It drops to the requested value and SAYS so, because a silent
+# fallback is how the original choice went unexamined.
+mkdir -p "$T/nofield/acme_bl"
+printf '400\n' > "$T/nofield/acme_bl/max_brightness"
+printf '0\n'   > "$T/nofield/acme_bl/brightness"
+BL_ROOT=$T/nofield
+[ "$(_run sleep 0.276981)" = 0 ] || fail "a device with no actual_brightness
+made the backlight branch vanish. The fallback exists so a driver that omits
+the attribute still gets a verdict"
+grep -q 'REQUESTED value' "$T/last" \
+  || fail "with no actual_brightness the hook fell back to the requested value
+and did not SAY so. The claim then rests on weaker evidence than usual and
+nothing tells the reader:
+$(cat "$T/last")"
 BL_ROOT=
 
 # --- SCIENTIFIC NOTATION IS A NUMBER --------------------------------------

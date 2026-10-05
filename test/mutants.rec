@@ -1087,3 +1087,15 @@ f bin/vigilant
 t atleast
 -     if [ -n "${_secreq:-}" ] && [ "$_to" = lock ] && ! _lock_holds; then
 +     if false; then   # mutation: the premise is assumed rather than asked
+
+# A VERIFIER READS WHAT THE HARDWARE REPORTS. Swapping the attribute back to
+# `brightness` reinstates the shipped defect: the hook then certifies that the
+# panel is dark because 0 was WRITTEN to it, with the device reporting it is
+# still lit. The two agree on this fleet, so nothing but a diverging fixture
+# can see it, and every case in screen-dark.t passed with it present until one
+# existed.
+= screen-dark-reads-the-reported-brightness
+f libexec/hooks/screen-dark
+t screen-dark
+-     _sbc=$(cat "$_sb/actual_brightness" 2>/dev/null || echo)
++     _sbc=$(cat "$_sb/brightness" 2>/dev/null || echo)

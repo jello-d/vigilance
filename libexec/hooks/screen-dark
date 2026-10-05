@@ -72,8 +72,34 @@ fi
 # THE BACKLIGHT FIRST, because it settles the question outright and costs a
 # file read, where the capture costs over a second.
 for _sb in "${VIGILANCE_SYS_BACKLIGHT:-/sys/class/backlight}"/*; do
-  [ -r "$_sb/brightness" ] && [ -r "$_sb/max_brightness" ] || continue
-  _sbc=$(cat "$_sb/brightness" 2>/dev/null || echo)
+  [ -r "$_sb/max_brightness" ] || continue
+  # `actual_brightness`, WHICH IS WHAT THE HARDWARE REPORTS. This read
+  # `brightness` until 2026-10-05, and that is the REQUESTED value: a verifier
+  # standing on it says "we asked for 0" rather than "it IS 0", which is this
+  # package's signature false green in the one tier whose whole job is to catch
+  # it. The kernel exposes both precisely because they can differ.
+  #
+  # AND IT IS WHAT THE RUNNER ALREADY READS. `_rep_coherence` and the hardware
+  # section both use actual_brightness, so the old choice meant the two tiers
+  # could disagree about whether this panel is dark. The comment below guards
+  # the THRESHOLD against exactly that drift while the ATTRIBUTE underneath it
+  # was a larger way to disagree, which is how it survived unexamined.
+  #
+  # THE FALLBACK IS NAMED, NOT SILENT. actual_brightness is standard in the
+  # sysfs backlight ABI and present on every device in this fleet, but a driver
+  # that omits it must not make this branch vanish: it drops to the requested
+  # value and SAYS it did, so a reader knows the claim rests on weaker evidence
+  # than usual. Silently falling back is how the original choice went unnoticed.
+  _sbw=
+  if [ -r "$_sb/actual_brightness" ]; then
+    _sbc=$(cat "$_sb/actual_brightness" 2>/dev/null || echo)
+  elif [ -r "$_sb/brightness" ]; then
+    _sbc=$(cat "$_sb/brightness" 2>/dev/null || echo)
+    _sbw=" (no actual_brightness on $(basename "$_sb"); this is the REQUESTED\
+ value, so it says what was asked for rather than what the panel reports)"
+  else
+    continue
+  fi
   _sbm=$(cat "$_sb/max_brightness" 2>/dev/null || echo)
   case "${_sbc:-}${_sbm:-}" in ''|*[!0-9]*) continue ;; esac
   [ "$_sbm" -gt 0 ] || continue
@@ -87,6 +113,11 @@ for _sb in "${VIGILANCE_SYS_BACKLIGHT:-/sys/class/backlight}"/*; do
   # scanning out, and it holds only while nothing brighter appears. The capture
   # path below therefore has to ask a second question that this branch does not.
   if [ "$_sbc" -le $((_sbm / 10)) ]; then
+    # STDERR, like every other message this hook prints. On stdout it would be
+    # read as the hook's OUTPUT rather than as a note, and screen-dark.t's own
+    # helper returns stdout as the exit status: the first version of this line
+    # made the test report an rc of the message text.
+    [ -z "$_sbw" ] || echo "screen-dark: backlight dark$_sbw" >&2
     exit 0
   fi
 done

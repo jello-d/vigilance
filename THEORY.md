@@ -203,6 +203,32 @@ Stated plainly rather than implied:
   UID: a machine-scope hook target must be root-visible or _greetd cannot even
   see it, which is a separate finding with no check of its own.
 
+### A verifier reads what the HARDWARE reports, not what was asked for
+
+`screen-dark` read `brightness` until 2026-10-05, and that is the REQUESTED
+value: a verifier standing on it says "we asked for 0" rather than "it IS 0".
+`actual_brightness` is what the panel reports, and the kernel exposes both
+precisely because they can differ (a write can be clamped, ignored, or
+overridden by firmware or another driver).
+
+THE TWO TIERS COULD DISAGREE ABOUT ONE PANEL. `_rep_coherence` and the hardware
+section already read `actual_brightness`, so the hook's choice meant the runner
+and its own verifier could answer the backlight question differently, while the
+comment immediately below the read carefully guarded the THRESHOLD against
+exactly that kind of drift. The larger disagreement was underneath it.
+
+A/B'd against the old hook with the real tree layout reproduced: asked for 0
+with the panel reporting 300 of 400, the old one returned 0 and the new one
+returns 1. LATENT rather than live, because the two agree 80/80 on manifold.
+
+THE FALLBACK IS NAMED. `actual_brightness` is standard in the sysfs backlight
+ABI and present on every device in this fleet, but a driver omitting it must not
+make the branch vanish: it drops to the requested value and SAYS so, because a
+silent fallback is how the original choice went unexamined. Held down in
+screen-dark.t by a fixture that can express DIVERGENCE, which is the thing the
+old cases could not do: they wrote only `brightness`, so every one of them
+passed with the defect present.
+
 ### Ruled out, with the measurement
 
 Kept because a closed avenue reopens every time somebody re-derives the idea.
