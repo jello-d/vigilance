@@ -136,4 +136,69 @@ expect_depth sleep
 _atleast lock
 expect_depth sleep
 
+# --- 5. A DECLINE RESTS ON A PREMISE, AND THE PREMISE IS CHECKED ------------
+# "Already at 'lock', so the session is already secured" is sound only while the
+# record and the world AGREE, and a record can be AHEAD of the world.
+#
+# MEASURED LIVE 2026-10-04: a layout change left the provider a dangling
+# symlink, the lock edge crossed and committed `lock` with nothing wired that
+# could run, no locker came up, and nothing ever unwound the record. Every later
+# security request was then correctly declined against a FALSE premise. The log
+# reads `already at 'lock'; nothing to do` twelve times, which is the hotkey
+# being refused, and the box could not be locked for 84 minutes.
+#
+# SO THE RUNG IS CONFIRMED BEFORE IT IS STOOD ON, and the edge is RE-ASSERTED
+# rather than declined: save once, ASSERT EVERY TIME, which is the discipline
+# hooklib already applies to a device level, applied to the ladder's own record.
+go open
+hook lock 50-prov
+: > "$RECORD"
+# The record claims the rung while the probe says no locker exists, which is
+# exactly the live state. VIGILANCE_LOCKER_UP is the shipped probe override.
+go lock
+expect_depth lock
+: > "$RECORD"
+VIGILANCE_LOCKER_UP=0 "$VIGILANT" go lock atleast >>"$T/out" 2>>"$T/stderr" \
+  || true
+grep -q '50-prov' "$RECORD" \
+  || fail "with the record at 'lock' and NO locker up, a security request was
+DECLINED instead of re-asserting the edge. That is the live lockout: a
+transient wiring fault becomes a permanent inability to secure the session,
+and nothing self-heals it.
+record: $(cat "$RECORD")"
+
+# --- 6. AND IT MUST STILL DECLINE WHEN THE RUNG GENUINELY HOLDS -------------
+# The half that keeps this from re-raising the locker on every request. Without
+# it the fix is indistinguishable from deleting the decline, which would make
+# every lid close and every idle tick re-run the lock provider.
+: > "$RECORD"
+VIGILANCE_LOCKER_UP=1 "$VIGILANT" go lock atleast >>"$T/out" 2>>"$T/stderr" \
+  || true
+if grep -q '50-prov' "$RECORD"; then
+  fail "with a locker genuinely UP, a security request re-ran the lock edge.
+The decline exists so a lid close on an already-locked session is free; losing
+it means re-raising the locker on every request:
+record: $(cat "$RECORD")"
+fi
+
+# --- 7. A GREETER HAS NO PROVIDER, SO THE RUNG HOLDS VACUOUSLY --------------
+# A greeter IS the locked state: it sits at `lock` with no user session, no
+# provider and no locker, forever and correctly. Re-asserting there would run an
+# empty tier on every request for ever, and asserting a locker would be
+# demanding what no mechanism in that session can satisfy. Same carve-out
+# `_rep_coherence` makes, from the same predicate.
+# THE WHOLE TIER GOES, not just the provider: `_lock_holds` asks the same
+# question `_rep_coherence` does, which is whether ANY lock.d hook is wired, so
+# leaving the recorder behind leaves a non-empty tier and models nothing. My
+# first version of this case did exactly that and failed about the product.
+rm -f "$VIGILANCE_HOOK_ROOT/lock.d/50-prov" \
+      "$VIGILANCE_HOOK_ROOT/lock.d/10-rec"
+: > "$RECORD"
+VIGILANCE_LOCKER_UP=0 "$VIGILANT" go lock atleast >/dev/null 2>&1 || true
+[ ! -s "$RECORD" ] \
+  || fail "with NO lock provider wired (the greeter shape), a security request
+still tried to re-assert. Nothing there could raise a locker, so this would be
+an empty tier run once a minute for ever:
+record: $(cat "$RECORD")"
+
 pass

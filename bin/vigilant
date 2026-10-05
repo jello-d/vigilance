@@ -1309,6 +1309,18 @@ cmd_go() {   # <state> [force|only|atleast]
   return "$_gorc"
 }
 
+# DOES RUNG `lock` ACTUALLY HOLD? The same evidence `_rep_coherence` uses, so
+# the two cannot come to disagree about it.
+#
+# A GREETER HAS NO PROVIDER AND IS THE LOCKED STATE, so with no lock.d hook
+# wired the rung holds VACUOUSLY: nothing in this session could raise a locker,
+# and re-asserting would run an empty tier on every request for ever. That is
+# the same carve-out coherence makes, for the same reason.
+_lock_holds() {
+  [ -n "$(_hooks_for lock)" ] || return 0
+  _r_locker_up
+}
+
 _cmd_go() {   # <state> [force|only|atleast]
   _to=$1
   _mode=${2:-}
@@ -1357,6 +1369,11 @@ _cmd_go() {   # <state> [force|only|atleast]
       log "already at '$(_depth)', deeper than '$_to'; not raising"
       return 0
     fi
+    # REMEMBERED, because the mode is cleared on the next line and the equal
+    # case below needs to know this was a SECURITY request. `atleast` is the
+    # verb the lid, the idle lock and lock-on-sleep use, and its whole purpose
+    # is "make sure the session is secured".
+    _secreq=1
     _mode=
   fi
 
@@ -1388,6 +1405,34 @@ _cmd_go() {   # <state> [force|only|atleast]
   fi
 
   if [ "$_dfrom" -eq "$_dto" ]; then
+    # A DECLINE RESTS ON A PREMISE, and the premise is that the record is TRUE.
+    # "Already at 'lock', so the session is already secured" is sound only while
+    # the record and the world agree, and a record can be AHEAD of the world:
+    # measured live 2026-10-04, when the lock edge crossed with a dangling
+    # provider, committed `lock`, raised no locker, and nothing ever unwound it.
+    # Every later request (lid, hotkey) was then correctly declined against a
+    # false premise, so a TRANSIENT wiring fault became an 84-minute inability
+    # to lock. The log reads `already at 'lock'; nothing to do` twelve times,
+    # which is the hotkey being refused.
+    #
+    # So for a SECURITY request, confirm the rung before standing on it, and
+    # re-assert the edge rather than declining. Save once, ASSERT EVERY TIME:
+    # the discipline hooklib already applies to a device level, applied to the
+    # ladder's own record.
+    #
+    # SCOPED TO THE EQUAL CASE AND TO `lock`, deliberately. From a strictly
+    # DEEPER rung, re-asserting would mean choosing between an ascent (the lid
+    # bug: `wake` lights the panel nobody asked to light) and inventing a new
+    # edge, and neither is improvised here; the standing recheck reports that
+    # case and it is written up as the remaining half. `lock` is also the one
+    # rung whose meaning is a GUARANTEE and the one with a provider convention
+    # to ask about.
+    if [ -n "${_secreq:-}" ] && [ "$_to" = lock ] && ! _lock_holds; then
+      log "already at 'lock' but NO locker is up: the record is stale, so the"\
+" lock edge is RE-ASSERTED rather than declined"
+      _run_hooks lock "$_to" || return 1
+      return 0
+    fi
     log "already at '$_to'; nothing to do"
     return 0
   fi
