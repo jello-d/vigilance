@@ -229,6 +229,9 @@ done
 # `cp` straight onto the live path, so a failure anywhere in the copy left the
 # box with no working tree at all; that is precisely what happened on
 # 2026-10-03 and left /opt flat while the units still named the old layout.
+# conventions: allow -- the pattern below MATCHES code, so its dashes are the
+# end-of-options marker of the `rm` it is looking for, not prose. The detector
+# cannot tell a quoted regex from a printed sentence, so this says which it is.
 printf '%s' "$_cpblk" | grep -qE '^\s*rm -rf -- "\$_cdst"' \
   && fail "copy-mode install removes the LIVE tree (\$_cdst) directly, so a
 failure partway leaves no working tree. Stage into \$_cnew and swap."

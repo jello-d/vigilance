@@ -268,7 +268,7 @@ runcmd:
       #   fatal: detected dubious ownership in repository at '/root/vigilance'
       #
       # test/conventions.t reads the file list through `git rev-parse`, with
-      # stderr discarded, so it reported "not a git repo" -- true about what it
+      # stderr discarded, so it reported "not a git repo", true about what it
       # could establish, and silent about why. Without this the whole-tree
       # conventions check fails in the guest and passes on the desk, which is a
       # verdict about the substrate rather than about the tree.
