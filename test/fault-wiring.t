@@ -45,7 +45,14 @@ set -eu
 session_init fault-wiring
 require compositor
 
-USER_LOCK=$HOME/.config/vigilance/hooks/lock.d
+# THE TIER WIRES ITS OWN, which is what it is for: `wire` symlinks a SHIPPED
+# plugin into the real hook tree exactly as an integrator does. The first
+# version of this cell REQUIRED pre-existing integrator wiring and skipped in
+# the guest, because `setup.sh install` deliberately creates no hook
+# directories and the tackup capability is not granted there. A cell that can
+# only run where somebody else already wired something is a cell that does not
+# run.
+USER_LOCK=$HOOKS/lock.d
 
 # DECLARED BEFORE THE TRAP, because the trap runs on every exit path including
 # `fail`, and a half-restored wiring would break every later scenario in the
@@ -62,9 +69,19 @@ _restore_wiring() {
 }
 trap '_restore_wiring; session_done; rm -rf "$T"' EXIT INT TERM HUP
 
-[ -d "$USER_LOCK" ] || skip_now wired-lock-edge "no user-scope lock.d on this\
- box, so there is no integrator wiring to break and nothing below would be a\
- statement about a real deployment"
+session_reset
+wire lock '' swaylock
+mkdir -p "$USER_LOCK"
+[ -n "$(ls "$USER_LOCK" 2>/dev/null)" ] \
+  || fail "the tier wired no lock provider, so there is nothing to break and
+nothing below would be a statement about anything"
+# THE FIXTURE MUST BE RUNNABLE BEFORE IT IS BROKEN, or every assertion after
+# the break passes for the wrong reason. The precondition rule this tier keeps
+# paying for.
+_wired=$(ls "$USER_LOCK" | head -1)
+[ -x "$USER_LOCK/$_wired" ] \
+  || fail "the wired provider $_wired is not runnable to begin with, so the
+fault below was not injected by this scenario"
 
 # --- 1. A SINGLE BLOCKED HOOK IS ALERTED ON THE TIMER -----------------------
 # ADDED rather than broken, so this half touches nobody else's wiring at all. A
@@ -80,7 +97,10 @@ ln -sfn /nonexistent/moved-away "$USER_LOCK/99-vig-dangling"
   || fail "the planted entry is executable, so the fault was not injected and
 everything below would pass for the wrong reason"
 
-_sink=$HOME/.config/vigilance/hooks/alert.d
+# THE SAME TREE THE TIER USES, not a hand-built path: $HOOKS is what
+# session_init points the runner at, and a sink anywhere else is a sink the
+# alert path never reaches.
+_sink=$HOOKS/alert.d
 mkdir -p "$_sink"
 cat > "$_sink/99-vig-sink" <<SINK
 #!/bin/sh
