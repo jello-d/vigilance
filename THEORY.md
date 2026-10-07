@@ -106,6 +106,9 @@ wishes are visible.
         rung
         idle-inhibit.t (the reader, both implementations),
         inhibit-bound.t (the bounds, ack, and the dark-rung refusal)
+    32  silence is evidence only over time we were WATCHING, and an innocent
+        explanation that can be measured is never offered as a guess
+        swayidle-watchdog.t cases 2b, 8 and 9
 
 ### The one place supervision ACTS, and what makes that safe
 

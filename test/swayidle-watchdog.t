@@ -56,6 +56,19 @@ VIGILANCE_UPTIME_FILE=$T/uptime; export VIGILANCE_UPTIME_FILE
 printf '999999.00 999999.00\n' > "$T/uptime"
 VIGILANT=$T/bin/vigilant; export VIGILANT
 
+# OUR OWN STATE DIR, PINNED. The hook keeps the record of when it last LOOKED
+# here, and the default is a shared name under /tmp (matching hook_throttle's
+# convention): unpinned, these cases would share it with the live box and with
+# each other.
+WDSTATE=$T/wdstate; mkdir -p "$WDSTATE"
+VIGILANCE_STATE_DIR=$WDSTATE; export VIGILANCE_STATE_DIR
+
+# AND THE INHIBITOR, or every case below reads the DEVELOPER'S machine. A held
+# idle inhibitor is now a reason for this hook to decline, so an unpinned value
+# makes the verdict depend on whether a browser happened to be playing video,
+# which is the substrate-reading mistake behind a long line of defects here.
+VIGILANCE_BLOCK_INHIBITED=''; export VIGILANCE_BLOCK_INHIBITED
+
 # THROUGH A FILE, and called DIRECTLY rather than in a substitution. `OUT=...`
 # inside `$(_run)` is set in a subshell and never reaches the caller, the
 # same trap that once defeated a timeout bound here, and it cost a debugging
@@ -65,9 +78,17 @@ _run() {   # -> sets RC, output in $T/out
   VIGILANCE_KIND=watchdog sh "$HOOK" >"$T/out" 2>>"$T/stderr" || RC=$?
 }
 _out() { cat "$T/out" 2>/dev/null || true; }
-_age() {   # seconds -> backdate the event log
+_age() {   # seconds -> backdate the event log, WITH the observer present
   : > "$LOG"
   touch -d "@$(( $(date +%s) - $1 ))" "$LOG"
+  # AND IT SAYS THE SAMPLER WAS WATCHING THROUGHOUT, which is now part of the
+  # fixture rather than an assumption. Silence only counts while this hook was
+  # actually running, so a fixture that ages the event log without saying the
+  # sampler was there describes a machine that was ASLEEP, and every case here
+  # would correctly report nothing. That is exactly what happened on the first
+  # run after the guard landed.
+  printf '%s %s\n' "$(date +%s)" "$(( $(date +%s) - $1 - 60 ))" \
+    > "$WDSTATE/.lastlook"
 }
 
 # --- 1. a FRESH heartbeat is healthy ----------------------------------------
@@ -91,14 +112,48 @@ case "$(_out)" in
   *) printf '%s\n' "$(_out)" >&2
      fail "the finding did not name the diagnosis" ;;
 esac
-# ...and it must offer the other explanation rather than assert a fault it
-# cannot distinguish. An inhibitor suppresses every timer legitimately.
+# ...and it must say the OTHER cause was RULED OUT, not offer it.
+#
+# THIS ASSERTION USED TO REQUIRE THE OPPOSITE, on the stated grounds that
+# "vigilant cannot query one". That was never true: a held idle inhibitor is
+# one busctl read away, and offering an alternative that could have been
+# resolved is what made this message send a reader hunting a wedge on a box
+# whose timer was demonstrably fine. An inhibitor IS checked now, so with none
+# held the diagnosis is a statement rather than a pair.
 case "$(_out)" in
-  *inhibitor*) ;;
-  *) fail "the finding claimed a wedge as certain. An idle inhibitor produces
-identical silence, and vigilant cannot query one, so saying so is the honest
-shape when the evidence cannot separate two causes" ;;
+  *"no idle inhibitor"*) ;;
+  *) printf '%s\n' "$(_out)" >&2
+     fail "the finding did not say the inhibitor had been ruled out. Naming a
+cause it could have excluded, and did not, is the confidently-ambiguous shape
+that cost a whole investigation" ;;
 esac
+
+# --- 2b. SILENCE WE DID NOT WATCH IS NOT EVIDENCE --------------------------
+# THE LIVE FALSE ALARM. The lid was shut at 09:43:08 and opened at 14:08:49, so
+# 15941 of a reported 16045s of "silence" was S3. The real awake silence was
+# 104 seconds against a 14400s window, and the box then demonstrably fired both
+# idle timeouts (`cross lock src=idle`, then `cross sleep`).
+#
+# THE UPTIME GUARD CANNOT SEE IT: /proc/uptime INCLUDES suspended time on this
+# kernel (measured: 138358 against 138359s of wall clock since btime), so "up
+# long enough" stayed true throughout. The sampler's own absence is the witness,
+# because the supervision timer does not fire in S3.
+_age 20000                   # the event log is genuinely ancient
+# ...but our last LOOK was 16000s ago, so we were not here for most of it.
+printf '%s %s\n' "$(( $(date +%s) - 16000 ))" "$(( $(date +%s) - 20100 ))" \
+  > "$WDSTATE/.lastlook"
+_run; [ "$RC" = 0 ] || fail "silence accumulated while this hook was NOT
+RUNNING was reported as a wedge. That is the live 7-alert false alarm: the
+machine was suspended, so the idle timer could not have spoken, and wall-clock
+silence counted time the machine did not exist. Output: $(_out)"
+
+# AND THE PAIR IS THE TEST: the same ancient event log, with the observer
+# present, MUST still fire. Otherwise "never report anything" passes the case
+# above while switching the tier off, which is the trade every guard in this
+# suite has to be checked against.
+_age 20000
+_run; [ "$RC" = 1 ] || fail "with the sampler present throughout, 20000s of
+silence must still be the finding; the gap guard has switched the tier off"
 
 # --- 3. AT `lock` OR BELOW, SILENCE PROVES THE OPPOSITE ---------------------
 # The decisive exclusion. If the machine is locked, the idle timer demonstrably
@@ -140,10 +195,14 @@ PGREP_FOUND=1
 # the hook found it and the case passed for a reason unrelated to its claim.
 # Caught by the case failing; it would have been invisible the other way round.
 mkdir -p "$T/min"
-# The hook needs date/cut/sed/head; the harness needs sh to invoke it and
-# rm/cat for its own cleanup. Omitting sh made the case fail with rc=127,
-# "command not found" wearing the costume of a declined hook.
-for _c in sh date cut sed head cat rm touch mkdir chmod grep printf; do
+# The hook needs date/cut/sed/head, and READLINK since it self-locates to
+# source hook_lib; the harness needs sh to invoke it and rm/cat for its own
+# cleanup. Omitting sh made the case fail with rc=127, "command not found"
+# wearing the costume of a declined hook, and omitting readlink did the same
+# thing one layer up: the source line died under `set -e` before the hook
+# could decline, so the case failed claiming the DECLINE was broken.
+for _c in sh date cut sed head cat rm touch mkdir chmod grep printf \
+          readlink dirname; do
   ln -sf "$(command -v "$_c")" "$T/min/$_c" 2>/dev/null || true
 done
 cp "$T/bin/pgrep" "$T/bin/vigilant" "$T/min/"
@@ -190,4 +249,48 @@ _run; [ "$RC" = 1 ] || fail "an ARMED timer silent for 20000s at the open rung
 returned $RC instead of reporting. The precondition guard must gate the
 question, not replace it"
 
-pass
+# --- 8. A HELD IDLE INHIBITOR IS NOT THIS HOOK'S FINDING -------------------
+# It suppresses every timeout including the heartbeat, so silence is the
+# inhibitor being HONOURED. The inhibit bound owns a hold that goes on too
+# long, and two tiers accusing in different words is how a reader learns to
+# discount both: the same division of labour this hook already keeps with
+# `report` over whether swayidle is running at all.
+_age 20000
+VIGILANCE_BLOCK_INHIBITED=idle
+_run; [ "$RC" = 78 ] || fail "with idle INHIBITED, 20000s of silence was
+reported as a wedge (rc=$RC). That is the measured false alarm: the timer is
+doing exactly what it was asked to do, and the message used to offer this as
+one of two causes it claimed it could not check. Output: $(_out)"
+case "$(_out)" in
+  *inhibit*) ;;
+  *) printf '%s\n' "$(_out)" >&2
+     fail "the decline did not say WHY, so a reader sees a silent 78 and
+cannot tell it from a hook that could not look" ;;
+esac
+
+# --- 9. CANNOT TELL KEEPS BOTH CAUSES --------------------------------------
+# The n/a contract at the one place where collapsing it is worst in BOTH
+# directions. Reading an unanswerable bus as "inhibited" switches this tier
+# off; reading it as "not inhibited" asserts a wedge the evidence cannot
+# support. So with no answer the message names both, which is the honest shape
+# and the one the hook used to use unconditionally.
+mkdir -p "$T/stub"
+printf '#!/bin/sh\nexit 1\n' > "$T/stub/busctl"
+chmod +x "$T/stub/busctl"
+RC=0
+VIGILANCE_KIND=watchdog PATH=$T/stub:$PATH \
+  env -u VIGILANCE_BLOCK_INHIBITED sh "$HOOK" >"$T/out" 2>>"$T/stderr" || RC=$?
+[ "$RC" = 1 ] || fail "with busctl FAILING the hook must still report the
+silence (rc=$RC): an unanswerable bus is not evidence that nothing is
+inhibited, but it is not a reason to stop watching either"
+case "$(_out)" in
+  *"could not be asked"*) ;;
+  *) printf '%s\n' "$(_out)" >&2
+     fail "with no answer from logind the finding must SAY the inhibitor could
+not be ruled out. Asserting a bare wedge there is the confidently-wrong
+diagnosis this project keeps paying for" ;;
+esac
+VIGILANCE_BLOCK_INHIBITED=''; export VIGILANCE_BLOCK_INHIBITED
+
+pass "silence counts only while watched, a held inhibitor defers to the\
+ bound, and an unanswerable bus keeps both causes"

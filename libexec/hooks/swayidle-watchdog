@@ -29,6 +29,15 @@
 # tier with a record of something that did not occur.
 set -eu
 
+# SOURCED FOR ONE FUNCTION, `hook_idle_inhibited`. This hook used to say in as
+# many words that "vigilant cannot query the inhibitor directly", and offered a
+# wedge and a held inhibitor as two causes it could not separate. It can ask,
+# and could when that was written, so the alternative was never unresolvable:
+# it was unasked. hook_lib has no top-level side effects, so sourcing it costs
+# nothing but the read.
+_self=$(readlink -f "$0")
+. "$(dirname "$_self")/../../lib/hook_lib"
+
 LOG=${SWAYIDLE_LOG_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/swayidle-mgr}
 LOG=$LOG/events.log
 
@@ -37,6 +46,13 @@ LOG=$LOG/events.log
 # the fault it catches is permanent until someone intervenes, so waiting costs
 # nothing. Overridable because a kiosk and a laptop idle very differently.
 QUIET=${VIGILANCE_WATCHDOG_QUIET:-14400}      # 4 hours
+
+# HOW BIG A GAP IN OUR OWN SAMPLING MEANS WE WERE NOT WATCHING. This hook runs
+# from the supervision timer, roughly once a minute, so a much larger gap
+# between two of its own runs means the machine (or the timer) was not there.
+# Mirrors VIGILANCE_IDLE_MAXGAP, deliberately, because it is the same rule one
+# tier over: do not credit a quiet stretch you did not watch.
+MAXGAP=${VIGILANCE_WATCHDOG_MAXGAP:-300}      # 5 minutes
 
 _now=$(date +%s)
 
@@ -100,7 +116,63 @@ if [ "$_last" = 0 ]; then
   echo "cannot read the mtime of $LOG"
   exit 78
 fi
-_silent=$((_now - _last))
+
+# --- SILENCE ONLY COUNTS WHILE WE WERE WATCHING -----------------------------
+# THE DEFECT THIS CLOSES WAS LIVE AND NOISY. The machine was suspended with the
+# lid shut and the silence was measured in WALL CLOCK, so it counted time the
+# machine did not exist:
+#
+#   09:43:08  PM: suspend entry (s2idle), last heartbeat 09:42:25
+#   14:08:49  PM: suspend exit
+#   14:09:50  "emitted nothing for 16045s"   of which 15941s was S3
+#
+# The real AWAKE silence was 104 seconds against a 14400s window. Seven alerts,
+# one notified, about a laptop that had been asleep and whose idle timer then
+# demonstrably fired both its timeouts (`cross lock src=idle` at 14:34:22,
+# `cross sleep` at 14:36:22).
+#
+# THE EXISTING UPTIME GUARD IS STRUCTURALLY BLIND TO IT, which is why this is a
+# second mechanism rather than a tightened threshold: MEASURED on this kernel,
+# /proc/uptime INCLUDES suspended time (138358 against 138359s of wall clock
+# since btime, a difference of 1s). So uptime kept counting right through the
+# suspend and "up long enough" stayed true.
+#
+# THE SAMPLER IS THE WITNESS. This hook runs from the supervision timer about
+# once a minute, and that timer does not fire in S3, so a large gap between two
+# of OUR OWN runs is the machine telling us we were not there. The silence
+# window is then anchored no earlier than the moment we came back. The idle
+# clock already solved this exact problem one tier over with MAXGAP; the rule
+# is the same and only the subject differs.
+#
+# RE-ANCHORING TO `_now` IS THE CONSERVATIVE CHOICE: we cannot know when in the
+# gap the machine returned, so we claim to have watched nothing yet. The cost is
+# that detection of a genuine wedge is delayed by up to QUIET after a resume,
+# which is the acceptable direction (the same trade the ascent ceiling takes for
+# the idle clock), and the window accumulates normally from there.
+_look=${VIGILANCE_STATE_DIR:-/tmp}/.lastlook
+_anchor=$_now
+_prev=0
+_pa=0
+read -r _prev _pa 2>/dev/null < "$_look" || true
+case "${_prev:-}" in ''|*[!0-9]*) _prev=0 ;; esac
+case "${_pa:-}" in ''|*[!0-9]*) _pa=0 ;; esac
+# A STAMP FROM THE FUTURE IS NOT A RECENT LOOK. A wall clock is not monotonic,
+# and a backward step would otherwise make the gap look enormous and re-anchor
+# for ever, which is the same family as every other elapsed guard here.
+if [ "$_prev" -gt 0 ] && [ "$_prev" -le "$_now" ] \
+   && [ "$(( _now - _prev ))" -le "$MAXGAP" ] && [ "$_pa" -gt 0 ] \
+   && [ "$_pa" -le "$_now" ]; then
+  _anchor=$_pa
+fi
+# A LEADING DOT MARKS BOOKKEEPING. `report` scans hook state dirs for
+# outstanding saved levels and reads any file whose content is a number as one,
+# so a bare name holding an epoch earns a permanent FAIL at every lit rung.
+# That has shipped once and was nearly repeated for a throttle stamp.
+printf '%s %s\n' "$_now" "$_anchor" > "$_look" 2>/dev/null || true
+
+_from=$_last
+if [ "$_anchor" -gt "$_from" ]; then _from=$_anchor; fi
+_silent=$((_now - _from))
 
 # --- the SESSION must have been up long enough for silence to mean anything -
 # A box booted ten minutes ago has no business being judged on four hours of
@@ -137,15 +209,48 @@ case "${_depth:-}" in
     exit 0 ;;
 esac
 
-# THE SECOND: an idle inhibitor legitimately suppresses every timer, and a
-# fullscreen video is the mechanism behaving correctly. vigilant cannot query
-# the inhibitor directly, so this is NOT claimed as a fault; it is reported
-# as one explanation among two, which is the honest shape when the evidence
-# cannot separate them.
-echo "the idle timer has emitted nothing for ${_silent}s while the machine sat\
- at '${_depth:-open}'. A healthy timer logs on every brief pause, so this means\
- either it is WEDGED: running, correctly armed, and firing nothing, which is\
- the failure this package exists for and which every other check here passes --\
- or an idle inhibitor has been held that whole time. Restart\
- vigilance-idle.service to clear a wedge."
+# THE SECOND: an idle inhibitor legitimately suppresses every timeout, the
+# heartbeat included, so silence is exactly what a honoured inhibitor looks
+# like. This used to be offered as one of two causes with the claim that
+# "vigilant cannot query the inhibitor directly", and that was never true: it
+# is one busctl read, and not asking is what made this message send a reader
+# hunting a wedge that did not exist.
+#
+# IT IS NOT THIS HOOK'S FINDING EITHER WAY. The INHIBIT BOUND owns a held
+# inhibitor: it measures the hold, reports it past VIGILANCE_INHIBIT_REPORT
+# naming the holding process, and secures the session past
+# VIGILANCE_INHIBIT_FORCE. Two tiers accusing in different words is how a
+# reader learns to discount both, which is the same division of labour this
+# hook already keeps with `report` over whether swayidle is running at all.
+_whrc=0
+hook_idle_inhibited || _whrc=$?
+if [ "$_whrc" = 0 ]; then
+  echo "idle is inhibited, which suppresses every timeout including the"\
+" heartbeat, so this silence is the inhibitor being honoured rather than a"\
+" wedge. The inhibit bound owns a hold that goes on too long."
+  exit 78
+fi
+
+# CANNOT TELL KEEPS BOTH CAUSES. With no answer from logind the evidence
+# genuinely cannot separate them, and saying so is the honest shape; asserting
+# a wedge there would be the confidently-wrong diagnosis this project keeps
+# paying for.
+if [ "$_whrc" = 2 ]; then
+  echo "the idle timer has emitted nothing for ${_silent}s of WATCHED time"\
+" while the machine sat at '${_depth:-open}'. A healthy timer logs on every"\
+" brief pause, so either it is WEDGED: running, correctly armed and firing"\
+" nothing, which is the failure this package exists for and which every other"\
+" check here passes; or an idle inhibitor has been held, which logind could"\
+" not be asked about here. Restart vigilance-idle.service to clear a wedge."
+  exit 1
+fi
+
+# NO INHIBITOR, AND THE SILENCE IS WATCHED TIME, so the remaining explanation
+# is the one this hook was built for and it can be stated without hedging.
+echo "the idle timer has emitted nothing for ${_silent}s of WATCHED time while"\
+" the machine sat at '${_depth:-open}', and logind reports no idle inhibitor"\
+" held. A healthy timer logs on every brief pause, so it is WEDGED: running,"\
+" correctly armed, and firing nothing, which is the failure this package"\
+" exists for and which every other check here passes. Restart"\
+" vigilance-idle.service."
 exit 1

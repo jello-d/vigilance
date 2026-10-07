@@ -1188,3 +1188,21 @@ f bin/vigilant
 t inhibit-bound
 -     printf '%s\n' "$(date +%s)" > "$INHIBIT_CLOCK" 2>/dev/null || true
 +     printf '%s\n' "$(date +%s)" > /dev/null 2>&1 || true
+
+= watchdog-counts-only-watched-silence
+f libexec/hooks/swayidle-watchdog
+t swayidle-watchdog
+- if [ "$_anchor" -gt "$_from" ]; then _from=$_anchor; fi
++ if [ "$_anchor" -gt 0 ]; then :; fi
+
+= watchdog-defers-to-the-inhibit-bound
+f libexec/hooks/swayidle-watchdog
+t swayidle-watchdog
+- if [ "$_whrc" = 0 ]; then
++ if [ "$_whrc" = 9 ]; then
+
+= watchdog-cannot-tell-keeps-both-causes
+f libexec/hooks/swayidle-watchdog
+t swayidle-watchdog
+- if [ "$_whrc" = 2 ]; then
++ if [ "$_whrc" = 9 ]; then

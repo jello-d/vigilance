@@ -931,7 +931,12 @@ auto|always|never for the black lock surface
 argv marker proving the idle timer arms a heartbeat (default idle\-tick)
 .TP
 .B VIGILANCE_WATCHDOG_QUIET
-silence before the idle timer is suspect
+silence before the idle timer is suspect. Counted only over time the
+supervision pass was actually RUNNING, so a suspend does not accumulate it
+.TP
+.B VIGILANCE_WATCHDOG_MAXGAP
+how long a gap between two supervision passes means we were not watching, so
+the silence window re-anchors (default 300)
 .TP
 .B VIGILANCE_PHANTOM_COOLDOWN
 the phantom-relock guard's window
