@@ -214,7 +214,7 @@ IDLE_DEMO=$RUN_DIR/idle-demonstrated
 
 # THE CURRENT UNBROKEN IDLE-INHIBIT HOLD, and the point its escalation clock
 # counts from. Two files because they have two writers: the supervision pass
-# opens and closes the span, while `vigilant ack` (and a force that has already
+# opens and closes the span, while `vigilant timer reset` (and a force that has
 # acted) moves the clock, and one file with two writers is a race.
 #
 # IN RUN_DIR, NOT UNDER STATE_ROOT, and that is load-bearing rather than
@@ -224,6 +224,19 @@ IDLE_DEMO=$RUN_DIR/idle-demonstrated
 # counter snapshot, then nearly again for a throttle stamp).
 INHIBIT_SINCE=$RUN_DIR/inhibit-since
 INHIBIT_CLOCK=$RUN_DIR/inhibit-clock
+
+# WHEN THE SUPERVISION PASS LAST RAN, which is what makes every countdown in
+# `timer` worth printing. Those clocks do not advance on their own: a pass
+# samples them, so on a box whose timer has died "secure in 13988s" is not a
+# countdown, it is the last thing anyone measured, frozen. A view that cannot
+# say which of those it is would be decorative in exactly the reassuring
+# direction, and this package has already paid for a clock nobody sampled.
+#
+# STAMPED BY THE PASS ITSELF rather than inferred from a unit name, so it stays
+# true for an integrator who renamed or replaced the units (which the framework
+# audit made possible), and it says the pass RAN rather than that something is
+# enabled. Enabled is not working.
+PASS_MARK=$RUN_DIR/last-pass
 
 # --- THE LADDER, DECLARED ONCE ---------------------------------------------
 #
@@ -315,7 +328,7 @@ GRACE=${VIGILANCE_GRACE:-30}
 # prevent.
 #
 # TWO BOUNDS, AND THE GAP BETWEEN THEM IS THE POINT. Below REPORT, silence: a
-# call is not a fault. At REPORT, a human is told, and told that `vigilant ack`
+# call is not a fault. At REPORT, a human is told, and told that a reset
 # means "this one is expected". At FORCE, and only if nobody said that, the
 # session is secured anyway. So the forced lock cannot cut off a call somebody
 # is attending: reaching it needs a notification ignored for the whole hour
@@ -4430,6 +4443,40 @@ _enforce_recheck() {   # from
   return 1
 }
 
+# THE ESCALATION SPAN, READ AND NOT MEASURED AGAIN. One place computes it
+# because two consumers ask: the supervision pass, which decides whether to
+# report or act, and `timer`, which shows how long is left. Those must never be
+# able to disagree about how long a hold has been escalating.
+#
+# PURE: it reads two files and prints a number, with no write and no log, so
+# the read-only view cannot have side effects by borrowing it.
+#
+# THE BASE IS THE LATER OF THE HOLD AND THE LAST RESET, so a reset restarts the
+# escalation WITHOUT ending the hold. A reset recorded before the hold began is
+# deliberately a no-op: a clock cannot start before the thing it measures.
+_inhibit_span() {   # -> seconds, or nothing when it cannot be measured
+  _isb=$(cat "$INHIBIT_SINCE" 2>/dev/null || true)
+  case "${_isb:-}" in ''|*[!0-9]*) _isb= ;; esac
+  _isc=$(cat "$INHIBIT_CLOCK" 2>/dev/null || true)
+  case "${_isc:-}" in ''|*[!0-9]*) _isc= ;; esac
+  if [ -n "$_isb" ] && [ -n "$_isc" ] && [ "$_isc" -gt "$_isb" ]; then
+    _isb=$_isc
+  fi
+  # _elapsed REFUSES A FUTURE STAMP rather than returning a negative, and
+  # printing nothing means no escalation can be judged this pass. That is the
+  # safe direction for something that can take the lock: a clock we cannot
+  # trust must not be the thing that decides to act.
+  #
+  # `if`, NOT `[ ... ] && _elapsed`. Where the guard PASSES and the guarded
+  # command FAILS, `set -e` applies and the shell exits silently, and that is
+  # exactly this pair: _elapsed is non-zero on a skewed clock. The whole
+  # supervision pass would have died on the one input it exists to tolerate.
+  if [ -n "$_isb" ]; then
+    _elapsed "$_isb" 2>/dev/null || true
+  fi
+  return 0
+}
+
 # HOW LONG HAS IDLE BEEN CONTINUOUSLY INHIBITED? Prints the escalation span in
 # seconds, or nothing when there is no hold to measure. ALWAYS RETURNS 0: the
 # caller reads it through a command substitution, and a non-zero return there
@@ -4449,25 +4496,7 @@ _inhibit_track() {
     # recorded before the hold began is deliberately a no-op: a clock cannot
     # start before the thing it measures, so acking in advance of a call buys
     # nothing, which the man page says rather than leaving it to be discovered.
-    _itb=$(cat "$INHIBIT_SINCE" 2>/dev/null || true)
-    case "${_itb:-}" in ''|*[!0-9]*) _itb= ;; esac
-    _itc=$(cat "$INHIBIT_CLOCK" 2>/dev/null || true)
-    case "${_itc:-}" in ''|*[!0-9]*) _itc= ;; esac
-    if [ -n "$_itb" ] && [ -n "$_itc" ] && [ "$_itc" -gt "$_itb" ]; then
-      _itb=$_itc
-    fi
-    # _elapsed REFUSES A FUTURE STAMP rather than returning a negative, and
-    # printing nothing here means no escalation this pass. That is the safe
-    # direction for something that can take the lock: a clock we cannot trust
-    # must not be the thing that decides to act.
-    #
-    # `if`, NOT `[ ... ] && _elapsed`. Where the guard PASSES and the guarded
-    # command FAILS, `set -e` applies and the shell exits silently, and that is
-    # exactly this pair: _elapsed is non-zero on a skewed clock. The whole
-    # supervision pass would have died on the one input it exists to tolerate.
-    if [ -n "$_itb" ]; then
-      _elapsed "$_itb" 2>/dev/null || true
-    fi
+    _inhibit_span
     return 0
   fi
   # RELEASED, or UNREADABLE, and both end the span. A span is a claim about an
@@ -4500,7 +4529,7 @@ _inhibit_track() {
 #   a seat genuinely idle past the edge's OWN deadline, and
 #   an edge that is `lock`, never a dark rung.
 #
-# A call somebody is attending fails the second. `vigilant ack` answers the
+# A call somebody is attending fails the second. `timer reset` answers the
 # first. The third is the ladder's own invariant: a forced descent into a dark
 # rung arms no way back, which is why `suspend` is NEVER_ENFORCED and why a
 # deferred `sleep` is reported and never acted on.
@@ -4555,7 +4584,7 @@ _inhibit_escalate() {   # <edge> <idle> <deadline> <span> -> 1 if a finding
     # 45-notification storm once. The holder name is stable and SHOULD be in
     # the key: a second process taking the hold is a second finding.
     _alert inhibit-held "an idle inhibitor has deferred '$_iee' for ${_ies}s."\
-" If that is expected, 'vigilant ack' resets the clock; otherwise find what is"\
+" If that is expected, 'vigilant timer reset' restarts the clock; otherwise"\
 " holding it.$_iew"
     echo "enforce: $_iee deferred ${_ies}s, past the ${INHIBIT_REPORT}s"\
 " report bound; reported"
@@ -4570,51 +4599,158 @@ _inhibit_escalate() {   # <edge> <idle> <deadline> <span> -> 1 if a finding
   return 0
 }
 
-# `ack`: "this hold is expected". Restarts the escalation clock WITHOUT ending
-# the hold, so the next report comes a report-bound from now and the forced
-# lock a force-bound from now.
+# `timer`: WHAT IS COUNTING, AND HOW LONG IS LEFT. A read-only view, and
+# `timer reset` is the one thing here that can be reset.
 #
-# WHY A VERB RATHER THAN A FILE TO TOUCH: an operator meets this at a toast, so
-# the message has to name something short enough to type from a notification.
-# `ack` is the word every monitoring system already uses for exactly this, so
-# it carries its meaning without the man page.
+# WHY A VERB OF ITS OWN. These countdowns had no home: the inhibit hold was
+# visible nowhere at all, and the next deadline needed `due` plus arithmetic.
+# They are also the question an operator actually asks when a toast says the
+# session will be secured in an hour, so the answer has to be one command.
 #
-# IT ASKS logind, NOT OUR OWN BOOKKEEPING, and that is the difference between
-# a useful verb and a confusing one. The span file only exists once a
-# supervision pass has sampled during the hold, so an ack typed in the first
-# minute of a call would otherwise answer "nothing to acknowledge" about a hold
-# that plainly exists. Opening the span here is idempotent: both writers record
-# the same value, and the next pass leaves an open span alone.
+# IT SAYS WHETHER THE CLOCKS ARE ADVANCING, FIRST. None of these counts on its
+# own: the supervision pass samples them. On a box whose timer has died every
+# number below is the last thing anyone measured, frozen, and printing it as a
+# countdown would be decorative in the reassuring direction. That is the
+# failure this package exists for, so the view refuses to imply it.
+#
+# IT IS NOT `report machinery`, and the split is deliberate: that section asks
+# whether the machinery is ALIVE and owns the finding, with a unit name and a
+# remedy. This asks what the clocks SAY, and uses the pass stamp only to
+# qualify its own numbers. Two tiers accusing in different words is how a
+# reader learns to discount both.
+_timer_left() {   # <deadline> <elapsed> -> "in Ns" | "overdue by Ns" | "n/a"
+  case "${1:-}${2:-}" in *[!0-9]*|'') printf 'n/a'; return 0 ;; esac
+  if [ "$2" -ge "$1" ]; then printf 'overdue by %ss' "$(( $2 - $1 ))"
+  else printf 'in %ss' "$(( $1 - $2 ))"; fi
+}
+
+_timer_show() {
+  # THE PASS STAMP, AND ITS ABSENCE IS NOT AN ERROR: a box that has never run
+  # supervision (a fresh login, an integrator who wired no timer) has nothing
+  # frozen, it has nothing started. Those are different and read differently.
+  _tp=$(cat "$PASS_MARK" 2>/dev/null || true)
+  case "${_tp:-}" in ''|*[!0-9]*) _tp= ;; esac
+  if [ -z "$_tp" ]; then
+    # THE EVIDENCE, NOT THE INFERENCE. "Never run, so nothing is advancing" is
+    # true of a fresh login and FALSE for one deploy window: a box running the
+    # previous version advances these clocks and writes no stamp, so the view
+    # would confidently deny a supervision pass that is plainly working.
+    # Unknown covers both without claiming either.
+    echo "pass:     no stamp yet, so whether these advance is UNKNOWN"
+    echo "          (a fresh session, or supervision older than this stamp)"
+  elif _tpa=$(_elapsed "$_tp" 2>/dev/null); then
+    # RECHECK_GRACE REUSED rather than a new knob: it already means "how long a
+    # supervision pass may be missing before that is worth saying", and a knob
+    # nobody can find is not a knob.
+    if [ "$_tpa" -gt "$RECHECK_GRACE" ]; then
+      echo "pass:     ${_tpa}s ago, so the countdowns below are FROZEN."
+      echo "          Nothing is sampling them; 'vigilant report' names"\
+" the unit."
+    else
+      echo "pass:     ${_tpa}s ago"
+    fi
+  else
+    echo "pass:     unknown (the stamp is ahead of the clock; skew)"
+  fi
+
+  # --- the inhibit hold, which is the only resettable timer here -------------
+  _ts=$(cat "$INHIBIT_SINCE" 2>/dev/null || true)
+  case "${_ts:-}" in ''|*[!0-9]*) _ts= ;; esac
+  if [ -z "$_ts" ]; then
+    echo "inhibit:  none held, so no deadline is deferred"
+  else
+    _tsp=$(_elapsed "$_ts" 2>/dev/null || true)
+    _tsh=$(_trig_holder idle 2>/dev/null || true)
+    echo "inhibit:  HELD ${_tsp:-?}s${_tsh:+ by $_tsh}"
+    # THE ESCALATION SPAN IS NOT THE HOLD. `_inhibit_track` counts from the
+    # later of the hold and the last reset, so after a reset these two numbers
+    # differ and showing only the hold would make the bounds look wrong.
+    _tc=$(_inhibit_span 2>/dev/null || true)
+    case "${_tc:-}" in ''|*[!0-9]*) _tc=$_tsp ;; esac
+    if [ "$INHIBIT_REPORT" -gt 0 ]; then
+      echo "  report: $(_timer_left "$INHIBIT_REPORT" "${_tc:-0}")"
+    else
+      echo "  report: disabled (VIGILANCE_INHIBIT_REPORT=0)"
+    fi
+    if [ "$INHIBIT_FORCE" -gt 0 ]; then
+      echo "  secure: $(_timer_left "$INHIBIT_FORCE" "${_tc:-0}") (then a"\
+" 'go lock atleast')"
+    else
+      echo "  secure: disabled (VIGILANCE_INHIBIT_FORCE=0)"
+    fi
+    echo "  reset:  vigilant timer reset"
+  fi
+
+  # --- the next edge, which is the countdown people mean by "when will it lock"
+  _tfrom=$(_depth)
+  _te=$(_next_down "$_tfrom")
+  if [ -z "$_te" ]; then
+    echo "next:     nothing below '$_tfrom' is an enforcement target"
+  else
+    _tdraw=$(_due_for "$_te" "$_tfrom")
+    if [ -z "$_tdraw" ]; then
+      echo "next:     '$_te' has no declared deadline"
+    else
+      _td=$(printf '%s' "$_tdraw" | awk '{print $1}')
+      _tanch=$(printf '%s' "$_tdraw" | awk '{print $2}')
+      if [ "${_tanch:-}" = idle ]; then
+        _tidle=$(_idle_secs 2>/dev/null || true)
+        if [ -n "${_tidle:-}" ]; then
+          echo "idle:     ${_tidle}s since last input"
+          echo "next:     '$_te' $(_timer_left "$_td" "$_tidle") (${_td}s idle)"
+        else
+          # NO CLOCK IS NOT ZERO IDLE. Printing a countdown from a reading
+          # nothing produced is how a deadline gets certified as measurable on
+          # a box that cannot measure it.
+          echo "idle:     no source can answer, so '$_te' cannot be counted"
+        fi
+      else
+        _tat=$(_depth_at)
+        _tel=$(_elapsed "$_tat" 2>/dev/null || true)
+        echo "next:     '$_te' $(_timer_left "$_td" "${_tel:-0}") (${_td}s at"\
+" this rung)"
+      fi
+    fi
+  fi
+}
+
+# RESET, AND IT ASKS logind RATHER THAN OUR OWN BOOKKEEPING. The span file only
+# exists once a supervision pass has sampled during the hold, so a reset typed
+# in the first minute of a call would otherwise answer "nothing to reset" about
+# a hold that plainly exists. Opening the span here is idempotent: both writers
+# record the same value, and the next pass leaves an open span alone.
 #
 # THREE ANSWERS, because they are three different states and a caller that
 # cannot tell them apart would report a deferral it never made.
-cmd_ack() {
+_timer_reset() {
   mkdir -p "$RUN_DIR" 2>/dev/null || true
-  _akrc=0
-  _idle_inhibited || _akrc=$?
-  case "$_akrc" in
+  _trrc=0
+  _idle_inhibited || _trrc=$?
+  case "$_trrc" in
     0) ;;
     2) echo "vigilant: cannot tell whether idle is inhibited (logind did" >&2
-       echo "  not answer), so there is nothing to acknowledge." >&2
+       echo "  not answer), so there is no timer to reset." >&2
        return "$HOOK_NA" ;;
-    *) echo "nothing to acknowledge: no idle inhibitor is held, so no"
-       echo "  deadline is being deferred. An ack taken BEFORE a hold begins"
-       echo "  is a no-op, because the escalation clock starts at the hold."
+    *) echo "nothing to reset: no idle inhibitor is held, so no deadline is"
+       echo "  being deferred and no escalation is counting. A reset taken"
+       echo "  BEFORE a hold begins is a no-op, because the clock starts at"
+       echo "  the hold."
        return "$HOOK_SKIP" ;;
   esac
   if [ ! -f "$INHIBIT_SINCE" ]; then
     printf '%s\n' "$(date +%s)" > "$INHIBIT_SINCE" 2>/dev/null || true
   fi
   if ! printf '%s\n' "$(date +%s)" > "$INHIBIT_CLOCK" 2>/dev/null; then
-    # LOUD, because the whole point of the verb is to stop a forced lock, and
-    # an ack that silently did not record is one the operator believes in.
-    echo "vigilant: could NOT record the acknowledgement at $INHIBIT_CLOCK;" >&2
-    echo "  the escalation clock is unchanged and the bound still applies." >&2
+    # LOUD, because the whole point of the verb is to stop a forced lock, and a
+    # reset that silently did not record is one the operator believes in.
+    echo "vigilant: could NOT record the reset at $INHIBIT_CLOCK; the" >&2
+    echo "  escalation clock is unchanged and the bound still applies." >&2
     return 1
   fi
-  _log "inhibit hold acknowledged; escalation clock reset"
-  _akh=$(_trig_holder idle 2>/dev/null || true)
-  echo "acknowledged${_akh:+ (held by $_akh)}: escalation clock reset."
+  _log "inhibit escalation clock reset"
+  _trh=$(_trig_holder idle 2>/dev/null || true)
+  echo "reset${_trh:+ (held by $_trh)}: the inhibit escalation clock restarts"\
+" from now."
   if [ "$INHIBIT_REPORT" -gt 0 ]; then
     echo "  next report in ${INHIBIT_REPORT}s if the hold continues"
   else
@@ -4628,8 +4764,47 @@ cmd_ack() {
   return 0
 }
 
+cmd_timer() {
+  case "${1:-}" in
+    '')     _timer_show ;;
+    reset)  _timer_reset ;;
+    # AN UNRECOGNISED QUALIFIER IS A USAGE ERROR, never something to drop. The
+    # `go` arm learned this the hard way: it ignored everything after the state,
+    # so a caller asking for a safety mode silently got the default. A verb that
+    # can be misspelt into a no-op is worse than one that does not exist,
+    # because the operator believes it worked.
+    *) echo "vigilant: 'timer' has no subcommand '$1'; it takes none (the" >&2
+       echo "  view) or 'reset' (the inhibit escalation clock, which is the" >&2
+       echo "  only resettable timer here)." >&2
+       return 2 ;;
+  esac
+}
+
+# `ack` IS GONE, AND SAYS WHERE IT WENT rather than failing as unknown. It
+# shipped for a few hours and was renamed because the name was the problem: it
+# named the gesture (acknowledging) instead of the subject (a timer), so it
+# could not tell a reader what it would do. Following the `check` precedent,
+# which has pointed at `setup.sh check` ever since three documents promised a
+# verb that never existed.
+#
+# IT MATTERS FOR ONE WINDOW SPECIFICALLY: a notification delivered before this
+# landed names `vigilant ack` in its text, and a toast can sit in a tray for
+# days. Somebody will type it.
+cmd_ack() {
+  echo "vigilant: 'ack' has been renamed; it is 'vigilant timer reset'." >&2
+  echo "  'vigilant timer' shows what is counting and how long is left." >&2
+  return 2
+}
+
 cmd_enforce() {
   mkdir -p "$RUN_DIR" "$STATE_ROOT"
+  # STAMPED FIRST, BEFORE ANY EARLY RETURN, because the claim is "a pass ran"
+  # and not "a pass got as far as deciding something". A pass that returns
+  # early for want of a depth record has still sampled the clocks `timer`
+  # reports, and anchoring the stamp to how far it got would make the view
+  # read FROZEN on a perfectly live machine. Tolerant: bookkeeping must never
+  # suppress supervision.
+  printf '%s\n' "$(date +%s)" > "$PASS_MARK" 2>/dev/null || true
   _from=$(_depth)
   _at=$(_depth_at)
   # THE CLOCK IS SAMPLED BEFORE ANY HOOK RUNS, and that ordering is the whole
@@ -5043,7 +5218,8 @@ _U="usage: vigilant go <open|lock|sleep|suspend> [atleast|atmost]
                  | force <state> | only <state> | status
                  | verify [edge] | hooks [edge] | plan [edge]
                  | report | rescue
-                 | due [edge] | enforce | audit | ack
+                 | due [edge] | enforce | audit
+                 | timer [reset]
        (the wiring audit is 'setup.sh check', not a verb here)"
 _sub=${1:-}
 if [ "$#" -gt 0 ]; then shift; fi
@@ -5081,6 +5257,7 @@ case "$_sub" in
   rescue)  cmd_rescue ;;
   due)     cmd_due "${1:-}" ;;
   enforce) cmd_enforce ;;
+  timer)   cmd_timer "${1:-}" ;;
   ack)     cmd_ack ;;
   audit)   cmd_audit ;;
   # NAMED EXPLICITLY rather than falling through to "unknown command", because

@@ -153,7 +153,7 @@ esac
 # THE REMEDY HAS TO BE IN THE MESSAGE. A finding an operator cannot act on is
 # the shape this project already rejected once ("something talks to an input
 # device on its own": true, unactionable).
-grep -q 'vigilant ack' "$T/alerts" || fail "the report does not name the verb
+grep -q 'vigilant timer reset' "$T/alerts" || fail "the report does not name
 that answers it, so the operator is told a duration and nothing else:
 $(cat "$T/alerts")"
 grep -q 'cross lock' "$VIGILANCE_LOG" 2>/dev/null && fail "the REPORT bound
@@ -229,7 +229,7 @@ case "$(_kinds)" in
 than silently tolerated; kinds: $(_kinds)" ;;
 esac
 
-# --- 7. ack RESETS THE CLOCK ------------------------------------------------
+# --- 7. timer reset RESTARTS THE CLOCK -------------------------------------
 # The escalation is interruptible, and that is what makes the force safe: a
 # call somebody is attending can say so. Without this the bound is a blind
 # timer and the user's objection to one would be right.
@@ -238,15 +238,15 @@ _idle 600
 _span 15000
 _alerts
 : > "$VIGILANCE_LOG"
-"$VIGILANT" ack >/dev/null 2>>"$T/stderr" || fail "ack failed while an
-inhibitor was held"
+"$VIGILANT" timer reset >/dev/null 2>>"$T/stderr" || fail "timer reset
+failed while an inhibitor was held"
 _out=$("$VIGILANT" enforce 2>>"$T/stderr") \
-  || fail "enforce still reported a finding after the hold was acknowledged,
-so the ack bought nothing: $_out"
-[ ! -s "$T/alerts" ] || fail "an acknowledged hold still alerted:
+  || fail "enforce still reported a finding after the hold was reset,
+so the reset bought nothing: $_out"
+[ ! -s "$T/alerts" ] || fail "a reset hold still alerted:
 $(cat "$T/alerts")"
-grep -q 'cross lock' "$VIGILANCE_LOG" 2>/dev/null && fail "an acknowledged
-hold was still forced to lock, which is the one thing ack exists to prevent"
+grep -q 'cross lock' "$VIGILANCE_LOG" 2>/dev/null && fail "a reset hold was
+still forced to lock, which is the one thing the reset exists to prevent"
 
 # --- 8. RELEASE ENDS THE SPAN ----------------------------------------------
 # A span is a claim about an UNBROKEN hold. Carrying one across a release would
@@ -307,4 +307,4 @@ VIGILANCE_ALERT_COOLDOWN=0; export VIGILANCE_ALERT_COOLDOWN
 
 pass "deferred under the bound, overdue still fires uninhibited, cannot-tell\
  does not defer, report names the remedy, force crosses lock attributably and\
- refuses a dark rung, ack resets, release clears, 0 disables, dedup holds"
+ refuses a dark rung, reset defers, release clears, 0 disables, dedup holds"

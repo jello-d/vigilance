@@ -76,8 +76,9 @@ check enforces which invariant: `THEORY.md`.
     vigilant due [edge]       when SHOULD this edge have fired?
     vigilant enforce          the supervision loop, for a timer
     vigilant audit            did past events produce the edges they should?
-    vigilant ack              "this idle inhibitor is expected": restarts
-                              the escalation clock without ending the hold
+    vigilant timer            what is counting, and how long is left
+    vigilant timer reset      restart the inhibit escalation clock without
+                              ending the hold ("this one is expected")
 
 The verb set is closed and the **argument is the state**, so a new rung can
 never collide with a command name.
@@ -88,6 +89,13 @@ tree it installed; a second implementation would be the same fact in two places.
 It existed briefly as a stub aliased to `status` while three documents described
 it as a wiring audit. That is worse than a missing command, because the missing
 one fails loudly. It now does.
+
+For the same reason there is **no `vigilant ack`** any more: it shipped for a
+few hours as the name for what is now `vigilant timer reset`, and the name was
+the problem, since it named the gesture rather than the subject and so could
+not tell a reader what it would do. It refuses and points at the new verb,
+because a notification delivered before the rename names it and a toast can sit
+in a tray for days.
 
 Exit codes are a contract, because units branch on them: `0` ok (including a
 no-op), `1` crossed but a hook failed, `2` usage, `3` refused (a precondition
@@ -472,7 +480,8 @@ is reported, naming the holding process; past `VIGILANCE_INHIBIT_FORCE` (4h) the
 session is secured anyway, as `go lock atleast` with
 `VIGILANCE_SOURCE=inhibit-bound` so the crossing is attributable.
 
-`vigilant ack` answers the report and restarts the clock, which is what makes
+`vigilant timer` shows what is counting and how long is left, and `vigilant
+timer reset` answers the report by restarting the clock. That is what makes
 the force safe rather than a blind timer: reaching it needs a notification
 ignored for the whole gap between the bounds **and** a seat genuinely idle past
 the edge's own deadline, so a call somebody is attending is never cut off.

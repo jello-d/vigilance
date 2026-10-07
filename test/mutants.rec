@@ -1177,9 +1177,9 @@ t triggers
 -         n = split($w, p, ":")
 +         n = split($0, p, " ")
 
-= ack-records-the-clock
+= timer-reset-records-the-clock
 f bin/vigilant
-t inhibit-bound
+t inhibit-bound timer
 -   if ! printf '%s\n' "$(date +%s)" > "$INHIBIT_CLOCK" 2>/dev/null; then
 +   if ! printf '%s\n' "$(date +%s)" > /dev/null 2>&1; then
 
@@ -1206,3 +1206,21 @@ f libexec/hooks/swayidle-watchdog
 t swayidle-watchdog
 - if [ "$_whrc" = 2 ]; then
 + if [ "$_whrc" = 9 ]; then
+
+= timer-says-when-frozen
+f bin/vigilant
+t timer
+-     if [ "$_tpa" -gt "$RECHECK_GRACE" ]; then
++     if [ "$_tpa" -gt 99999999 ]; then
+
+= timer-reads-the-escalation-clock
+f bin/vigilant
+t timer
+-     _tc=$(_inhibit_span 2>/dev/null || true)
++     _tc=$_tsp
+
+= timer-subcommand-is-checked
+f bin/vigilant
+t timer
+-        return 2 ;;
++        return 0 ;;

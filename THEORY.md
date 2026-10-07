@@ -136,7 +136,7 @@ measurement:
     a seat genuinely idle past the edge's OWN deadline
     an edge that is `lock`, so a lit rung, never a dark one
 
-A call somebody is attending fails the second. `vigilant ack` answers the
+A call somebody is attending fails the second. `vigilant timer reset` answers
 first. The third is invariant 1. And either bound at 0 disables that half, so
 an operator who wants no actuator here keeps none.
 

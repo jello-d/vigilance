@@ -55,7 +55,7 @@ atleast-lock atleast-sleep
 only-lock only-open
 force-open force-lock
 rescue verify enforce
-report plan audit due status
+report plan audit due status timer
 fault-fail fault-decline fault-block fault-clear'
 _nops=$(printf '%s\n' $_OPS | grep -c .)
 
@@ -120,6 +120,12 @@ _apply() {   # <op> -> rc in $RC
     audit)         "$VIGILANT" audit        >>"$T/out" 2>>"$T/err" || RC=$? ;;
     due)           "$VIGILANT" due          >>"$T/out" 2>>"$T/err" || RC=$? ;;
     status)        "$VIGILANT" status       >>"$T/out" 2>>"$T/err" || RC=$? ;;
+    # `timer` READS FIVE STATE FILES to build its view (the pass stamp, the two
+    # inhibit stamps, the depth record and a due hook's answer), which is
+    # exactly the shape that produced report's two false findings. Random state
+    # is the only thing that exercises a reader against values it did not
+    # write.
+    timer)         "$VIGILANT" timer        >>"$T/out" 2>>"$T/err" || RC=$? ;;
     # THE FAULTS ARE REAL HOOKS, not a knob: a hook that exits 1 IS a failing
     # hook, and one that exits 78 IS a declining one. Nothing is pretended at.
     fault-fail)
@@ -216,7 +222,7 @@ _check() {   # <op> <depth before>
   # to state and it makes the read-only verbs worth having in the alphabet at
   # all.
   case "$_c_op" in
-    report|plan|audit|due|status)
+    report|plan|audit|due|status|timer)
       if [ "$_c_now" != "$_c_before" ]; then
         VIOL="the offline verb '$_c_op' moved the machine from $_c_before to
 $_c_now"
