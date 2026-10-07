@@ -212,6 +212,19 @@ STATE_ROOT=$RUN_DIR/state
 # command substitution, so a variable cannot carry this out; a file can.
 IDLE_DEMO=$RUN_DIR/idle-demonstrated
 
+# THE CURRENT UNBROKEN IDLE-INHIBIT HOLD, and the point its escalation clock
+# counts from. Two files because they have two writers: the supervision pass
+# opens and closes the span, while `vigilant ack` (and a force that has already
+# acted) moves the clock, and one file with two writers is a race.
+#
+# IN RUN_DIR, NOT UNDER STATE_ROOT, and that is load-bearing rather than
+# arbitrary: `report` scans `$STATE_ROOT/*/*` for outstanding saved levels and
+# reads any file whose CONTENT is a number as one. An epoch stamp there earns a
+# permanent FAIL at every lit rung, which has now shipped twice (an idle
+# counter snapshot, then nearly again for a throttle stamp).
+INHIBIT_SINCE=$RUN_DIR/inhibit-since
+INHIBIT_CLOCK=$RUN_DIR/inhibit-clock
+
 # --- THE LADDER, DECLARED ONCE ---------------------------------------------
 #
 # Five functions each knew the vocabulary by heart: _is_descent, _is_ascent,
@@ -290,6 +303,29 @@ _is_ascent() {   # edge
 # normal case: vigilant is the backstop, not the timer, and acting on a tie
 # would make it compete with the thing it is supervising.
 GRACE=${VIGILANCE_GRACE:-30}
+
+# WHAT A HELD IDLE INHIBITOR IS ALLOWED TO DEFER, and for how long.
+#
+# swayidle-mgr arms a logind event so a held idle inhibitor is HONOURED: a
+# video call must not be cut off mid-sentence. That is the feature, and it
+# created the only legitimate reason an idle-anchored deadline can pass without
+# its edge firing. Unbounded, it is also a way for a leaked inhibitor (a
+# browser tab is the usual one) to keep a laptop unlocked indefinitely with
+# nothing saying so, which is the silent false green this package exists to
+# prevent.
+#
+# TWO BOUNDS, AND THE GAP BETWEEN THEM IS THE POINT. Below REPORT, silence: a
+# call is not a fault. At REPORT, a human is told, and told that `vigilant ack`
+# means "this one is expected". At FORCE, and only if nobody said that, the
+# session is secured anyway. So the forced lock cannot cut off a call somebody
+# is attending: reaching it needs a notification ignored for the whole hour
+# between the bounds.
+#
+# EITHER AT 0 DISABLES THAT HALF, which is how "report but never act" and
+# "trust the inhibitor completely" stay reachable as configuration instead of
+# as forks of this logic.
+INHIBIT_REPORT=${VIGILANCE_INHIBIT_REPORT:-10800}    # 3h
+INHIBIT_FORCE=${VIGILANCE_INHIBIT_FORCE:-14400}      # 4h
 
 # vigilant's OWN record. Built in and mechanism-free (it is a file), because
 # the whole charter is noticing when something silently did not happen, and a
@@ -2610,11 +2646,91 @@ _trig_blocked() {
 
 # WHO holds it, because the operator's remedy is at that process and a handler
 # name alone sends them hunting. Best-effort: the message stands without it.
+#
+# A FIELD, NOT A LINE. This matched `$0 ~ h`, which reads the WHY prose as
+# readily as the WHAT column, and for a short handler name that is not a corner
+# case. MEASURED on this fleet with NO idle inhibitor held at all,
+# `_trig_holder idle` answered "swayidle", because the row reads "Swayidle is
+# preventing sleep". The alert that was about to use it would have named
+# vigilance's OWN idle timer as the thing to go and kill, which is the wrong
+# process and the expensive direction: a wrong cause is worse than no cause.
+#
+# AND IT IS THE WHAT COLUMN, not any field on the row. Matching a bare field
+# anywhere still reads the WHY prose, and for `idle` that is thoroughly
+# plausible: a media player's reason can be "Inhibiting idle while playing
+# video", which would name the player as the holder on a box holding no idle
+# inhibitor at all.
+#
+# THE COLUMN IS LOCATED RATHER THAN COUNTED, because WHO and WHY both contain
+# spaces so no fixed index finds it. The layout AFTER WHO is fixed, though:
+#
+#     WHO...  UID  USER  PID  COMM  WHAT  WHY...  MODE
+#
+# and UID and PID are both numeric and exactly two apart, which pins WHAT at
+# UID+4. Verified against the awkward real row, "Unattended Upgrades Shutdown"
+# (a WHO of three words), which lands on `shutdown` correctly.
+#
+# THE RESIDUAL, stated rather than discovered: a WHO containing a bare NUMBER
+# two words before another number would anchor early and mis-read the column.
+# No inhibitor on this fleet looks like that, and the function is best-effort
+# (the message stands without a holder), so the cheaper parse wins over a JSON
+# round trip through ListInhibitors.
+#
+# AND THE COLUMN CAN BE A LIST: an inhibitor taking several handlers shows its
+# WHAT as `sleep:idle`, so the match is per colon-separated element, the same
+# rule the BlockInhibited read above follows for the same reason.
+#
+# $1 IS STILL ONLY THE FIRST WORD of a multi-word WHO. That is left alone
+# deliberately: a truncated name still points at the right process, and every
+# idle inhibitor seen in the wild (a browser, a conferencing client, wlinhibit)
+# is a single token.
 _trig_holder() {   # <handler> -> "a, b" or nothing
   command -v systemd-inhibit >/dev/null 2>&1 || return 0
   systemd-inhibit --list 2>/dev/null | awk -v h="$1" '
-    $0 ~ h { if (s != "") s = s ", "; s = s $1 }
+    {
+      w = 0
+      for (i = 1; i + 2 <= NF; i++) {
+        if ($i ~ /^[0-9]+$/ && $(i + 2) ~ /^[0-9]+$/) { w = i + 4; break }
+      }
+      if (w > 0 && w <= NF) {
+        n = split($w, p, ":")
+        for (j = 1; j <= n; j++) {
+          if (p[j] == h) { if (s != "") s = s ", "; s = s $1 }
+        }
+      }
+    }
     END { if (s != "") print s }'
+}
+
+# IS IDLE INHIBITED RIGHT NOW?  0 inhibited, 1 not, 2 cannot tell.
+#
+# THIS PACKAGE CREATED THE QUESTION ITSELF. swayidle-mgr arms a logind event
+# precisely so a held idle inhibitor is honoured, because a video call must not
+# be cut off mid-sentence. The consequence is that a held inhibitor suppresses
+# every timeout, the heartbeat included, so an idle deadline can now pass for a
+# GOOD reason. It could not before, which is why nothing asked: on the first
+# full day after that arm landed, the overdue detector fired 27 times across 93
+# minutes about a call behaving exactly as asked.
+#
+# THREE ANSWERS, NOT TWO, for the reason the whole n/a contract exists: logind
+# answering "nothing is inhibited" and busctl being unable to ask are opposite
+# findings that arrive as the same empty string. Only a definite YES may
+# suppress a finding; "cannot tell" has to leave the detector as it was, or an
+# unreadable bus silently switches off the tier that watches the lock.
+_idle_inhibited() {
+  _iiv=$(_trig_blocked) || return 2
+  # THE FIELD, NOT A SUBSTRING. busctl prints `s "idle:sleep"`, so the value is
+  # a colon-separated list of handler names inside quotes; measured against a
+  # real block inhibitor it reads `s "idle"` alone. No handler logind defines
+  # today contains "idle" as a substring, which is exactly why an unanchored
+  # match would pass review and then break on the first one that does. The
+  # strips are no-ops on the test override, which carries no quotes.
+  _iiv=${_iiv#*\"}
+  _iiv=${_iiv%\"*}
+  case ":$_iiv:" in
+    *:idle:*) return 0 ;;
+  esac
+  return 1
 }
 
 _rep_cursor() {
@@ -4314,6 +4430,204 @@ _enforce_recheck() {   # from
   return 1
 }
 
+# HOW LONG HAS IDLE BEEN CONTINUOUSLY INHIBITED? Prints the escalation span in
+# seconds, or nothing when there is no hold to measure. ALWAYS RETURNS 0: the
+# caller reads it through a command substitution, and a non-zero return there
+# would be killed by `set -e` before the value could be used.
+_inhibit_track() {
+  if _idle_inhibited; then
+    if [ ! -f "$INHIBIT_SINCE" ]; then
+      printf '%s\n' "$(date +%s)" > "$INHIBIT_SINCE" 2>/dev/null || true
+      # ONCE PER HOLD, NOT ONCE PER PASS. The log is the forensic record and is
+      # never suppressed, so a line every minute would be 180 records for a
+      # three-hour call and would crowd out the events a reader came for. Two
+      # records bound the hold: this one, and the release below.
+      _log "idle inhibited; idle-anchored deadlines deferred from now"
+    fi
+    # THE CLOCK BASE IS THE LATER OF THE SPAN AND THE LAST RESET, so an
+    # acknowledgement restarts the escalation WITHOUT ending the hold. A reset
+    # recorded before the hold began is deliberately a no-op: a clock cannot
+    # start before the thing it measures, so acking in advance of a call buys
+    # nothing, which the man page says rather than leaving it to be discovered.
+    _itb=$(cat "$INHIBIT_SINCE" 2>/dev/null || true)
+    case "${_itb:-}" in ''|*[!0-9]*) _itb= ;; esac
+    _itc=$(cat "$INHIBIT_CLOCK" 2>/dev/null || true)
+    case "${_itc:-}" in ''|*[!0-9]*) _itc= ;; esac
+    if [ -n "$_itb" ] && [ -n "$_itc" ] && [ "$_itc" -gt "$_itb" ]; then
+      _itb=$_itc
+    fi
+    # _elapsed REFUSES A FUTURE STAMP rather than returning a negative, and
+    # printing nothing here means no escalation this pass. That is the safe
+    # direction for something that can take the lock: a clock we cannot trust
+    # must not be the thing that decides to act.
+    #
+    # `if`, NOT `[ ... ] && _elapsed`. Where the guard PASSES and the guarded
+    # command FAILS, `set -e` applies and the shell exits silently, and that is
+    # exactly this pair: _elapsed is non-zero on a skewed clock. The whole
+    # supervision pass would have died on the one input it exists to tolerate.
+    if [ -n "$_itb" ]; then
+      _elapsed "$_itb" 2>/dev/null || true
+    fi
+    return 0
+  fi
+  # RELEASED, or UNREADABLE, and both end the span. A span is a claim about an
+  # UNBROKEN hold, so crediting one across an interval we could not see would
+  # let a bound fire on a hold that had already ended. For an unreadable bus
+  # that errs toward not acting, which is the only acceptable direction here.
+  #
+  # THE CLOCK GOES WITH IT: an acknowledgement is about the hold in front of
+  # the user, and keeping it would silently shorten the NEXT one's first bound.
+  if [ -f "$INHIBIT_SINCE" ]; then
+    _its=$(cat "$INHIBIT_SINCE" 2>/dev/null || true)
+    case "${_its:-}" in ''|*[!0-9]*) _its= ;; esac
+    _itd=
+    if [ -n "$_its" ]; then
+      _itd=$(_elapsed "$_its" 2>/dev/null || true)
+    fi
+    _log "idle inhibit released${_itd:+ after ${_itd}s}; deadlines apply again"
+  fi
+  rm -f "$INHIBIT_SINCE" "$INHIBIT_CLOCK" 2>/dev/null || true
+  return 0
+}
+
+# A DEFERRED DEADLINE IS STILL A DEADLINE, under a bound. Returns 1 when this
+# pass produced a finding, 0 when the hold is simply being honoured.
+#
+# THE ESCALATION IS INTERRUPTIBLE, which is what makes the forced lock safe.
+# Reaching it takes THREE independent pieces of evidence rather than a timer:
+#
+#   a notification ignored for the whole hour between the two bounds,
+#   a seat genuinely idle past the edge's OWN deadline, and
+#   an edge that is `lock`, never a dark rung.
+#
+# A call somebody is attending fails the second. `vigilant ack` answers the
+# first. The third is the ladder's own invariant: a forced descent into a dark
+# rung arms no way back, which is why `suspend` is NEVER_ENFORCED and why a
+# deferred `sleep` is reported and never acted on.
+_inhibit_escalate() {   # <edge> <idle> <deadline> <span> -> 1 if a finding
+  _iee=$1; _iei=$2; _ied=$3; _ies=$4
+  # THE HOLDER, because the remedy is at that process and a bare duration sends
+  # the reader hunting. The clause is BUILT rather than interpolated: an unnamed
+  # holder once left a dangling colon mid-sentence in the triggers section.
+  _ieh=$(_trig_holder idle 2>/dev/null || true)
+  _iew=
+  if [ -n "$_ieh" ]; then _iew=" Held by: $_ieh."; fi
+
+  if [ "$INHIBIT_FORCE" -gt 0 ] && [ "$_ies" -ge "$INHIBIT_FORCE" ] \
+     && [ "$_iee" = lock ] && [ "$_iei" -gt "$((_ied + GRACE))" ]; then
+    _log "INHIBIT-BOUND $_iee: idle inhibited ${_ies}s past the"\
+" ${INHIBIT_FORCE}s bound with the seat idle ${_iei}s; securing the session"
+    _alert inhibit-forced "an idle inhibitor has deferred '$_iee' for"\
+" ${_ies}s, past the ${INHIBIT_FORCE}s bound, and nobody acknowledged it;"\
+" securing the session now.$_iew"
+    # THE CLOCK RESTARTS BECAUSE WE ACTED. Without this the whole escalation
+    # re-runs every minute while the hold continues, which is the storm shape;
+    # with it, a leaked inhibitor that survives the lock produces its next
+    # report a report-bound later rather than immediately.
+    printf '%s\n' "$(date +%s)" > "$INHIBIT_CLOCK" 2>/dev/null || true
+    # A SUBSHELL, so the source cannot leak. An env prefix on a shell FUNCTION
+    # persists past the call in dash, and VIGILANCE_SOURCE reaching every later
+    # crossing in this pass would mis-attribute them all.
+    #
+    # `atleast` because this is a security request and must never raise a
+    # sleeping box, which is the lid bug. The source so the crossing is
+    # ATTRIBUTABLE: an unexplained lock cost this fleet a day of investigation,
+    # and `src=inhibit-bound` is that answer written down where it is known.
+    #
+    # THE ACTION IS `lock` LITERALLY, and only the `$_iee` = lock guard above
+    # keeps that honest. Drop the guard and a deferred `sleep` deadline fires a
+    # LOCK, which is incoherent rather than dangerous, and the test says so by
+    # catching that mutation on the alert kind rather than on a crossing. The
+    # two must move together: this acts on the edge it was asked about, and the
+    # only edge it is ever asked about is the one whose rung is a guarantee.
+    ( VIGILANCE_SOURCE=inhibit-bound; export VIGILANCE_SOURCE
+      cmd_go lock atleast ) || true
+    echo "enforce: $_iee deferred past the ${INHIBIT_FORCE}s bound; locked"
+    return 1
+  fi
+
+  if [ "$INHIBIT_REPORT" -gt 0 ] && [ "$_ies" -ge "$INHIBIT_REPORT" ]; then
+    _log "INHIBIT-HELD $_iee: idle inhibited ${_ies}s, deferring a ${_ied}s"\
+" deadline"
+    # THE DURATION IS SAFE IN THIS KEY. `_alert_repeat` normalises digit-runs
+    # followed by `s` out of the dedup key precisely because a message that
+    # counts upward hashes as a fresh onset every pass, which produced a
+    # 45-notification storm once. The holder name is stable and SHOULD be in
+    # the key: a second process taking the hold is a second finding.
+    _alert inhibit-held "an idle inhibitor has deferred '$_iee' for ${_ies}s."\
+" If that is expected, 'vigilant ack' resets the clock; otherwise find what is"\
+" holding it.$_iew"
+    echo "enforce: $_iee deferred ${_ies}s, past the ${INHIBIT_REPORT}s"\
+" report bound; reported"
+    return 1
+  fi
+
+  # UNDER BOTH BOUNDS: stdout only, no alert and no log record. The hold's
+  # start and end are already logged once each by _inhibit_track, which is the
+  # forensic story without a line a minute.
+  echo "enforce: $_iee deferred, idle inhibited ${_ies}s (under the"\
+" ${INHIBIT_REPORT}s report bound)"
+  return 0
+}
+
+# `ack`: "this hold is expected". Restarts the escalation clock WITHOUT ending
+# the hold, so the next report comes a report-bound from now and the forced
+# lock a force-bound from now.
+#
+# WHY A VERB RATHER THAN A FILE TO TOUCH: an operator meets this at a toast, so
+# the message has to name something short enough to type from a notification.
+# `ack` is the word every monitoring system already uses for exactly this, so
+# it carries its meaning without the man page.
+#
+# IT ASKS logind, NOT OUR OWN BOOKKEEPING, and that is the difference between
+# a useful verb and a confusing one. The span file only exists once a
+# supervision pass has sampled during the hold, so an ack typed in the first
+# minute of a call would otherwise answer "nothing to acknowledge" about a hold
+# that plainly exists. Opening the span here is idempotent: both writers record
+# the same value, and the next pass leaves an open span alone.
+#
+# THREE ANSWERS, because they are three different states and a caller that
+# cannot tell them apart would report a deferral it never made.
+cmd_ack() {
+  mkdir -p "$RUN_DIR" 2>/dev/null || true
+  _akrc=0
+  _idle_inhibited || _akrc=$?
+  case "$_akrc" in
+    0) ;;
+    2) echo "vigilant: cannot tell whether idle is inhibited (logind did" >&2
+       echo "  not answer), so there is nothing to acknowledge." >&2
+       return "$HOOK_NA" ;;
+    *) echo "nothing to acknowledge: no idle inhibitor is held, so no"
+       echo "  deadline is being deferred. An ack taken BEFORE a hold begins"
+       echo "  is a no-op, because the escalation clock starts at the hold."
+       return "$HOOK_SKIP" ;;
+  esac
+  if [ ! -f "$INHIBIT_SINCE" ]; then
+    printf '%s\n' "$(date +%s)" > "$INHIBIT_SINCE" 2>/dev/null || true
+  fi
+  if ! printf '%s\n' "$(date +%s)" > "$INHIBIT_CLOCK" 2>/dev/null; then
+    # LOUD, because the whole point of the verb is to stop a forced lock, and
+    # an ack that silently did not record is one the operator believes in.
+    echo "vigilant: could NOT record the acknowledgement at $INHIBIT_CLOCK;" >&2
+    echo "  the escalation clock is unchanged and the bound still applies." >&2
+    return 1
+  fi
+  _log "inhibit hold acknowledged; escalation clock reset"
+  _akh=$(_trig_holder idle 2>/dev/null || true)
+  echo "acknowledged${_akh:+ (held by $_akh)}: escalation clock reset."
+  if [ "$INHIBIT_REPORT" -gt 0 ]; then
+    echo "  next report in ${INHIBIT_REPORT}s if the hold continues"
+  else
+    echo "  reporting is disabled (VIGILANCE_INHIBIT_REPORT=0)"
+  fi
+  if [ "$INHIBIT_FORCE" -gt 0 ]; then
+    echo "  the session is secured anyway after ${INHIBIT_FORCE}s"
+  else
+    echo "  the forced lock is disabled (VIGILANCE_INHIBIT_FORCE=0)"
+  fi
+  return 0
+}
+
 cmd_enforce() {
   mkdir -p "$RUN_DIR" "$STATE_ROOT"
   _from=$(_depth)
@@ -4369,6 +4683,17 @@ cmd_enforce() {
   # deadline exists is a different question from whether the machinery that
   # would meet it is alive, and every early return below would skip it.
   _run_watchdogs || _erc=1
+  # THE INHIBIT SPAN, UNCONDITIONAL FOR THE SAME REASON AND A SHARPER VERSION
+  # OF IT. A span is a claim about an UNBROKEN hold, so a pass that skipped the
+  # sampling is indistinguishable from a release; worse, a span that restarts
+  # whenever the machine happens to have nothing to enforce can never reach a
+  # bound at all. Both halves are the shape that made the watchdog inert for a
+  # whole session once, when an early return sat above the unconditional calls.
+  #
+  # SAMPLED HERE, JUDGED FAR BELOW in the idle branch, so there is exactly one
+  # busctl read per pass. It touches no input device, so it cannot disturb the
+  # idle clock the way the verify tier does.
+  _ispan=$(_inhibit_track)
   # AND THE SOURCES RE-BASELINE HERE, past the traffic the two calls above just
   # generated. `settle` means "take a reading and remember it, do not judge":
   # anything that moved during our own pass is ours, so it must not count as
@@ -4432,6 +4757,29 @@ cmd_enforce() {
       if _blocked "$_e" "$_from"; then
         _log "OVERDUE $_e: idle ${_idle}s of ${_d}s, but blocked; holding off"
         echo "enforce: $_e overdue but blocked; holding off"
+        return "$_erc"
+      fi
+      # AN IDLE INHIBITOR IS THE ONE LEGITIMATE REASON THIS DEADLINE CAN PASS,
+      # and this package created it: swayidle-mgr arms a logind event so a held
+      # one is HONOURED. So the deadline is DEFERRED rather than missed, and
+      # calling it overdue is crying wolf about the feature working.
+      #
+      # MEASURED on the first full day after that arm landed: 27 alerts across
+      # 93 minutes, while the heartbeat log shows the timer emitting nothing
+      # for 132 minutes and then healthy again with NRestarts=0. The same
+      # process throughout, so it was never a wedge; a wedge needs
+      # intervention and a released inhibitor heals itself.
+      #
+      # THE CHECK ABOVE ASKS VIGILANCE'S OWN BLOCK HOOKS, which cannot see
+      # logind, and the comment below it already named an idle inhibitor as the
+      # innocent explanation while the code never asked. A comment is not a
+      # delivery, and the reader for it was already in this file.
+      #
+      # CANNOT TELL DOES NOT DEFER: `_inhibit_track` opens a span only on a
+      # definite yes, so an unreadable bus leaves this detector exactly as it
+      # was rather than silently switching it off.
+      if [ -n "$_ispan" ]; then
+        _inhibit_escalate "$_e" "$_idle" "$_d" "$_ispan" || _erc=1
         return "$_erc"
       fi
       # THE FINDING THIS TIER EXISTS FOR, finally expressible: the seat has
@@ -4695,7 +5043,7 @@ _U="usage: vigilant go <open|lock|sleep|suspend> [atleast|atmost]
                  | force <state> | only <state> | status
                  | verify [edge] | hooks [edge] | plan [edge]
                  | report | rescue
-                 | due [edge] | enforce | audit
+                 | due [edge] | enforce | audit | ack
        (the wiring audit is 'setup.sh check', not a verb here)"
 _sub=${1:-}
 if [ "$#" -gt 0 ]; then shift; fi
@@ -4733,6 +5081,7 @@ case "$_sub" in
   rescue)  cmd_rescue ;;
   due)     cmd_due "${1:-}" ;;
   enforce) cmd_enforce ;;
+  ack)     cmd_ack ;;
   audit)   cmd_audit ;;
   # NAMED EXPLICITLY rather than falling through to "unknown command", because
   # three documents promised this verb and somebody will type it.

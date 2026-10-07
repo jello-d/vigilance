@@ -651,6 +651,44 @@ hook_proc_running() {   # <name>
   hook_proc_pids "$1" >/dev/null 2>&1
 }
 
+# IS IDLE INHIBITED RIGHT NOW?  0 inhibited, 1 not, 2 cannot tell.
+#
+# WHY A HOOK NEEDS THIS. A held idle inhibitor suppresses every one of the idle
+# timer's timeouts, the heartbeat included, so silence from the timer stops
+# being evidence of a wedge. The watchdog used to offer that as one of two
+# causes it could not separate, and said so in its own message: "vigilant cannot
+# query the inhibitor directly". It can, and could when that was written.
+#
+# A TWIN, NOT A SHARED FUNCTION, because a hook cannot source the runner and the
+# runner must not source the hook author's API. Two implementations of one rule
+# is the shape this package paid to DELETE once (ddc-monitor's hand-written
+# save/restore copy), so test/idle-inhibit.t drives both through one case table,
+# exactly as proc-identity.t and level-rules.t do.
+#
+# THE THIRD ANSWER IS THE LOAD-BEARING ONE: an unreadable bus must not read as
+# "nothing is inhibited", because that is the reassuring direction and it is
+# verbatim the defect that made the lock provider blame WAYLAND_DISPLAY for a
+# dead user bus.
+hook_idle_inhibited() {
+  if [ -n "${VIGILANCE_BLOCK_INHIBITED+x}" ]; then
+    _hiv=$VIGILANCE_BLOCK_INHIBITED
+  else
+    command -v busctl >/dev/null 2>&1 || return 2
+    # CAPTURED, THEN CHECKED. Written as a pipeline the status would be the
+    # last command's, so a busctl that FAILED would return 0 with no output and
+    # read as an empty BlockInhibited, i.e. as "nothing is inhibited".
+    _hiv=$(busctl get-property org.freedesktop.login1 /org/freedesktop/login1 \
+      org.freedesktop.login1.Manager BlockInhibited 2>/dev/null) || return 2
+  fi
+  # The field, not a substring: see the runner's twin for why that matters.
+  _hiv=${_hiv#*\"}
+  _hiv=${_hiv%\"*}
+  case ":$_hiv:" in
+    *:idle:*) return 0 ;;
+  esac
+  return 1
+}
+
 # SIGNAL EVERY PROCESS OF THAT NAME, which is what `pkill -x` did here and what
 # lock-blank means: the broadcast is meant to reach swaylock's password-backend
 # CHILD as well as swaylock, and that child carries the same comm.

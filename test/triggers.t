@@ -104,6 +104,51 @@ neither, because it reads as a complete answer:
 $_o" ;;
 esac
 
+# --- 3b. THE HOLDER IS A FIELD, NOT A SUBSTRING OF THE LINE -----------------
+# `_trig_holder` matched the whole ROW, so the WHY prose counted as readily as
+# the WHAT column. For a short handler name that is not a corner case:
+# MEASURED on this fleet with NO idle inhibitor held at all, asking for `idle`
+# answered "swayidle", because the row reads "Swayidle is preventing sleep".
+# The inhibit-bound alert was about to use that, and would have named
+# vigilance's OWN idle timer as the thing to go and kill.
+#
+# STUBBED, which also stops this case reading the developer's real inhibitors:
+# the holder half was previously exercised by nothing, so whatever the host
+# happened to be holding leaked into the message while no assertion looked.
+mkdir -p "$T/ibin"
+#
+# THE DECOY'S WHY CARRIES THE HANDLER AS A STANDALONE WORD, which is the case
+# that matters and the one a bare field match still gets wrong: for `idle` it
+# is thoroughly ordinary ("Inhibiting idle while playing video"). Only locating
+# the WHAT column answers it.
+cat > "$T/ibin/systemd-inhibit" <<'EOF'
+#!/bin/sh
+echo "WHO UID USER PID COMM WHAT WHY MODE"
+echo "decoyproc 1000 jello 111 dec sleep handle-lid-switch yes block"
+echo "realholder 1000 jello 222 rea sleep:handle-lid-switch why block"
+EOF
+chmod +x "$T/ibin/systemd-inhibit"
+# INHERITING case 3's inhibitor string ON PURPOSE, rather than setting one.
+# Narrowing it here left case 4 asserting about a power key that was no longer
+# inhibited, and it failed two cases later with a message about the section
+# being switched off. A case that changes shared state its neighbours read is
+# not a case, which is the trap this file's own header warns about.
+_o=$(PATH=$T/ibin:$PATH; export PATH; _sec)
+case "$_o" in
+  *realholder*) ;;
+  *) fail "the holder whose WHAT column IS the handler was not named. A
+colon-joined WHAT ('sleep:handle-lid-switch') is how logind reports an
+inhibitor taking several handlers, so matching it per element is the whole
+point:
+$_o" ;;
+esac
+case "$_o" in
+  *decoyproc*) fail "a row that merely MENTIONS the handler in its WHY prose was
+reported as holding it. That is the measured swayidle case, and it points the
+operator at the wrong process, which is worse than naming none:
+$_o" ;;
+esac
+
 # --- 4. THE CRY-WOLF GUARD: inhibited, NO lid, says nothing about the lid ----
 # The same inhibitor string, on a machine whose only switch is an audio jack.
 # `sw` NON-ZERO IS NOT A LID: measured on this fleet, HDMI outputs report 0x140

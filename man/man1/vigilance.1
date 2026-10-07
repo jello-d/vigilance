@@ -16,7 +16,7 @@ vigilance \- edge framework for what a machine does when you step away
 .RI [ edge ]
 .br
 .B vigilant
-.RB { due " [" edge ] | enforce | audit }
+.RB { due " [" edge ] | enforce | audit | ack }
 .br
 .B swayidle-mgr ", " idle-capture ", " lock-watch
 .SH DESCRIPTION
@@ -142,6 +142,52 @@ nothing, and
 and
 .B enforce
 both say so explicitly rather than implying coverage that does not exist.
+.SH THE IDLE INHIBIT BOUND
+A held logind idle inhibitor legitimately suppresses every idle timeout, so an
+idle-anchored deadline can pass without its edge firing and nothing is wrong:
+that is a video call asking not to be interrupted, and
+.B swayidle-mgr
+arms a logind event precisely so the request is honoured.
+.PP
+Unbounded, it is also how a LEAKED inhibitor keeps a machine unlocked
+indefinitely with nothing saying so. So the hold is measured, and there are two
+bounds with a deliberate gap between them:
+.TP
+under
+.B VIGILANCE_INHIBIT_REPORT
+the deadline is deferred silently. A call is not a fault. The hold's start and
+end are each logged once, so the record exists without a line a minute.
+.TP
+past it
+an alert names the duration and, where logind can say so, the process HOLDING
+the inhibitor, because the remedy is at that process.
+.TP
+past
+.B VIGILANCE_INHIBIT_FORCE
+the session is secured anyway:
+.B "go lock atleast"
+with
+.BR VIGILANCE_SOURCE=inhibit-bound ,
+so the crossing is attributable in the log.
+.PP
+.B "vigilant ack"
+answers the report: it restarts the escalation clock without ending the hold,
+so the next report comes a report-bound later and the forced lock a force-bound
+later. That is what makes the force safe rather than a blind timer: reaching it
+needs a notification ignored for the whole gap between the bounds AND a seat
+genuinely idle past the edge's own deadline, so a call somebody is attending is
+never cut off. An ack taken BEFORE a hold begins is a no-op, because the clock
+starts at the hold; it exits 75 and says so.
+.PP
+Only the
+.B lock
+edge is ever forced. A dark rung is reported and never acted on, for the reason
+.B suspend
+is excluded entirely: nothing may enter a dark state on a timer, because that
+arms no way back.
+.PP
+Setting either knob to 0 disables that half, so "report but never act" and
+"trust the inhibitor completely" are both reachable as configuration.
 .SH RESCUE
 .B "vigilant rescue"
 is meant for a bare, unmodified key, pressable BLIND when the screen is gone. It
@@ -743,6 +789,13 @@ the audit tier's larger bound (default 60)
 .TP
 .B VIGILANCE_GRACE
 slack before an edge counts as overdue
+.TP
+.B VIGILANCE_INHIBIT_REPORT
+how long a held idle inhibitor may defer an idle-anchored deadline before that
+is reported (default 10800); 0 never reports
+.TP
+.B VIGILANCE_INHIBIT_FORCE
+how long before the session is secured anyway (default 14400); 0 never acts
 .TP
 .B VIGILANCE_ALERT_COOLDOWN
 repeat-alert suppression; 0 disables

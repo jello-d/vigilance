@@ -1141,3 +1141,50 @@ f bin/vigilant
 t atleast
 -     if [ "$_dnow" -lt "$_dto" ]; then
 +     if [ "$_dnow" -le "$_dto" ]; then
+= inhibit-defers-a-deadline
+f bin/vigilant
+t inhibit-bound
+-       if [ -n "$_ispan" ]; then
++       if [ -n "" ]; then
+
+= inhibit-cannot-tell-does-not-defer
+f bin/vigilant
+t idle-inhibit inhibit-bound
+-   _iiv=$(_trig_blocked) || return 2
++   _iiv=$(_trig_blocked) || return 0
+
+= inhibit-force-refuses-a-dark-rung
+f bin/vigilant
+t inhibit-bound
+-      && [ "$_iee" = lock ] && [ "$_iei" -gt "$((_ied + GRACE))" ]; then
++      && [ "$_iei" -gt "$((_ied + GRACE))" ]; then
+
+= inhibit-field-not-substring-runner
+f bin/vigilant
+t idle-inhibit
+-     *:idle:*) return 0 ;;
++     *idle*) return 0 ;;
+
+= inhibit-field-not-substring-hooklib
+f lib/hook_lib
+t idle-inhibit
+-     *:idle:*) return 0 ;;
++     *idle*) return 0 ;;
+
+= inhibit-holder-is-the-what-column
+f bin/vigilant
+t triggers
+-         n = split($w, p, ":")
++         n = split($0, p, " ")
+
+= ack-records-the-clock
+f bin/vigilant
+t inhibit-bound
+-   if ! printf '%s\n' "$(date +%s)" > "$INHIBIT_CLOCK" 2>/dev/null; then
++   if ! printf '%s\n' "$(date +%s)" > /dev/null 2>&1; then
+
+= inhibit-force-resets-the-clock
+f bin/vigilant
+t inhibit-bound
+-     printf '%s\n' "$(date +%s)" > "$INHIBIT_CLOCK" 2>/dev/null || true
++     printf '%s\n' "$(date +%s)" > /dev/null 2>&1 || true

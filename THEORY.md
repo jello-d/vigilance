@@ -101,6 +101,41 @@ wishes are visible.
         cadence.t case 6, through the real runner with the stamp backdated
     30  a hook that ACTS survives being run twice in sequence
         level-rules.t for the level keepers, session-repeat.t for the rest
+    31  a held idle inhibitor DEFERS an idle deadline rather than missing it,
+        and the deferral is bounded, interruptible, and never forces a dark
+        rung
+        idle-inhibit.t (the reader, both implementations),
+        inhibit-bound.t (the bounds, ack, and the dark-rung refusal)
+
+### The one place supervision ACTS, and what makes that safe
+
+Invariant 31 is the single exception to "supervision reports, it does not act",
+so it is worth stating why it is not the return of `enforce`'s forcing.
+
+A held logind idle inhibitor suppresses every idle timeout, because
+`swayidle-mgr` arms a logind event so the request is HONOURED: a video call
+must not be cut off mid-sentence. That made it possible for the first time for
+an idle deadline to pass with nothing wrong, and the overdue detector did not
+know the reason existed. MEASURED, on the first full day after that arm landed:
+27 alerts in 93 minutes, with the heartbeat silent for 132 minutes and then
+healthy again at `NRestarts=0`, so the same process throughout and never a
+wedge.
+
+Suppressing the finding alone would have been the wrong fix: a LEAKED inhibitor
+then keeps a machine unlocked indefinitely with nothing saying so, which is the
+silent false green this whole package exists to prevent.
+
+What makes the forced lock different from the forcing that was retired is that
+reaching it takes THREE independent pieces of evidence rather than a
+measurement:
+
+    a notification ignored for the whole hour between the two bounds
+    a seat genuinely idle past the edge's OWN deadline
+    an edge that is `lock`, so a lit rung, never a dark one
+
+A call somebody is attending fails the second. `vigilant ack` answers the
+first. The third is invariant 1. And either bound at 0 disables that half, so
+an operator who wants no actuator here keeps none.
 
 ### Why the peripheral cadence is an hour, and what makes that safe
 

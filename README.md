@@ -76,6 +76,8 @@ check enforces which invariant: `THEORY.md`.
     vigilant due [edge]       when SHOULD this edge have fired?
     vigilant enforce          the supervision loop, for a timer
     vigilant audit            did past events produce the edges they should?
+    vigilant ack              "this idle inhibitor is expected": restarts
+                              the escalation clock without ending the hold
 
 The verb set is closed and the **argument is the state**, so a new rung can
 never collide with a command name.
@@ -457,12 +459,24 @@ the compositor knows when a display exists to connect to, so it starts the unit
 from its own autostart. Enabling it against a target would start swayidle into a
 void.
 
-Supervision is **report-only** by default, so enabling the timers cannot cross
-an edge on its own. `enforce` reports and never acts, and even before that
-it will never force a descent into a **dark** rung, because such a descent has
-nothing armed to bring the machine back. Not caution in the abstract: it
-is exactly how the resume unit once blanked an active user's screen for 32
-seconds.
+Supervision is **report-only** with ONE bounded exception, and it will never
+force a descent into a **dark** rung, because such a descent has nothing armed
+to bring the machine back. Not caution in the abstract: it is exactly how the
+resume unit once blanked an active user's screen for 32 seconds.
+
+The exception is the **idle inhibit bound**. A held logind idle inhibitor
+legitimately suppresses every idle timeout, so a deadline passes and nothing is
+wrong; unbounded, it is also how a leaked inhibitor keeps a machine unlocked
+indefinitely with nothing saying so. Past `VIGILANCE_INHIBIT_REPORT` (3h) that
+is reported, naming the holding process; past `VIGILANCE_INHIBIT_FORCE` (4h) the
+session is secured anyway, as `go lock atleast` with
+`VIGILANCE_SOURCE=inhibit-bound` so the crossing is attributable.
+
+`vigilant ack` answers the report and restarts the clock, which is what makes
+the force safe rather than a blind timer: reaching it needs a notification
+ignored for the whole gap between the bounds **and** a seat genuinely idle past
+the edge's own deadline, so a call somebody is attending is never cut off.
+Either knob at `0` disables that half.
 
 ## Install
 
