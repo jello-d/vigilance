@@ -19,6 +19,31 @@ scenario_init timer
 
 _t() { "$VIGILANT" timer 2>>"$T/stderr"; }
 
+# A NUMBER OUT OF THE VIEW, ASSERTED AS A RANGE. This file pinned exact digits
+# for four of the five numbers it checks and carried the reason not to in a
+# comment beside the fifth: a second elapses between backdating a stamp and
+# rendering the view, so `HELD 9000s` reads `9001s` whenever the wall clock
+# ticks in between. MEASURED: 4 failures in 15 runs, about 27%.
+#
+# A FLAKY TEST IS ONE PEOPLE RE-RUN UNTIL GREEN, and worse here, it fails
+# inside whatever change happens to be in the tree and reads as that change's
+# fault. It cost exactly that once: a red `timer` was bisected across five
+# unrelated edits before a clone of HEAD showed the same failure.
+#
+# THE TOLERANCE CANNOT SWALLOW THE DEFECTS, which is the only thing that makes
+# a range legitimate here. Each guards a confusion thousands of seconds wide:
+# the BOUND printed instead of the remainder is 10800 against 1800, and a reset
+# that cleared the hold is 9000 against nearly 0. Five seconds is nowhere near
+# either, and is generous against a tick of one.
+_near() {   # <view> <sed-expr> <expected> -> 0 if within 5s
+  _nv=$(printf '%s\n' "$1" | sed -n "$2")
+  case "${_nv:-}" in ''|*[!0-9]*) return 1 ;; esac
+  [ "$_nv" -ge "$(( $3 - 5 ))" ] && [ "$_nv" -le "$(( $3 + 5 ))" ]
+}
+_HELD='s/^inhibit:.*HELD \([0-9]*\)s.*/\1/p'
+_REPT='s/^ *report: in \([0-9]*\)s.*/\1/p'
+_SECU='s/^ *secure: in \([0-9]*\)s.*/\1/p'
+
 # --- 1. THE SUBCOMMAND CONTRACT ---------------------------------------------
 # AN UNRECOGNISED QUALIFIER IS A USAGE ERROR, never something to drop. The `go`
 # arm learned this the hard way: it ignored everything after the state, so a
@@ -98,25 +123,19 @@ printf '%s\n' "$(( $(date +%s) - 9000 ))" > "$VIGILANCE_RUN_DIR/inhibit-since"
 VIGILANCE_INHIBIT_REPORT=10800; export VIGILANCE_INHIBIT_REPORT
 VIGILANCE_INHIBIT_FORCE=14400; export VIGILANCE_INHIBIT_FORCE
 _o=$(_t)
-case "$_o" in
-  *HELD*9000s*) ;;
-  *) printf '%s\n' "$_o" >&2; fail "the view did not report the hold and its
-age, which is the question the verb exists to answer" ;;
-esac
+_near "$_o" "$_HELD" 9000 \
+  || { printf '%s\n' "$_o" >&2; fail "the view did not report the hold and its
+age, which is the question the verb exists to answer"; }
 # THE ARITHMETIC IS THE POINT, so it is asserted rather than eyeballed: a view
 # that printed the bound instead of the remainder would look identical at a
 # glance and be useless.
-case "$_o" in
-  *"report: in 1800s"*) ;;
-  *) printf '%s\n' "$_o" >&2; fail "9000s into a 10800s report bound leaves
+_near "$_o" "$_REPT" 1800 \
+  || { printf '%s\n' "$_o" >&2; fail "9000s into a 10800s report bound leaves
 1800s, and the view did not say so. Printing the BOUND rather than the
-remainder reads the same and answers a different question" ;;
-esac
-case "$_o" in
-  *"secure: in 5400s"*) ;;
-  *) printf '%s\n' "$_o" >&2; fail "9000s into a 14400s force bound leaves
-5400s, and the view did not say so" ;;
-esac
+remainder reads the same and answers a different question"; }
+_near "$_o" "$_SECU" 5400 \
+  || { printf '%s\n' "$_o" >&2; fail "9000s into a 14400s force bound leaves
+5400s, and the view did not say so"; }
 # AND THE REMEDY IS IN THE VIEW, because an operator reading a countdown to a
 # forced lock needs the way to stop it without going to the man page.
 case "$_o" in
@@ -133,16 +152,16 @@ VIGILANCE_BLOCK_INHIBITED=idle; export VIGILANCE_BLOCK_INHIBITED
 "$VIGILANT" timer reset >/dev/null 2>>"$T/stderr" \
   || fail "timer reset failed while an inhibitor was held"
 _o=$(_t)
-case "$_o" in
-  *HELD*9000s*) ;;
-  *) printf '%s\n' "$_o" >&2; fail "the reset ended the HOLD as well as the
+_near "$_o" "$_HELD" 9000 \
+  || { printf '%s\n' "$_o" >&2; fail "the reset ended the HOLD as well as the
 escalation. The hold is logind's to end, not ours: a reset says 'this is
-expected', not 'this is over'" ;;
-esac
+expected', not 'this is over'"; }
 # THE PROPERTY, NOT THE DIGITS. The first draft matched "in 108" and failed on
 # "in 10799s": a second elapses between the reset and the view, so pinning the
-# leading digits asserts the clock's resolution rather than its behaviour.
-_rem=$(printf '%s\n' "$_o" | sed -n 's/^  report: in \([0-9]*\)s$/\1/p')
+# leading digits asserts the clock's resolution rather than its behaviour. This
+# is the one number the file got right, and the helper above is that lesson
+# applied to the other four.
+_rem=$(printf '%s\n' "$_o" | sed -n "$_REPT")
 case "${_rem:-}" in
   ''|*[!0-9]*) printf '%s\n' "$_o" >&2
     fail "could not read a report remainder out of the view at all" ;;
