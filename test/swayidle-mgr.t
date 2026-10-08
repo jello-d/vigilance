@@ -110,4 +110,47 @@ grep -q "pkill" "$PKILL_LOG" \
 means 'stop' did not stop idle locking, which is the one thing it promises"
 FOREIGN=; export FOREIGN
 
+# --- THE FIRST idle-lock HAS NO DELTA, and must not print the epoch ---------
+# With no previous record `prev` is 0, so `now - prev` yields the epoch: the
+# live log on manifestor carries `idle-lock delta=1791001786s`, which is 56
+# years, in the one file a reader turns to when something is wrong. It happens
+# on the first lock after any restart that cleared the runtime dir, so it is
+# ordinary rather than exotic.
+mkdir -p "$T/run/swayidle-mgr"
+STATEF=$T/run/swayidle-mgr/last-idle-lock
+_ev() {   # one idle-lock event, against a sandboxed state dir
+  XDG_RUNTIME_DIR=$T/run SWAYIDLE_LOG_DIR=$T/state \
+    VIGILANT_CMD=/bin/true LOCK_CMD=/bin/true \
+    sh "$HERE/bin/swayidle-mgr" event idle-lock >/dev/null 2>&1 || true
+}
+
+rm -f "$STATEF"
+: > "$EVENT_LOG"
+_ev
+grep -q 'idle-lock delta=none' "$EVENT_LOG" || fail "the first idle-lock, with
+no earlier one recorded, did not say so: $(cat "$EVENT_LOG")"
+# THE SHAPE OF THE BUG, asserted directly: a ten-digit delta is an epoch being
+# printed as a duration, and matching that is what stops a future rewrite
+# reintroducing it in different words.
+grep -qE 'delta=1[0-9]{9}s' "$EVENT_LOG" && fail "the first idle-lock printed
+an EPOCH as a duration: $(cat "$EVENT_LOG")"
+
+# A REAL PREVIOUS STILL GIVES A REAL DELTA, or the fix is "never measure",
+# which removes the forensic value the field exists for.
+printf '%s\n' "$(( $(date +%s) - 300 ))" > "$STATEF"
+: > "$EVENT_LOG"
+_ev
+grep -qE 'idle-lock delta=(29[0-9]|30[0-9])s' "$EVENT_LOG" || fail "a previous
+idle-lock 300s ago must give a delta of about 300s: $(cat "$EVENT_LOG")"
+
+# A FUTURE STAMP IS NOT A DELTA either, and it is the same family as every
+# other elapsed guard in this stack: a wall clock is not monotonic, so a
+# backward step would otherwise print a negative interval.
+printf '%s\n' "$(( $(date +%s) + 3600 ))" > "$STATEF"
+: > "$EVENT_LOG"
+_ev
+grep -q 'idle-lock delta=none' "$EVENT_LOG" || fail "a stamp an hour in the
+FUTURE was subtracted anyway, printing a negative interval:
+$(cat "$EVENT_LOG")"
+
 pass

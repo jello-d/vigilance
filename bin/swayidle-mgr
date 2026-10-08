@@ -151,7 +151,21 @@ cmd_event() {
       prev=$(cat "$STATE" 2>/dev/null || echo 0)
       case "$prev" in ''|*[!0-9]*) prev=0 ;; esac
       printf '%s\n' "$now" > "$STATE"
-      log "idle-lock delta=$((now - prev))s"
+      # NO PREVIOUS IS NOT A DELTA OF `now`. With no record `prev` is 0 and the
+      # subtraction yields the epoch: the live log carries
+      # `idle-lock delta=1791001786s`, which is 56 years, in the forensic log a
+      # reader turns to when something is wrong. The first idle-lock after a
+      # restart, or after the state was cleared, genuinely has nothing to
+      # measure from, so it says that instead of printing a number.
+      #
+      # A FUTURE STAMP IS ALSO NOT A DELTA, and it is the same family as every
+      # other elapsed guard in this stack: a wall clock is not monotonic, so a
+      # backward step would otherwise print a negative interval.
+      if [ "$prev" -gt 0 ] && [ "$prev" -le "$now" ]; then
+        log "idle-lock delta=$((now - prev))s"
+      else
+        log "idle-lock delta=none (no earlier idle-lock to measure from)"
+      fi
       # VIGILANCE_SOURCE is what lets the phantom guard scope itself to the
       # idle path and never suppress a lid close or a suspend. Without it the
       # guard is inert: it allows everything, because it only ever blocks
