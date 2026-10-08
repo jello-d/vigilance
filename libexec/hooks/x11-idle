@@ -67,6 +67,50 @@ case "${_out:-}" in
   ''|*[!0-9]*) exit 78 ;;
 esac
 
+# AND THE COUNTER MUST NOT BE RESET BY READING IT, which is a real server
+# behaviour and not a hypothetical. MEASURED in the VM guest, whose X server
+# has no input devices at all:
+#
+#     spaced: 3008 2975 2980     reads three seconds apart
+#     rapid:  1 0 0 1            reads back to back
+#
+# It reports the interval since the PREVIOUS READ rather than since input. A
+# supervision pass reads this source three times (judge, settle, then the one
+# that decides), so the deciding read can never see more than the gap since the
+# second, and an idle-anchored deadline is permanently not due. The tier goes
+# silently inert.
+#
+# WHICH WOULD BE A FALSE GREEN, and that is why this cannot just be noted:
+# `report` reads the ceiling this hook emits (the server's 600s screensaver
+# timeout) and calls a 480s deadline MEASURABLE, while the readable value is
+# always about zero.
+#
+# ZERO IS THE WORST ANSWER AVAILABLE, which is the whole reason for declining
+# rather than reporting what we got: 0 means "input one second ago", so it
+# silently resets every deadline for ever and reports a healthy machine. The
+# contract exists for exactly this: a source that cannot measure says 78.
+#
+# TWO IMMEDIATE READS, NO SLEEP. On a server where the counter tracks input,
+# both see the same idle time; on one that resets per read, the second sees
+# about nothing. One extra process, nothing waited for.
+#
+# AN INPUT ARRIVING BETWEEN THE TWO READS is indistinguishable from the fault
+# and is answered the same way, which is safe: it means the seat is genuinely
+# active, so declining suppresses a finding rather than inventing one.
+_out2=$(xprintidle 2>/dev/null) || exit 78
+case "${_out2:-}" in
+  ''|*[!0-9]*) exit 78 ;;
+esac
+if [ "${#_out}" -le 13 ] && [ "${#_out2}" -le 13 ] \
+   && [ "$_out" -gt 2000 ] && [ "$_out2" -lt $(( _out / 2 )) ]; then
+  echo "this server's idle counter is reset by READING it (${_out}ms then"\
+" ${_out2}ms back to back), so it measures the gap between readers rather"\
+" than since input. A supervision pass reads three times, so the deciding"\
+" read would always see about zero and every idle deadline would be"\
+" permanently not due." >&2
+  exit 78
+fi
+
 # MILLISECONDS IN, SECONDS OUT. The unit mismatch is the whole risk in this
 # file: reporting milliseconds as seconds would make the seat look idle for a
 # thousand times longer than it is, which is the one direction that INVENTS a

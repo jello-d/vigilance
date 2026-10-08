@@ -1,0 +1,321 @@
+#!/bin/sh
+# test/fault-inhibit.t.wip - SET ASIDE, and the reason is the valuable part.
+#
+# STATE OF PLAY, so nobody re-derives this. The cell is written and correct in
+# shape; it cannot run because this guest has no trustworthy idle clock, and
+# the escalation is only ever reachable from the idle-anchored branch.
+#
+#   input-counters  cannot answer here at all: no countable input device, and
+#                   with nothing sampling between scenarios every reading is a
+#                   fresh gap, which reports ACTIVITY (about zero).
+#   x11-idle        DECLINES now, correctly, and finding out why is what this
+#                   work actually produced: the server's counter is reset by
+#                   READING it (spaced 3008 2975 2980, rapid 1 0 0 1), so it
+#                   measures the gap between readers rather than since input.
+#   a stub source   REFUSED: an idle source is a CLOCK, and a clock is on this
+#                   suite's own list of what may never be faked.
+#
+# FIVE GUEST ROUNDS went into this, and the sequence is worth knowing because
+# four of them were my own fixture rather than the product:
+#
+#   1  `go open` immediately before measuring crosses `unlock`, which IS an
+#      ascent, and an ascent ceilings idle to about a second. The trap due.t's
+#      own fixture comment warns about, in the one tier where the mark cannot
+#      simply be backdated. Fixed by waiting it out (the deadline is seconds).
+#   2  the machine scope has its own idle.d, and `session_reset` clears only
+#      the USER tree, so minimum-wins took input-counters' ~0 however quiet the
+#      X server was. Fixed by stashing it, restored in the trap.
+#   3  `xset s off` looked like the fix for the counter restarting and made it
+#      strictly worse. Reverted.
+#   4  the failure carried an empty message, because it printed the log and the
+#      whole point was that nothing had been logged. enforce's own stdout is
+#      what names the ceiling that bit.
+#
+# WHAT WOULD MAKE IT BUILDABLE: a real countable input device in the guest that
+# goes quiet, which uinject can create. input-counters would then accumulate
+# across the passes this cell already drives. That is the next thing to try,
+# and it is a change to the guest rather than to this file.
+#
+# THE `.wip` SUFFIX KEEPS IT OUT OF test/run's `*.t` glob while keeping the
+# work, which is the pattern fault-clock.t used while it was set aside. The
+# lid WIP was once left in /tmp and a reboot destroyed it.
+# test/fault-inhibit.t - the inhibit bound ACTS: a real logind inhibitor, a
+# real idle clock, a real locker.
+#
+# WHY THIS CELL EXISTS. The bound's forcing half is the ONLY actuator in
+# supervision, and `enforce`'s own forcing was retired partly for having never
+# acted in production. Every proof of this one was an injected clock in the
+# stub tier: the span backdated in a file, the locker a recorder. So the thing
+# that can take the lock had never once run end to end.
+#
+# NOTHING HERE IS FAKED, which is the whole point and was the hard part:
+#
+#   the inhibitor   a real `systemd-inhibit --what=idle` against real logind
+#   the idle clock  x11-idle, reading the real X server's own idle counter
+#   the deadline    a due.d declaration, which is an integrator's to make
+#   the bounds       knobs, likewise
+#   the locker      the real provider starting a real transient unit
+#
+# THE IDLE CLOCK IS WHY THIS WAS NOT OBVIOUSLY BUILDABLE. The shipped source
+# counts kernel interrupts and USB URBs, which this guest cannot do at all, so
+# the overdue tier is structurally inert here and the escalation is only ever
+# reached from the idle-anchored branch. Faking a clock is on this suite's own
+# list of things that may never be faked. x11-idle is a real one, and the
+# guest's X server has no input at all, so its idle time is genuinely large.
+set -eu
+. "$(dirname "$0")/harness_lib"
+. "$(dirname "$0")/session_lib"
+session_init fault-inhibit
+require x11 userbus
+
+DISPLAY=:99; export DISPLAY
+
+session_reset
+wire lock '' systemd-locker          # a REAL locker, as a transient unit
+wire_cross idle x11-idle             # a REAL idle clock
+
+# THE DEADLINE IS A DECLARATION, not a fixture: a due.d hook printing seconds
+# and an anchor is exactly the contract an integrator fills, and a short one is
+# as legitimate as a long one. Five seconds keeps the cell to a few seconds of
+# real waiting instead of the eight minutes this fleet declares.
+mkdir -p "$HOOKS/lock.due.d"
+printf '#!/bin/sh\nprintf %s\n' "'2 idle'" > "$HOOKS/lock.due.d/50-short"
+chmod +x "$HOOKS/lock.due.d/50-short"
+
+# GRACE EXISTS TO LET THE PRIMARY MECHANISM WIN THE RACE, and at its shipped
+# 30s it would dominate a 5s deadline entirely. Narrowing it is configuration,
+# and the knob is documented for exactly this.
+VIGILANCE_GRACE=1; export VIGILANCE_GRACE
+VIGILANCE_INHIBIT_REPORT=2; export VIGILANCE_INHIBIT_REPORT
+VIGILANCE_INHIBIT_FORCE=6; export VIGILANCE_INHIBIT_FORCE
+
+_hold=
+_release() { [ -n "$_hold" ] && kill "$_hold" 2>/dev/null || true; _hold=; }
+# THE MACHINE WIRING IS RESTORED ON EVERY EXIT PATH, including a failure: a
+# scenario that leaves the integrator's idle source stashed breaks every later
+# one in the boot, and the failure would then look like theirs.
+trap '_release; _restore_machine' EXIT
+
+# THE SHIPPED READER, not a second copy. hook_idle_inhibited carries the
+# three-answer contract, and asking logind a different way here would let the
+# cell and the product disagree about whether a hold exists.
+#
+# FUNCTIONS, because `await` takes a COMMAND and not a string: handing it
+# `'[ ... ]'` looks for a program of that name and times out into a failure
+# about the product. That has cost this suite two debugging rounds.
+. "$HOOKLIB"
+_inhibited() { hook_idle_inhibited; }
+_uninhibited() {   # rc 1 EXACTLY: "cannot tell" is not "released"
+  _ui=0; hook_idle_inhibited || _ui=$?
+  [ "$_ui" = 1 ]
+}
+_unwound() { [ "$(crossed unlock)" -ge 1 ]; }
+
+# THE EVIDENCE HAS TO TRAVEL WITH THE VERDICT. The first version of this cell
+# failed with an EMPTY message, because it printed only the log and the whole
+# point was that nothing had been logged. enforce's own stdout is the thing
+# that says WHY: "not due yet (idle Ns of Ms)" names the ceiling that bit.
+_enf() { "$VIGILANT" enforce >"$T/enf" 2>&1 || true; }
+_enfout() { cat "$T/enf" 2>/dev/null || true; }
+
+# THE MACHINE SCOPE HAS AN IDLE SOURCE TOO, and MINIMUM WINS. The integrator
+# wires `idle.d/10-input-counters` there, `session_reset` clears only the USER
+# tree, and in this guest the counters answer about zero: the setup's uinput
+# probe leaves real devices whose counters have just moved. So the aggregate
+# read `idle 0s` however quiet the X server was, and the edge was never due.
+#
+# MEASURED rather than guessed: the first run of this cell failed its own
+# precondition with `due lock: 5s after last input; idle 0s, not due yet`,
+# which is the aggregate and not x11-idle's own answer.
+#
+# STASHED AND RESTORED IN THE TRAP, never deleted: those symlinks are the
+# integrator's, every later scenario in this boot needs them, and a scenario
+# that consumes another's fixture is the trap this suite keeps paying for.
+# Same shape as fault-clock.t, which narrows a tier the same way.
+MACHINE_I=/etc/vigilance/hooks/idle.d
+STASH=$T/machine-idle
+# DEFINED BEFORE THE STASH IS TAKEN, because the trap is already armed: with
+# the function below the move, a failure in between would fire a trap that
+# could not restore, and the integrator's wiring would stay stashed for every
+# later scenario in the boot.
+_restore_machine() {
+  [ -d "$STASH" ] || return 0
+  for _mi in "$STASH"/*; do
+    [ -e "$_mi" ] || continue
+    mv "$_mi" "$MACHINE_I/" 2>/dev/null || true
+  done
+}
+if [ -d "$MACHINE_I" ]; then
+  mkdir -p "$STASH"
+  for _mi in "$MACHINE_I"/*; do
+    [ -e "$_mi" ] || continue
+    mv "$_mi" "$STASH/" 2>/dev/null || true
+  done
+fi
+
+# NO IDLE TIMER RUNNING, asserted rather than assumed, and this is a ceiling
+# question rather than tidiness: idle time is bounded by the declared idle
+# timer's own AGE, so a swayidle another scenario left running would clamp
+# every reading here to a few seconds and the escalation could never be
+# reached. x11-idle is then the only source, which is what this cell wants.
+session_stop_idle
+pgrep -x swayidle >/dev/null 2>&1 && fail "an idle timer is still running, and
+its age ceilings every idle reading, so the deadline below could never be due"
+
+# AND THE LADDER MUST HAVE BEEN STILL FOR LONGER THAN THE DEADLINE, for the
+# other ceiling: an ASCENT bounds idle time, because whatever raised the ladder
+# also restarted the timer. The first version of this cell called `go open`
+# immediately before measuring, which crosses `unlock`, which IS an ascent, so
+# every reading was capped at about a second and nothing was ever due. That is
+# the trap due.t's own fixture comment warns about, hit in the one tier where
+# the mark cannot simply be backdated.
+#
+# WAITED OUT RATHER THAN INJECTED, which the short deadline makes practical:
+# eight seconds clears both ceilings for real.
+_settle() { sleep 8; }
+
+[ "$(depth)" = open ] || "$VIGILANT" go open >/dev/null 2>&1 || true
+
+# DO NOT DISABLE THE X SCREENSAVER HERE. It looks like the obvious fix for the
+# counter restarting, and it makes things strictly worse: `xprintidle` reads
+# XScreenSaverQueryInfo, and with the saver DISABLED this server reports under
+# a second of idle for ever. Measured as a clean A/B across two guest runs with
+# only that line changing: without it the counter advanced and the precondition
+# passed; with it the reading was pinned at 0 for a full 40s wait.
+#
+# SO THE RESTART IS LIVED WITH, and the waits below are the guard. x11-idle's
+# own header states the mechanism: the counter reports idle WITHIN the current
+# saver state, so at the server's timeout it starts again. Xvfb's is 600s and
+# cannot be changed (`xset s` is silently ignored there), so the dead zone is
+# the few seconds after each restart.
+
+# --- 0. THE PRECONDITION: the edge is genuinely due, with NOTHING held -------
+# A fault that did not take makes every assertion after it meaningless. This
+# asks the product the same question the escalation asks, so it proves the
+# whole chain is live (a real clock answering, past a real deadline) before the
+# bound is tested at all.
+#
+# WAITED FOR RATHER THAN SAMPLED ONCE, for the counter-restart above and for
+# the two ceilings on idle time (a fresh ascent, and the idle timer's own age).
+# A single sample makes this cell flaky, and a flaky test is one people re-run
+# until it is green.
+_due_now() {
+  case "$("$VIGILANT" due lock 2>&1 || true)" in *OVERDUE*) return 0 ;; esac
+  return 1
+}
+# THE DIAGNOSTIC IS PART OF THE FAILURE, because five guest rounds of guessing
+# at this clock cost more than measuring it once. The question the numbers below
+# answer: does READING the X idle counter reset it? If the spaced reads grow and
+# the rapid ones do not, then every reader perturbs it, and the deciding read
+# inside a supervision pass (the third of three) can never see more than the
+# gap since the second. That would make this tier permanently inert on an X11
+# box, which is a product finding rather than a fixture problem.
+_probe() {
+  printf 'spaced:'
+  for _p in 1 2 3; do sleep 3; printf ' %s' "$(xprintidle 2>/dev/null)"; done
+  printf '\nrapid: '
+  for _p in 1 2 3 4; do printf ' %s' "$(xprintidle 2>/dev/null)"; done
+  printf '\nx11-idle: %s\n' "$("$PLUGINS/hooks/x11-idle" 2>&1)"
+  printf 'xset saver: %s\n' "$(xset q 2>/dev/null | grep -A1 'Screen Saver' \
+    | tr -s ' ' | tr '\n' ' ')"
+}
+await 40 _due_now || fail "with no inhibitor held, the lock edge is never
+reported overdue, so the escalation can never be reached and nothing below
+would be a statement about the bound. due says: $("$VIGILANT" due lock 2>&1)
+--- is the X idle counter reset by reading it? (ms) ---
+$(_probe)"
+
+# --- 1. A HELD INHIBITOR DEFERS, SILENTLY, under the report bound -----------
+systemd-inhibit --what=idle --who=vig-cell --why='a real hold' sleep 180 &
+_hold=$!
+await 10 _inhibited || fail "logind did not report the idle inhibitor this
+cell holds, so the hold never took and the deferral below would be about
+nothing"
+
+LOG_FROM=$(wc -l < "$LOG" 2>/dev/null || echo 0)
+_enf
+[ "$(crossed lock)" = 0 ] || fail "the first pass under the report bound
+crossed the lock edge. Acting inside the bound is the whole thing the gap
+between the bounds exists to prevent: $(_enfout)"
+said 'OVERDUE' && fail "a deadline deferred by a real held inhibitor was
+reported OVERDUE, which is the 27-alerts-in-93-minutes storm on real
+components rather than against a fixture: $(_enfout)"
+case "$(_enfout)" in
+  *deferred*) ;;
+  *) fail "the pass did not say it was deferring, so a deferral is
+indistinguishable from a detector that stopped running: $(_enfout)" ;;
+esac
+
+# --- 2. PAST THE FORCE BOUND IT ACTS, and the crossing is attributable ------
+# THE SPAN IS REAL TIME: the pass above opened it, so waiting is the only way
+# past the bound. That is the cost of the cell and the reason the bounds here
+# are seconds rather than hours.
+sleep 8
+
+# THE ACTING PASS RETRIES ON ONE REASON ONLY, and that distinction is what
+# keeps it a test. The counter can restart between my wait and the pass's own
+# read, and "not due yet" is the signature of exactly that; ANY other outcome
+# is a real refusal and fails immediately. A retry that swallowed every reason
+# would turn this cell into a loop that eventually passes.
+_force_pass() {
+  _fi=0
+  while [ "$_fi" -lt 5 ]; do
+    await 40 _due_now || return 1
+    LOG_FROM=$(wc -l < "$LOG" 2>/dev/null || echo 0)
+    _enf
+    [ "$(crossed lock)" -ge 1 ] && return 0
+    case "$(_enfout)" in
+      *"not due yet"*) ;;
+      *) return 1 ;;
+    esac
+    _fi=$((_fi + 1))
+  done
+  return 1
+}
+_force_pass || fail "past the force bound, with the seat
+genuinely idle and a real inhibitor held, the session was NOT secured. This is
+the one actuator in supervision and it has never run outside a stub tier.
+enforce said: $(_enfout)
+log since: $(logsince)"
+said 'src=inhibit-bound' || fail "the forced lock crossed the edge without
+naming itself, so the one crossing nobody will expect is the one nothing
+attributes: $(logsince)"
+
+# AND THE REAL LOCKER ACTUALLY RAN, which is what the stub tier cannot show.
+# A headless guest's locker cannot survive, so its exit drives the provider's
+# ExecStopPost and the ladder follows back out: that UNWIND is the proof the
+# transient unit genuinely started, and it is why this asserts an EDGE rather
+# than a resting depth. Three other cells in this tier carry the same note.
+await 20 _unwound || fail "no locker ever came up: the ladder recorded 'lock'
+and nothing unwound it, so the provider did not start a real unit, and the
+force would be recording a lock that never happened: $(logsince)"
+
+# --- 3. A RESET STOPS IT HAPPENING AGAIN -----------------------------------
+# The escalation is interruptible, and that is what makes the force safe. Here
+# against the real clock rather than a backdated file. The unwind above was an
+# ASCENT, so the ceiling needs clearing again before the edge can be due.
+_settle
+"$VIGILANT" timer reset >/dev/null 2>&1 \
+  || fail "timer reset failed while a real inhibitor was held"
+LOG_FROM=$(wc -l < "$LOG" 2>/dev/null || echo 0)
+_enf
+[ "$(crossed lock)" = 0 ] || fail "a reset hold was forced to lock anyway,
+which is the one thing the reset exists to prevent: $(_enfout)"
+
+# --- 4. AND RELEASING IT RESTORES THE DETECTOR -----------------------------
+# Otherwise the fix is indistinguishable from having switched the overdue tier
+# off, which is the trade every guard in this suite has to be checked against.
+_release
+await 10 _uninhibited || fail "the inhibitor did not release, so the case
+below cannot tell a restored detector from a suppressed one"
+await 40 _due_now || fail "the edge stopped being due, so a silent detector
+here would be correct and this case could not tell that from a suppressed one"
+LOG_FROM=$(wc -l < "$LOG" 2>/dev/null || echo 0)
+_enf
+said 'OVERDUE' || fail "with the hold released and the seat still idle past
+the deadline, the overdue detector stayed silent. The deferral has switched it
+off rather than deferring it: $(_enfout)"
+
+pass "a real logind inhibitor deferred a real idle deadline, the bound secured\
+ the session with a real locker and said src=inhibit-bound, a reset stopped a\
+ second one, and releasing it restored the detector"

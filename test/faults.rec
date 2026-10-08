@@ -387,8 +387,24 @@ t fault-wiring
 # source counts interrupts and URBs, which this guest cannot do, and a clock is
 # on this file's own list of things that may never be faked. x11-idle reads the
 # real X server, whose seat here receives no input at all.
+# NOT EXERCISED YET, and the blocker is the guest's idle clock rather than the
+# cell: the escalation is only reachable from the idle-anchored branch, and
+# this guest has no trustworthy source. input-counters cannot answer (no
+# countable input device, and every reading is a fresh gap, which reports
+# activity); x11-idle now declines because that server's counter is reset by
+# READING it, measured 3008/2975/2980 spaced against 1/0/0/1 back to back. A
+# stub source is refused outright: an idle source is a clock, and a clock is on
+# this file's own list of what may never be faked.
+#
+# The cell is written and kept at test/fault-inhibit.t.wip with the full state
+# of play, including the four fixture faults that cost four guest rounds. What
+# would make it buildable is a real countable input device in the guest that
+# then goes quiet, which uinject can create: a change to the guest, not to the
+# cell. The stub tier covers the DECISION (inhibit-bound.t, with a backdated
+# span and a recorder for a locker); what is still unproven is the ACT against
+# a real transient unit.
 = inhibitor-held-past-the-bound
 m the inhibit escalation, and the forced lock it ends in
 f a real idle inhibitor is held while the seat is idle past the deadline
 e ACT: silent under the bound, then the session is secured, src=inhibit-bound
-t fault-inhibit
+t -
