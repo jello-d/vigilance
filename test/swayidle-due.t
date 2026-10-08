@@ -164,4 +164,46 @@ Without 'idle' it is read against rung entry, which over-reports on a machine
 somebody is using" ;;
 esac
 
+# --- 9. AN ENV ASSIGNMENT IS NOT PART OF THE COMMAND ------------------------
+# The arms carry `env VIGILANCE_SOURCE=<who>` so a crossing is attributable,
+# and the edge match treats `=` as a word boundary (it must: `idle-lock` and
+# `suspend-if-battery` are both legitimate places for an edge name to sit). So
+# a source value that happens to BE an edge name is indistinguishable from the
+# edge itself. MEASURED with VIGILANCE_SOURCE=resume on the 480s lock arm, the
+# hook answered `480 idle` for edge `resume`: a deadline no integrator
+# declared, on an edge swayidle arms nothing for, fed straight to the overdue
+# detector, which is where a false number becomes a false alert.
+_V=/usr/bin/vigilant
+{
+  printf '%s' 'swayidle -w '
+  printf '%s' "timeout 480 env VIGILANCE_SOURCE=resume $_V go lock "
+  printf '%s' "timeout 600 env VIGILANCE_SOURCE=blank $_V go sleep"
+  printf '\n'
+} > "$T/envsrc"
+[ -z "$(_due resume "$T/envsrc")" ] \
+  || fail "edge 'resume' was given the deadline '$(_due resume "$T/envsrc")'
+from a VIGILANCE_SOURCE value that merely spells an edge name. swayidle arms
+nothing for 'resume' here, so that number is invented, and the overdue
+detector cannot tell an invented deadline from a declared one"
+# AND THE REAL ANSWERS MUST SURVIVE, or the fix is "ignore anything with an
+# `=` in it", which would drop the deadlines this hook exists to report.
+[ "$(_due lock "$T/envsrc")" = "480 idle" ] \
+  || fail "the lock deadline was lost to the env prefix:
+'$(_due lock "$T/envsrc")'"
+[ "$(_due sleep "$T/envsrc")" = "600 idle" ] \
+  || fail "the sleep deadline was lost to the env prefix:
+'$(_due sleep "$T/envsrc")'"
+# ONLY THE LEADING RUN IS SKIPPED. A `FOO=bar` after the program is that
+# program's argument, and `--mode=lock` is not a shell name before the `=`, so
+# both stay visible to the match. Skipping every assignment anywhere would
+# silently narrow what the hook can see.
+{
+  printf '%s' 'swayidle -w '
+  printf '%s' 'timeout 300 env VIGILANCE_SOURCE=blank /usr/bin/foo --mode=lock'
+  printf '\n'
+} > "$T/argasgn"
+[ "$(_due lock "$T/argasgn")" = "300 idle" ] \
+  || fail "an edge name in a program ARGUMENT was skipped along with the env
+prefix: '$(_due lock "$T/argasgn")'"
+
 pass

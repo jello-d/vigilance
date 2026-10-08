@@ -113,6 +113,12 @@ wishes are visible.
         chance, so idle time is ceilinged by both the last ascent and the idle
         timer's own age
         due.t (both ceilings, and the real `ps` probe behind the second)
+    34  every crossing records WHO ASKED, and a label never changes what any
+        OTHER mechanism reads out of the same string
+        claims.t (the vocabulary, both directions), block.t (the shipped
+        sources the debounce must let through), idle-audit.t (the armed
+        command resolves past the label), swayidle-due.t case 9 (a label
+        cannot invent a deadline)
 
 ### Why the idle reading has two ceilings and not one
 
@@ -302,6 +308,47 @@ Stated plainly rather than implied:
   has still never run on real hardware, and it says nothing about the greeter's
   UID: a machine-scope hook target must be root-visible or _greetd cannot even
   see it, which is a separate finding with no check of its own.
+
+### A LABEL MUST NOT CHANGE WHAT ANYTHING ELSE READS
+
+Attributing the crossings (invariant 34) meant putting `env VIGILANCE_SOURCE=
+<who>` in front of several commands, and two mechanisms were already reading
+those same strings for something else. Both broke, and both broke SILENTLY in
+the reassuring direction, which is what makes this a rule rather than two
+fixes.
+
+`_rep_idle_armed` asserts each command in the running idle daemon's argv is
+executable, which is the check written for the 2026-09-12 outage: a swayidle
+pinned to a path that had been swept, firing into nothing, with nothing else
+able to see it. It took the command's first WORD, which with a prefix is `env`,
+and `env` resolves on every box ever built. So the attribution would have
+blinded the one check standing between that outage and a repeat of it. The
+resolution walks past a leading `env` and its assignments now.
+
+`swayidle-due` reports the deadline the argv DECLARES, and matches the edge as
+a word with `=` counting as a boundary, which it must: `idle-lock` and
+`suspend-if-battery` are both legitimate places for an edge name to sit. So a
+source value that merely SPELLS an edge name is indistinguishable from the
+edge. MEASURED with `VIGILANCE_SOURCE=resume` on the 480s lock arm, the hook
+answered `480 idle` for edge `resume`: a deadline no integrator declared, on an
+edge swayidle arms nothing for, handed straight to the overdue detector. An
+environment assignment is not part of the command, so the leading run is
+skipped; only the leading run, because a `FOO=bar` after the program is that
+program's argument.
+
+THE SHIPPED LABELS WERE CHOSEN AROUND THIS, not merely checked against it. The
+idle timer's second threshold is `blank` and not `idle` because `phantom-guard`
+gates exactly `idle` and that traversal crosses the lock edge from `open`, so
+the obvious name would have newly subjected the blank to a debounce and could
+leave the box neither asleep nor locked. Its resume arm is `input` rather than
+`resume` for the reason above.
+
+AND THE VOCABULARY LIST IS IN ONE PLACE, because the one it replaced was in two
+and both rotted: a prose list in `bin/vigilant` and one in the man page, each
+naming `lid`, which nothing has ever emitted (a lid close arrives as a logind
+`Session.Lock` and cannot be told apart), while omitting six values the tree
+really set. Wrong in both directions at once, for weeks. claims.t derives it
+from the tree now and fails either way.
 
 ### A verifier reads what the HARDWARE reports, not what was asked for
 

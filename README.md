@@ -225,6 +225,21 @@ The log is built in and mechanism-free, because a supervisor that only records
 when an integrator wires something up is not a supervisor. Alerting a human is
 policy (a toast, a bar, an intervention flag), so that is a hook.
 
+Every crossing records **who asked**, as `cross lock: open -> lock src=idle`,
+which is what lets the log answer the question people actually bring to it: why
+did my screen go dark, and why did it come back. `VIGILANCE_SOURCE` carries it,
+block hooks read it (it is why `phantom-guard` can debounce an idle re-fire
+while letting a human's keybind through), and vigilant itself never branches on
+it: **the vocabulary is open**, so wiring a new gesture means naming it, not
+teaching the framework about it. A crossing nobody labelled records `unset`,
+distinguishably. Two things are worth knowing before reading a log: a **lid
+close arrives as `logind`** and cannot be told apart, because logind applies
+its own `HandleLidSwitch` policy and emits the same `Session.Lock`; and an
+unlock is `locker-exit`, the locker's unit stopping, so a crash and a human
+typing their password read alike. `vigilance(1)` lists what the shipped callers
+set, under **WHO ASKED**; the list is deliberately in one place only, because
+the one it replaced was carried in two and both went stale.
+
 ## Two scopes, and why the greeter comes free
 
     /etc/vigilance/hooks        machine, root-owned, EVERY session

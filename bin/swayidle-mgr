@@ -242,10 +242,32 @@ _run() {
   # `resume` fires on the next input and restores. It is deliberately `go
   # lock`, not `go open`: coming back from dark must light the screen WITHOUT
   # unlocking the session.
+  #
+  # BOTH CARRY A SOURCE, because `src=` on a crossing answers the first
+  # question anybody asks of this log and these two were answering `unset`.
+  # Measured on manifold over 24 hours: 7 `cross sleep` and 8 `cross wake`,
+  # every one unattributed, so "why did the screen go dark" and "why did it
+  # come back" were exactly the questions the field could not answer.
+  #
+  # `blank`, NOT `idle`, AND THAT IS A BEHAVIOUR DECISION RATHER THAN A NAME.
+  # From `open` this traversal crosses the LOCK edge on its way down (see the
+  # BLANK_DELAY note above), and `phantom-guard` gates exactly
+  # VIGILANCE_SOURCE=idle. Labelling it `idle` would newly subject that
+  # traversal to the phantom debounce, where a blocked lock edge can leave the
+  # box neither asleep nor locked. A distinct value improves the record and
+  # changes no decision.
+  #
+  # `input` for the resume, distinct from the `resume` the S3 path uses: this
+  # one is seat activity returning, that one is the machine waking. Two causes
+  # that land on the same edge, and the log should say which.
+  #
+  # THE `env` FORM is the spelling the fleet's own keybind uses, and it
+  # survives however swayidle runs the string; an assignment prefix would need
+  # the command to go through a shell.
   if [ -x "$VIGILANT_CMD" ]; then
     set -- "$@" timeout "$((LOCK_TIMEOUT + BLANK_DELAY))" \
-      "$VIGILANT_CMD go sleep"
-    set -- "$@" resume "$VIGILANT_CMD go lock"
+      "env VIGILANCE_SOURCE=blank $VIGILANT_CMD go sleep"
+    set -- "$@" resume "env VIGILANCE_SOURCE=input $VIGILANT_CMD go lock"
   fi
   # Optional idle-suspend, supplied by the integrator (OFF by default). Its CMD
   # gates the actual suspend (e.g. battery-only) and asks systemd. Measured from

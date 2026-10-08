@@ -201,6 +201,72 @@ A documented name nothing reads is a promise that setting it does something.
 Either the knob was removed and the page did not follow, or it was renamed and
 only one side moved. Both leave a reader turning a dial wired to nothing."
 
+# --- EVERY SHIPPED VIGILANCE_SOURCE VALUE IS DOCUMENTED, BOTH WAYS ---------
+# The vocabulary is OPEN by design: vigilant never branches on the value, so an
+# integrator names their own gestures and nothing in the framework learns them.
+# What CAN be checked, and is the half that rotted, is the list of what the
+# SHIPPED callers set.
+#
+# MEASURED WHEN THIS WAS WRITTEN, against a list in prose that had been carried
+# for weeks: it named `lid`, which nothing has ever emitted (a lid close
+# arrives as a logind Session.Lock and cannot be told apart), while omitting
+# SIX values the tree really sets. Wrong in both directions at once, which is
+# why both directions are asserted. A reader grepping the log for `src=lid`
+# finds nothing and cannot tell a missing feature from a wrong page.
+#
+# Extracted through the .TP structure rather than by matching `.B` lines: that
+# section's prose legitimately bolds `open`, `sleep`, `idle`, `unset` and a
+# character class, and a looser pattern would quietly take those as vocabulary.
+_wa=$(awk '/^\.SS WHO ASKED/ { s = 1; next } s && /^\.SS/ { exit }
+           s && p { print; p = 0 } s && /^\.TP$/ { p = 1 }' "$M" \
+      | sed -n 's/^\.B  *//p' | sed 's/\\-/-/g' | sort -u)
+[ -n "$_wa" ] || fail "the man page has no WHO ASKED vocabulary section, so
+nothing documents what src= in a crossing record can say"
+
+_srcbad=
+for _s in $(grep -rhoE 'VIGILANCE_SOURCE=[a-z0-9-]+' "$HERE"/bin "$HERE"/lib \
+              "$HERE"/libexec "$HERE"/systemd 2>/dev/null \
+            | sed 's/.*=//' | sort -u); do
+  printf '%s\n' "$_wa" | grep -qxF "$_s" || _srcbad="$_srcbad $_s"
+done
+[ -z "$_srcbad" ] || fail "source(s) SET by shipped code and documented
+nowhere:$_srcbad
+
+Every value the shipped tree puts in VIGILANCE_SOURCE has to appear in the man
+page's WHO ASKED list. That list is what a human reads to interpret a src=
+field in the log, and the questions it exists to answer (why did my screen go
+dark, why did it come back) cannot be answered from a value nothing explains."
+
+# AND THE REVERSE, which needs the three ORIGINS of a value told apart, and
+# this check found that out by firing on a correct page:
+#
+#   the RUNNER synthesises   unset, invalid. No caller sets them, and they are
+#                            the two answers the page most needs to explain.
+#   this PACKAGE sets        everything the loop above derives from the tree.
+#   an INTEGRATOR sets       manual. There is no keybind in this package: a
+#                            human asking is a gesture only a host can wire,
+#                            and phantom-guard's whole reason for existing is
+#                            to allow that one while debouncing idle. So it is
+#                            vocabulary, documented here, emitted elsewhere.
+#
+# The exemption is a LIST rather than a loose pattern so adding to it is a
+# deliberate act: an integrator value is exactly where a typo would otherwise
+# never be caught, since nothing in this tree can confirm the spelling.
+_srcorphan=
+for _s in $(printf '%s\n' "$_wa"); do
+  case "$_s" in unset|invalid|manual) continue ;; esac
+  grep -rqF "VIGILANCE_SOURCE=$_s" "$HERE"/bin "$HERE"/lib "$HERE"/libexec \
+    "$HERE"/systemd 2>/dev/null || _srcorphan="$_srcorphan $_s"
+done
+[ -z "$_srcorphan" ] || fail "source(s) DOCUMENTED but emitted by
+nothing:$_srcorphan
+
+This is how 'lid' survived for weeks: a gesture we expected to be able to
+distinguish, written down as though we could. A documented source nothing sets
+sends a reader looking through the log for a record that cannot exist.
+If an INTEGRATOR rather than this package emits it, add it to the exemption
+list above with the reason, as 'manual' is."
+
 # --- THEORY.md NAMES THE CHECK THAT ENFORCES EACH INVARIANT ----------------
 # The whole value of that map is that it lets a reader go and READ the check,
 # and separates the invariants that are enforced from the ones that are only

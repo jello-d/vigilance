@@ -105,6 +105,60 @@ expect_record "wake sleep 10-relight
 unlock lock 10-relight"
 expect_depth open
 
+# --- the panic key ATTRIBUTES its crossings, and leaks nothing --------------
+# The label cannot be an assignment prefixed onto `cmd_go`: that is a shell
+# FUNCTION, so the assignment would persist for the rest of the process, and
+# what runs after it here is the alert tier, which must not inherit a label
+# about the crossing. A subshell is the shape used for the inhibit bound's
+# forced lock, for the same reason.
+#
+# IT IS THE ONE CROSSING NOBODY CAN ASK ABOUT AFTERWARDS. A human presses this
+# blind, when they cannot see the screen, so the log is the only account of
+# what happened and why the machine moved.
+_rl=$(grep 'cross unlock' "$VIGILANCE_LOG" 2>/dev/null | tail -1)
+case "${_rl:-}" in
+  *"src=rescue"*) ;;
+  *) fail "the panic key's crossing was not attributed:
+'${_rl:-<no cross unlock record>}'" ;;
+esac
+# AND THE LABEL DID NOT ESCAPE THE SUBSHELL, which took two attempts to assert
+# for real. The first version crossed an edge afterwards and checked its
+# record: VACUOUS, because `cmd_rescue` returns and the process exits, so a
+# later crossing is a different process and could not inherit anything. The
+# mutation that drops the subshell passed it.
+#
+# WHAT THE SUBSHELL ACTUALLY BUYS is one thing, and it is inside cmd_rescue:
+# the "after recovery" dump calls `cmd_report`, which runs the VERIFY tier, and
+# hooks are handed VIGILANCE_SOURCE as "who asked". Measured both ways:
+#
+#     with the subshell     a verify hook sees <unset>
+#     without it            a verify hook sees `rescue`
+#
+# The second is a lie to a third-party hook: nobody asked for a crossing at
+# all, and a hook branching on the label would act as though a rescue had.
+_SRCSEEN=$T/src-seen
+mkdir -p "$VIGILANCE_HOOK_ROOT/unlock.verify.d"
+cat > "$VIGILANCE_HOOK_ROOT/unlock.verify.d/50-src" <<EOF
+#!/bin/sh
+printf '[%s]\n' "\${VIGILANCE_SOURCE:-<unset>}" >> $_SRCSEEN
+exit 0
+EOF
+chmod +x "$VIGILANCE_HOOK_ROOT/unlock.verify.d/50-src"
+: > "$_SRCSEEN"
+"$VIGILANT" rescue >/dev/null 2>>"$T/stderr" || fail "rescue failed"
+# ASSERT THE PRECONDITION. An empty file means report's verify tier never ran,
+# and then "no leak" is true of a hook that was never asked anything.
+[ -s "$_SRCSEEN" ] || fail "the verify hook never ran during rescue's own
+report, so the leak assertion below would pass for want of a witness"
+case "$(cat "$_SRCSEEN")" in
+  *rescue*) fail "the rescue's label LEAKED into report's verify tier:
+'$(cat "$_SRCSEEN")'. An assignment prefixed onto a shell FUNCTION outlives the
+call, so every hook run later in the process is told a rescue asked for it,
+which is why that crossing is made in a subshell" ;;
+esac
+rm -f "$VIGILANCE_HOOK_ROOT/unlock.verify.d/50-src"
+expect_depth open
+
 # --- rescue raises an ALERT, not an integrator's notifier -------------------
 # A human pressing the panic key IS an intervention whether or not the recovery
 # worked. Routing it through the alert tier is what stopped the host script

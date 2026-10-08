@@ -1236,3 +1236,27 @@ f bin/swayidle-mgr
 t swayidle-mgr
 -       if [ "$prev" -gt 0 ] && [ "$prev" -le "$now" ]; then
 +       if [ "$prev" -ge 0 ] && [ "$prev" -le "$now" ]; then
+
+= armed-command-resolves-past-env
+f bin/vigilant
+t idle-audit
+-       env|*/env) ;;
++       env|*/env) break ;;
+
+= due-skips-the-env-assignment
+f libexec/hooks/swayidle-due
+t swayidle-due
+-           if (lead && ($j == "env" || $j ~ /\/env$/ ||
++           if (0 && ($j == "env" || $j ~ /\/env$/ ||
+
+= rescue-crossing-is-attributed
+f bin/vigilant
+t rescue
+-   ( VIGILANCE_SOURCE=rescue; export VIGILANCE_SOURCE
++   ( VIGILANCE_SOURCE=; export VIGILANCE_SOURCE
+
+= rescue-label-stays-in-its-subshell
+f bin/vigilant
+t rescue
+-   ( VIGILANCE_SOURCE=rescue; export VIGILANCE_SOURCE
++   VIGILANCE_SOURCE=rescue; export VIGILANCE_SOURCE; (

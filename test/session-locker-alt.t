@@ -169,6 +169,24 @@ the locker authenticates and vigilant never kills it, so a substituted locker
 whose unit does not run it leaves the ladder claiming a lock that is gone:
 $(journalctl --user -u screen-lock.service -n 10 --no-pager 2>/dev/null)"
 
+# AND THE CROSSING IS ATTRIBUTED, which only a real unit can show. The label
+# rides `--setenv` on the transient unit, so it reaches ExecStopPost through
+# the unit's Environment rather than through any caller's: nothing in the stub
+# tier can establish that, because there is no unit there to carry it.
+#
+# IT MATTERS MORE HERE THAN ANYWHERE. This is the ONLY route to an unlock
+# (nothing watches for one), so an unattributed `cross unlock` cannot be told
+# from a deliberate `go open`, and the question a reader brings to the log is
+# exactly which of the two it was.
+_ulog=$(logsince | grep 'cross unlock' | tail -1)
+case "${_ulog:-}" in
+  *"src=locker-exit"*) ;;
+  *) fail "the unlock crossing was not attributed to the locker's exit:
+'${_ulog:-<no cross unlock record at all>}'. The label travels on the unit, so
+this failing means --setenv did not reach ExecStopPost, and every unlock on a
+real box is then indistinguishable from a deliberate 'go open'" ;;
+esac
+
 # --- 4. THE WRONG TYPE MUST NOT READ AS A LOCK ------------------------------
 # THE HAZARD THE KNOB EXISTS FOR, and the half that makes the other three more
 # than a happy path. `Type=forking` asserts the locker DETACHES; i3lock with -n

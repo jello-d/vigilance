@@ -145,6 +145,62 @@ case "$(_section "$_rep" machinery)" in
   *) fail "the unrunnable idle command was not reported as a FAILURE" ;;
 esac
 
+# --- AN `env` PREFIX MUST NOT HIDE A MISSING BINARY ------------------------
+# The arms carry `env VIGILANCE_SOURCE=<who>` so a crossing is attributable,
+# and the resolution used to take the command's first WORD, which is then `env`
+# and resolves on every box ever built. So this whole check would go on passing
+# with `vigilant` swept out from under the running daemon, which IS the outage
+# it was written for: a timer firing into nothing, silently, with nothing else
+# able to see it. The attribution work would have blinded the check it rode in
+# beside.
+cat > "$T/cmdline" <<EOF
+swayidle
+-w
+timeout
+480
+env VIGILANCE_SOURCE=idle $(command -v true) event idle-lock
+timeout
+600
+env VIGILANCE_SOURCE=blank $T/definitely-not-here go sleep
+resume
+env VIGILANCE_SOURCE=input $(command -v true) go lock
+EOF
+_rep=$("$VIGILANT" report 2>&1) || true
+case "$_rep" in
+  *"armed with a command that cannot run"*"definitely-not-here"*) ;;
+  *) _section "$_rep" machinery >&2
+     fail "an env-prefixed arm hid a missing binary: report resolved the
+WRAPPER instead of the program, so a swept vigilant reads as runnable" ;;
+esac
+# AND IT MUST NAME THE PROGRAM, not the wrapper. A message naming `env` sends
+# the reader to check a tool that is never the problem, which is worse than
+# silence because it is confidently actionable.
+case "$_rep" in
+  *"cannot run: env"*)
+     fail "report named the env WRAPPER as the unrunnable command" ;;
+esac
+
+# AND THE PREFIX ALONE IS NOT A FAULT, or the fix above is just "fail on env",
+# which would report every correctly-attributed box as broken.
+cat > "$T/cmdline" <<EOF
+swayidle
+-w
+timeout
+480
+env VIGILANCE_SOURCE=idle $(command -v true) event idle-lock
+resume
+env VIGILANCE_SOURCE=input $(command -v true) go lock
+EOF
+_rep=$("$VIGILANT" report 2>&1) || true
+case "$_rep" in
+  *"[FAIL]"*"cannot run"*)
+    fail "env-prefixed arms with runnable programs were flagged unrunnable" ;;
+esac
+case "$_rep" in
+  *"idle timer command(s) armed and runnable"*) ;;
+  *) fail "report did not positively confirm env-prefixed armed timers" ;;
+esac
+
 # --- and an ENTIRELY RUNNABLE set is clean ---------------------------------
 cat > "$T/cmdline" <<EOF
 swayidle

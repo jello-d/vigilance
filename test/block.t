@@ -63,7 +63,24 @@ expect_depth open
 # ...but the SAME timing from any other source must go straight through.
 # Gating suspend or a lid close would leave the box asleep UNLOCKED, which is
 # the one failure this guard must never cause.
-for _src in logind suspend manual lid; do
+#
+# THE LIST IS THE SHIPPED VOCABULARY, which turns three prose claims into
+# checks. It used to name `lid`, a value nothing has ever emitted (a lid close
+# arrives as a logind Session.Lock and cannot be told apart), so that row
+# tested an arbitrary string rather than a gesture:
+#
+#   blank          swayidle-mgr's own comment says labelling the second
+#                  threshold `idle` would newly subject it to this debounce,
+#                  which from `open` crosses the lock edge, and could leave the
+#                  box neither asleep nor locked. This is that claim.
+#   inhibit-bound  if the forced lock were debounced the whole escalation
+#                  would be inert, and nothing else would say so.
+#
+# `locker-exit` and `input` are deliberately ABSENT: both ride an ASCENT
+# (`go open`, `go lock` from a dark rung), so a row driving `go lock` from
+# `open` and expecting depth `lock` would be a fixture modelling a state that
+# cannot occur, which is the thing this suite bans for hardware stubs.
+for _src in logind suspend manual blank inhibit-bound; do
   VIGILANCE_SOURCE=$_src "$VIGILANT" go lock 2>>"$T/stderr" || \
     fail "phantom guard wrongly blocked source '$_src'"
   expect_depth lock
@@ -158,5 +175,29 @@ esac
 # nothing here should make an otherwise-healthy report red.
 _no_fail_in "$_out" wiring "an ignored ascent block was raised as a FAIL; the
 machine is in its correct state, so this is a wiring warning"
+
+# --- idle-capture's SAFETY PROMISE RESTS ON THIS GUARD SEEING ITS TAG -------
+# That probe exists to investigate a relock LOOP, and its header has always
+# promised the screen locks ONCE because "the live cooldown suppresses any
+# re-lock". The thing that suppresses it is the hook above, and for weeks the
+# probe tagged LOCK_SOURCE while the hook gated VIGILANCE_SOURCE. LOCK_SOURCE
+# has no consumer anywhere in the shipped tree, so the guard saw an unlabelled
+# request and allowed it unconditionally: a tool documented as unable to loop,
+# with the one thing stopping the loop switched off.
+#
+# ASSERTED AS A RELATION between the two files rather than as a spelling in
+# either, because that is the thing that was wrong: each file was
+# self-consistent and they disagreed. Derived from the HOOK, so renaming the
+# variable moves both sides or fails here.
+_gv=$(sed -n 's/^\[ "\${\([A-Z_]*\):-}" = \([a-z]*\) \].*/\1 \2/p' \
+      "$HERE/libexec/hooks/phantom-guard" | head -1)
+[ -n "$_gv" ] || fail "could not read phantom-guard's gate, so nothing here can
+check that the probe tags the variable the guard actually reads"
+set -- $_gv
+grep -q "$1=$2" "$HERE/bin/idle-capture" \
+  || fail "bin/idle-capture does not set $1=$2, so phantom-guard will not
+debounce the lock it drives. Its own header promises the screen locks ONCE and
+names that cooldown as the reason, and a probe written to observe a relock loop
+cannot be the one tool with the loop guard disabled"
 
 pass

@@ -173,6 +173,16 @@ fi
 # So the failure path asks the question again rather than assuming. A hook that
 # cannot survive being run twice at once is not idempotent, which this package
 # requires of anything that mutates state.
+# THE UNLOCK IS ATTRIBUTED, because this is the ONLY route to it. Nothing
+# detects an unlock by watching; the unit IS the span of the lock and
+# ExecStopPost is how its end is noticed, so every `cross unlock` on a healthy
+# box comes from here. Unattributed, the log could not tell that from a
+# deliberate `go open`, and a crash of the locker looks the same as a human
+# unlocking: `locker-exit` says the locker stopped, whichever way it stopped.
+#
+# `--setenv` reaches ExecStopPost because it sets the unit's Environment, which
+# every Exec line of the unit inherits. It reaches the LOCKER too, harmlessly:
+# a locker that read VIGILANCE_SOURCE would be reading a label about itself.
 # shellcheck disable=SC2086
 _unsetprop=
 [ -z "$LOCKER_UNSETENV" ] \
@@ -181,6 +191,7 @@ if systemd-run --user --collect --unit="$UNIT" \
      --property=Type="$LOCKER_TYPE" \
      --property=GuessMainPID=no \
      --property="ExecStopPost=$_vigilant go open" \
+     --setenv=VIGILANCE_SOURCE=locker-exit \
      $_unsetprop \
      -- "$LOCKER" $LOCKER_ARGV $_args >/dev/null 2>&1; then
   # STARTED IS NOT RUNNING, and this is where that bit. Measured in the guest:

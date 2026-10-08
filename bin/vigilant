@@ -387,8 +387,16 @@ _src_tag() {
 
 # PROVENANCE travels in the ENVIRONMENT, never in argv: `vigilant go lock`
 # takes no arguments by contract, and depth stays the only authoritative
-# state. VIGILANCE_SOURCE says WHO asked (idle, logind, lid, manual, suspend),
-# which block hooks need and vigilant itself deliberately ignores.
+# state. VIGILANCE_SOURCE says WHO asked, which block hooks need and vigilant
+# itself deliberately ignores.
+#
+# THE VOCABULARY IS NOT ENUMERATED HERE, and the stale list that used to be
+# ("idle, logind, lid, manual, suspend") is the argument for that: it named
+# `lid`, which nothing has ever emitted, while omitting six values the shipped
+# tree really sets. A lid close arrives as a logind Session.Lock and cannot be
+# told apart, so `lid` was an aspiration written down as a fact. The list lives
+# in the man page under WHO ASKED, where test/claims.t derives it from the tree
+# and fails on a gap in EITHER direction.
 #
 # It is safety-critical that this stays hook policy. smart-lock debounced ONLY
 # the idle path and never suspend/manual/Session.Lock, because gating the
@@ -3183,6 +3191,32 @@ RESUME_UNIT=${VIGILANCE_RESUME_UNIT-vigilance-resume.service}
 ENFORCE_UNIT=${VIGILANCE_ENFORCE_UNIT-vigilance-enforce.timer}
 AUDIT_UNIT=${VIGILANCE_AUDIT_UNIT-vigilance-audit.timer}
 
+# THE PROGRAM A COMMAND ACTUALLY RUNS, past any `env` wrapper. The armed
+# commands carry `env VIGILANCE_SOURCE=<who> ...` so a crossing is
+# attributable, and a bare `${_cmd%% *}` then yields `env`, which resolves on
+# every box ever built. The check below would go on passing with `vigilant`
+# swept out from under the running daemon, which IS the 2026-09-12 outage this
+# check was written for: an idle timer armed with a path that no longer
+# existed, firing into nothing, silently, with no other check able to see it.
+#
+# tackup's wayfire guard needed exactly this rule and had two copies of it
+# drift apart over the env prefix, so the loop is written once here.
+_ia_cmd() {
+  _iac=$1
+  while :; do
+    case "${_iac%% *}" in
+      env|*/env) ;;
+      *=*) ;;
+      *) break ;;
+    esac
+    case "$_iac" in
+      *' '*) _iac=${_iac#* } ;;
+      *) _iac=''; break ;;
+    esac
+  done
+  printf '%s' "${_iac%% *}"
+}
+
 _rep_idle_armed() {
   if [ -n "${VIGILANCE_IDLE_CMDLINE:-}" ]; then
     _icl=$VIGILANCE_IDLE_CMDLINE
@@ -3201,7 +3235,7 @@ _rep_idle_armed() {
     if [ "$_istate" = 1 ]; then _istate=2; continue; fi
     if [ "$_istate" = 2 ]; then
       _istate=0
-      _icmd=${_ia%% *}
+      _icmd=$(_ia_cmd "$_ia")
       [ -n "$_icmd" ] || continue
       _iseen=$((_iseen + 1))
       case "$_icmd" in
@@ -3749,7 +3783,14 @@ cmd_rescue() {
   # escape a stuck machine. Anything it collides with is trying to bring the
   # machine to the same place or has already failed at it.
   CROSS_WAIT=0
-  cmd_go open force || _rrc=$?
+  # ATTRIBUTED IN A SUBSHELL, the same shape `_inhibit_escalate` uses: an
+  # assignment prefixed onto a shell FUNCTION leaks into the rest of the
+  # process, and what follows here is the alert tier, which must not inherit a
+  # label about the crossing. The status still propagates out of the subshell,
+  # which is all this caller needs. Every side effect of a crossing is external
+  # (the depth file, the hooks), so nothing is lost by running it in one.
+  ( VIGILANCE_SOURCE=rescue; export VIGILANCE_SOURCE
+    cmd_go open force ) || _rrc=$?
   {
     echo "-- after recovery (rc=$_rrc) --"
     cmd_report || true

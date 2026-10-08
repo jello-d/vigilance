@@ -65,9 +65,28 @@ printf '%s\n' "$_args" | awk -v e="$edge" '
       if ($i == "timeout") {
         secs = $(i + 1)
         # the command runs until the next timeout/resume keyword
+        #
+        # AN ENVIRONMENT ASSIGNMENT IS NOT PART OF THE COMMAND, and skipping
+        # the leading `env VAR=VALUE` run is a CORRECTNESS fix, not tidiness.
+        # The arms carry `env VIGILANCE_SOURCE=<who>` so a crossing is
+        # attributable, and the edge match below treats `=` as a word
+        # boundary, so a source value that happens to be an edge name is
+        # indistinguishable from the edge itself. MEASURED, with
+        # VIGILANCE_SOURCE=resume on the 480s lock arm:
+        #
+        #     swayidle-due resume  ->  480 idle
+        #
+        # a deadline no integrator declared, on an edge swayidle arms nothing
+        # for, fed straight to the overdue detector. Only the LEADING run is
+        # skipped: a `FOO=bar` after the program is that program argument.
+        # `--opt=val` is not a shell name before the `=` and so is kept.
         cmd = ""
+        lead = 1
         for (j = i + 2; j <= NF; j++) {
           if ($j == "timeout" || $j == "resume") break
+          if (lead && ($j == "env" || $j ~ /\/env$/ ||
+                       $j ~ /^[A-Za-z_][A-Za-z_0-9]*=/)) continue
+          lead = 0
           cmd = cmd " " $j
         }
         # "idle": swayidle measures from the last INPUT, not from when the

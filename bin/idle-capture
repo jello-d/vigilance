@@ -3,9 +3,23 @@
 # falsified swayidle self-re-run (idled -> cmd -> done -> no re-idled), and the
 # compositor source is clean, so the phantom needs the REAL lock/unlock path.
 # Runs a short-timeout swayidle (-d) that crosses the REAL lock edge, tagged
-# LOCK_SOURCE=idle so the live cooldown suppresses any re-lock (NO loop: the
-# screen locks ONCE). Captures swayidle's own idle/active/register decisions and
-# the raw ext-idle-notify traffic across a genuine lock/unlock.
+# VIGILANCE_SOURCE=idle so the live cooldown suppresses any re-lock (NO loop:
+# the screen locks ONCE). Captures swayidle's own idle/active/register decisions
+# and the raw ext-idle-notify traffic across a genuine lock/unlock.
+#
+# THE TAG IS LOAD-BEARING AND IT WAS THE WRONG NAME. The paragraph above has
+# always promised the cooldown suppresses a re-lock, and `phantom-guard` gates
+# on VIGILANCE_SOURCE while this set only LOCK_SOURCE, which has no consumer
+# anywhere in the shipped tree (swayidle-mgr keeps the name exported "for any
+# old consumer" and there are none). So the guard saw an unlabelled request and
+# allowed it unconditionally: a probe written to investigate a relock LOOP,
+# documented as unable to loop, with the one thing stopping the loop switched
+# off. Both names are set now, the new one being the one that acts.
+#
+# `atleast`, for the reason every other security descent here carries it: `go`
+# is declarative, so the bare verb would ASCEND from a dark rung and light the
+# panel. Run from an open session that cannot happen, which is exactly the
+# argument that left the manual keybind unconverted for three weeks.
 #
 # RUN, then: stay idle ~12s -> screen LOCKS -> unlock (password/finger) -> use
 # the machine a moment -> Ctrl-C. It will NOT re-lock (cooldown guard). If the
@@ -20,7 +34,7 @@ fi
 : > "$OUT"
 printf '%s %s\n' "$(date +%T.%3N)" "idle-capture REAL lock (12s)" >> "$OUT"
 echo "idle-capture -> $OUT ; idle ~12s -> LOCK, unlock, use, Ctrl-C" >&2
-WAYLAND_DEBUG=1 LOCK_SOURCE=idle swayidle -d -w \
-  timeout 12 vigilant go lock \
+WAYLAND_DEBUG=1 LOCK_SOURCE=idle VIGILANCE_SOURCE=idle swayidle -d -w \
+  timeout 12 vigilant go lock atleast \
   resume  "$0 mark RESUMED" \
   2>> "$OUT"

@@ -430,6 +430,76 @@ which question is being asked, so ONE plugin can serve several kinds.
 vigilance ships plugins under
 .I libexec/
 but enables none: which ones run is the integrator's policy.
+.SS WHO ASKED: the VIGILANCE_SOURCE vocabulary
+Every crossing records it
+.RB ( "cross lock: open \-> lock src=idle" ),
+so the log can answer the question a human actually asks of it: why did my
+screen go dark, and why did it come back. A crossing nobody labelled records
+.BR unset ,
+which is deliberately distinguishable from a labelled one, and a value with a
+character outside
+.B [a\-z0\-9\-]
+records
+.B invalid
+rather than being written through: a newline in it would split one record in
+two and break the one\-record\-one\-line contract the audit tier parses by.
+.PP
+THE VOCABULARY IS OPEN. vigilant itself never branches on the value; only
+hooks do, and a hook is the only thing that knows what a source means. So an
+integrator wiring a new gesture gives it a name of their own and nothing here
+needs to learn it. What follows is what the SHIPPED callers set:
+.TP
+.B idle
+the idle timer's own lock, at its first threshold. The one source
+.I phantom-guard
+debounces, and the only one it may: gating any other would be a screen that
+does not lock.
+.TP
+.B blank
+the idle timer's second threshold, which takes the machine to
+.BR sleep .
+Deliberately NOT
+.BR idle :
+from
+.B open
+that traversal crosses the lock edge too, and labelling it
+.B idle
+would newly subject it to the debounce, which could leave the box neither
+asleep nor locked.
+.TP
+.B input
+the idle timer's resume arm, the ascent that gives a woken box its screen back.
+.TP
+.B logind
+a
+.B Session.Lock
+on the bus. A LID CLOSE ARRIVES THIS WAY and cannot be told apart: logind
+applies its own
+.B HandleLidSwitch
+policy and emits the same signal, so there is nothing for the trigger to
+distinguish.
+.TP
+.B manual
+a human asking, by keybind or by hand.
+.TP
+.B suspend
+the system sleep unit, before S3.
+.TP
+.B resume
+the resume unit, after it.
+.TP
+.B locker\-exit
+the locker's unit stopping, which is how an unlock is DETECTED: nothing
+watches for one. It says the locker stopped, whichever way it stopped, so a
+crash and a human typing their password read alike here.
+.TP
+.B inhibit\-bound
+the idle inhibit bound forcing a lock. See
+.B THE IDLE INHIBIT BOUND
+above.
+.TP
+.B rescue
+the panic key.
 .SS Hooks are time-bounded
 Hooks run in LEXICAL order, and the lock provider is not first, so a hook that
 hangs blocks every later hook on its edge: including the one that locks the
@@ -986,7 +1056,9 @@ the rung being left
 dark|lit|none for this edge
 .TP
 .B VIGILANCE_SOURCE
-who asked: idle, logind, lid, manual, suspend
+who asked; see
+.B WHO ASKED
+below for the vocabulary
 .TP
 .B VIGILANCE_STATE_DIR
 a private directory for that hook
