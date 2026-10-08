@@ -267,6 +267,40 @@ sends a reader looking through the log for a record that cannot exist.
 If an INTEGRATOR rather than this package emits it, add it to the exemption
 list above with the reason, as 'manual' is."
 
+# --- A NEW LADDER CALLER MUST NOT ARRIVE UNLABELLED ------------------------
+# The two checks above police the VOCABULARY. Neither can see a caller that
+# sets no source at all, and a hand list of callers is exactly what rots: this
+# round found FOUR unlabelled ones across bin/, libexec/ and systemd/, three of
+# which had been added since the field was introduced, plus a fifth in the
+# integrator. The field existed at crossing time and was being thrown away by
+# whoever wrote the newest caller.
+#
+# MEASURED AT ZERO over seven caller files when written, so it is a ratchet.
+#
+# ITS LIMIT, stated rather than implied: it asks whether the FILE mentions the
+# variable, so it catches a new caller FILE arriving with no label, which is
+# the realistic rot, and cannot see a second unlabelled call inside a file that
+# already labels one. The label may legitimately sit far from the call (an
+# `export` before an exec, a unit's `Environment=`, `--setenv` on a transient
+# unit), so a same-line check would cry wolf on four of the seven.
+_unlab=
+_CALLS='^[^#]*(vigilant|VIGILANT)[^#]*\bgo [a-z]'
+for _f in "$HERE"/bin/* "$HERE"/libexec/triggers/* \
+          "$HERE"/libexec/providers/* "$HERE"/systemd/*; do
+  [ -f "$_f" ] || continue
+  # `vigilant|VIGILANT` matches as a SUBSTRING, so it already covers
+  # `_vigilant`, `$VIGILANT_CMD` and the `@VIGILANT@` placeholder.
+  grep -qE "$_CALLS" "$_f" || continue
+  grep -q 'VIGILANCE_SOURCE' "$_f" || _unlab="$_unlab ${_f#"$HERE"/}"
+done
+[ -z "$_unlab" ] || fail "ladder caller(s) that set no VIGILANCE_SOURCE:$_unlab
+
+Every shipped thing that crosses an edge has to say who asked, or the log
+cannot answer the only two questions anyone brings to it: why did the screen go
+dark, and why did it come back. An unattributed crossing is also
+indistinguishable from a deliberate one, which for the unlock edge means a
+locker exiting reads the same as a human running 'go open'."
+
 # --- THEORY.md NAMES THE CHECK THAT ENFORCES EACH INVARIANT ----------------
 # The whole value of that map is that it lets a reader go and READ the check,
 # and separates the invariants that are enforced from the ones that are only
