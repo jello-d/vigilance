@@ -412,4 +412,91 @@ force open
 an enforcement target"
 rm -f "$_src"
 
+# --- THE IDLE TIMER'S OWN AGE IS A CEILING TOO ------------------------------
+# The sibling of the ascent ceiling above, for the restart that crosses
+# NOTHING. A restart whose pending resume raises the ladder leaves an ascent to
+# bound against; one with no timeout outstanding runs no resume, crosses no
+# edge, and leaves nothing. MEASURED on manifestor, twice, 14 alerts:
+#
+#   10-03  timer started 00:21:30 | overdue 00:26:44 -> 00:31:22
+#   10-01  timer started 13:23:09 | overdue 13:23:49 -> 13:32:36
+#
+# Both windows CLOSE exactly when the primary mechanism fires, which is the
+# signature of this class: the edge was never late, our clock was older than
+# the timer judging it. The cause is the compositor's, and recorded: this
+# Wayfire fires an idle notification only after waiting the threshold out FROM
+# REGISTRATION, so a restarted timer re-arms from zero however long the seat
+# has been quiet.
+rm -f "$VIGILANCE_HOOK_ROOT"/sleep.due.d/* 2>/dev/null || true
+duehook sleep 10-idle '600 idle'
+_idle 2400                      # the seat really has been quiet 40 minutes
+go open
+go lock
+_backdate lock 9999
+
+# A FRESHLY RESTARTED TIMER: the deadline is NOT overdue, because the mechanism
+# has not had its chance yet.
+VIGILANCE_IDLE_STARTED=30; export VIGILANCE_IDLE_STARTED
+_out=$("$VIGILANT" due sleep 2>>"$T/stderr")
+case "$_out" in
+  *"idle 30s"*) ;;
+  *) printf '%s\n' "$_out" >&2
+     fail "an idle timer running only 30s did not CEILING a 2400s reading. The
+restart re-armed every timeout, so the edge is not late and reporting it is
+the false overdue measured on manifestor twice" ;;
+esac
+"$VIGILANT" enforce >/dev/null 2>>"$T/stderr" \
+  || fail "enforce reported a finding 30s after the idle timer restarted,
+which is the window where the primary mechanism has not yet had its chance"
+
+# ...AND A LONG-RUNNING TIMER STILL REPORTS, or the ceiling has switched the
+# detector off, which is the trade every guard here has to be checked against.
+VIGILANCE_IDLE_STARTED=99999; export VIGILANCE_IDLE_STARTED
+_out=$("$VIGILANT" due sleep 2>>"$T/stderr")
+case "$_out" in
+  *"idle 2400s"*) ;;
+  *) printf '%s\n' "$_out" >&2
+     fail "a timer up 99999s must not ceiling anything: the reading is the
+source's 2400s" ;;
+esac
+
+# AND THE PROBE ITSELF IS EXERCISED, not only the override. The knob
+# short-circuits the `ps` read entirely, which is exactly how the alpha-channel
+# bug survived its own test file: every threshold case passed through an
+# override while the measurement stayed broken.
+#
+# A REAL PROCESS UNDER A NAME WE CHOSE, so this cannot read the developer's own
+# swayidle. A plain script keeps comm from its own basename; `exec sleep` does
+# not, and a copy of coreutils dispatches on argv[0] and exits.
+unset VIGILANCE_IDLE_STARTED
+printf '#!/bin/sh\nsleep 45\n' > "$T/vig-fake-idle"
+chmod +x "$T/vig-fake-idle"
+"$T/vig-fake-idle" &
+_fakepid=$!
+_i=0
+while [ "$_i" -lt 60 ]; do
+  grep -qxF vig-fake-idle "/proc/$_fakepid/comm" 2>/dev/null && break
+  _i=$((_i + 1)); sleep 0.1
+done
+grep -qxF vig-fake-idle "/proc/$_fakepid/comm" 2>/dev/null \
+  || fail "the fixture process never appeared under its own comm, so the case
+below would be a statement about nothing"
+VIGILANCE_IDLE_PROCESS=vig-fake-idle; export VIGILANCE_IDLE_PROCESS
+_out=$("$VIGILANT" due sleep 2>>"$T/stderr")
+# IT JUST STARTED, so the ceiling is a handful of seconds whatever the source
+# said. The exact number is the clock's business; that it is nowhere near 2400
+# is the claim.
+_ro=$(printf '%s\n' "$_out" | sed -n 's/.*idle \([0-9]*\)s.*/\1/p' | head -1)
+case "${_ro:-}" in
+  ''|*[!0-9]*) printf '%s\n' "$_out" >&2
+    fail "could not read an idle figure out of due's output at all" ;;
+esac
+[ "$_ro" -lt 60 ] || fail "the REAL ps probe did not ceiling a 2400s reading
+against a process that had just started: it read ${_ro}s. The override above
+bypasses this read, so without this case the measurement could be broken while
+every threshold case passed"
+kill "$_fakepid" 2>/dev/null || true
+wait "$_fakepid" 2>/dev/null || true
+unset VIGILANCE_IDLE_PROCESS
+
 pass

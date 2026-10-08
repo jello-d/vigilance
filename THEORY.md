@@ -109,6 +109,34 @@ wishes are visible.
     32  silence is evidence only over time we were WATCHING, and an innocent
         explanation that can be measured is never offered as a guess
         swayidle-watchdog.t cases 2b, 8 and 9
+    33  a deadline cannot be LATE before the mechanism judging it has had its
+        chance, so idle time is ceilinged by both the last ascent and the idle
+        timer's own age
+        due.t (both ceilings, and the real `ps` probe behind the second)
+
+### Why the idle reading has two ceilings and not one
+
+Worth stating because the second looks redundant until you see what the first
+cannot reach. Both answer the same question: our clock may be older than the
+mechanism it is judging, and reporting that as a missed edge is a finding about
+us rather than about the machine.
+
+    the last ascent      something raised the ladder, and whatever did also
+                         restarted the timer: a lid switch, or swayidle running
+                         its pending resume commands on SIGTERM
+    the timer's own age   a restart with no timeout outstanding runs no resume,
+                         crosses NO edge, and so leaves no ascent to bound
+                         against
+
+MEASURED on manifestor, twice, 14 alerts: windows of [restart, restart +
+deadline] that close exactly when the primary mechanism fires. The cause is the
+compositor's: this Wayfire fires an idle notification only after waiting the
+threshold out FROM REGISTRATION, measured when a one-shot idle probe was ruled
+out, so it never reports an already-idle seat and a restarted timer re-arms
+from zero however long the seat has been quiet.
+
+The integrator restarts that unit whenever the armed argv changes, so every
+deploy touching it opened this window.
 
 ### The one place supervision ACTS, and what makes that safe
 

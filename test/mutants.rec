@@ -1224,3 +1224,15 @@ f bin/vigilant
 t timer
 -        return 2 ;;
 +        return 0 ;;
+
+= idle-ceiling-is-the-timer-age
+f bin/vigilant
+t due
+-       *) if [ "$_ibt" -lt "$_ibv" ]; then _ibv=$_ibt; fi ;;
++       *) if [ "$_ibt" -lt 0 ]; then _ibv=$_ibt; fi ;;
+
+= idle-lock-delta-needs-a-previous
+f bin/swayidle-mgr
+t swayidle-mgr
+-       if [ "$prev" -gt 0 ] && [ "$prev" -le "$now" ]; then
++       if [ "$prev" -ge 0 ] && [ "$prev" -le "$now" ]; then

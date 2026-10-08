@@ -2730,6 +2730,7 @@ _trig_holder() {   # <handler> -> "a, b" or nothing
 # findings that arrive as the same empty string. Only a definite YES may
 # suppress a finding; "cannot tell" has to leave the detector as it was, or an
 # unreadable bus silently switches off the tier that watches the lock.
+
 _idle_inhibited() {
   _iiv=$(_trig_blocked) || return 2
   # THE FIELD, NOT A SUBSTRING. busctl prints `s "idle:sleep"`, so the value is
@@ -3884,13 +3885,70 @@ _idle_parse() {   # <file> -> sets _iv _ic _ia _ir; empty means "no answer"
 # minute that `sleep` was 3000s late, about a freshly armed timer that was
 # going to fire on schedule. Without the ceiling the finding is not "the
 # mechanism is broken" but "our clock is older than the mechanism's".
-_idle_bound() {   # <seconds> -> the same, bounded by the last ascent
+# HOW LONG THE DECLARED IDLE TIMER HAS BEEN RUNNING, in seconds. Non-zero when
+# that cannot be established, because a ceiling nobody can measure must leave
+# the reading alone rather than invent a bound.
+#
+# ELAPSED, NOT AN EPOCH, and that is the reason for `ps` over /proc arithmetic:
+# `etimes` is derived from the kernel's start time and the system uptime, so it
+# is the one elapsed figure in this file that cannot be wrong because somebody
+# stepped the wall clock. Everything else here needs `_elapsed`'s future-stamp
+# guard; this needs none.
+#
+# THE PROCESS IS THE DECLARED ONE, so a box that named another idle daemon (or
+# none, with VIGILANCE_IDLE_PROCESS empty) is answered correctly rather than
+# being asked about swayidle.
+_idle_started() {   # -> seconds, or non-zero if it cannot be told
+  if [ -n "${VIGILANCE_IDLE_STARTED+x}" ]; then
+    printf '%s' "$VIGILANCE_IDLE_STARTED"
+    return 0
+  fi
+  [ -n "${IDLE_PROCESS:-}" ] || return 1
+  command -v ps >/dev/null 2>&1 || return 1
+  _isp=$(_proc_pids "$IDLE_PROCESS" 2>/dev/null | head -1)
+  case "${_isp:-}" in ''|*[!0-9]*) return 1 ;; esac
+  # CAPTURED, THEN CHECKED: a pipeline's status is its last command's, so
+  # `ps ... | tr` would report the trim's success about a ps that failed.
+  _ise=$(ps -o etimes= -p "$_isp" 2>/dev/null) || return 1
+  _ise=$(printf '%s' "$_ise" | tr -d ' ')
+  case "${_ise:-}" in ''|*[!0-9]*) return 1 ;; esac
+  printf '%s' "$_ise"
+}
+
+_idle_bound() {   # <seconds> -> the same, bounded by the ascent and the timer
   _ibv=$1
   _ibat=$(_last_ascent)
   if [ "$_ibat" -gt 0 ]; then
     _ibs=$(( $(date +%s) - _ibat ))
     if [ "$_ibs" -lt 0 ]; then _ibs=0; fi
     if [ "$_ibs" -lt "$_ibv" ]; then _ibv=$_ibs; fi
+  fi
+  # THE SECOND CEILING: THE TIMER'S OWN AGE, for the restart that crosses
+  # NOTHING. The ascent above covers a restart whose pending resume raises the
+  # ladder, which is swayidle's documented SIGTERM behaviour. A restart with no
+  # timeout outstanding runs no resume, crosses no edge, and so leaves no
+  # ascent to bound against. MEASURED on manifestor, twice:
+  #
+  #   10-03  timer started 00:21:30 | overdue 00:26:44 -> 00:31:22
+  #   10-01  timer started 13:23:09 | overdue 13:23:49 -> 13:32:36
+  #
+  # Both windows CLOSE exactly when the primary mechanism fires: the 10-03 run
+  # stops 8 seconds short of 600s from the restart, and the 10-01 one spans the
+  # 480s lock that fired at 13:31:12. That is the signature of this class
+  # rather than a broken edge: the edge was never late, our clock was simply
+  # older than the timer being judged.
+  #
+  # THE CAUSE IS THE COMPOSITOR'S and is already recorded here: this Wayfire
+  # fires an idle notification only after waiting the threshold out FROM
+  # REGISTRATION, so it does not report an already-idle seat. A restarted timer
+  # re-arms from zero however long the seat has been quiet, and the integrator
+  # restarts it whenever the armed argv changes, so every such deploy opens
+  # this window.
+  if _ibt=$(_idle_started 2>/dev/null); then
+    case "${_ibt:-}" in
+      ''|*[!0-9]*) ;;
+      *) if [ "$_ibt" -lt "$_ibv" ]; then _ibv=$_ibt; fi ;;
+    esac
   fi
   printf '%s' "$_ibv"
 }

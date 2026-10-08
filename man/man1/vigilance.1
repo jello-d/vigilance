@@ -1037,6 +1037,12 @@ the logind session id
 .TP
 .B VIGILANCE_IDLE_CMDLINE
 a file standing in for /proc/<pid>/cmdline
+.TP
+.B VIGILANCE_IDLE_STARTED
+seconds the idle timer has been running, standing in for the
+.B ps
+read. It is a CEILING on idle time: a restarted timer re-arms every timeout, so
+until it has been up as long as a deadline that deadline is not late
 .SH EXIT STATUS
 .TP
 .B 0
