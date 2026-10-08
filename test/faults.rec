@@ -375,3 +375,20 @@ m the supervision pass, the act tier's status, and the atleast decline
 f a wired hook is present but UNRUNNABLE, as a moved install target leaves it
 e ALERT: named on the timer, the edge does not claim success, the lock happens
 t fault-wiring
+
+# THE ONE ACTUATOR IN SUPERVISION, and it had never run outside a stub tier.
+# Everything else here reports; the inhibit bound can take the lock, which is
+# the half `enforce`'s retired forcing was judged on ("tested code that cannot
+# run in production"). The stub tier proves the decision with a backdated span
+# and a recorder for a locker; this proves the ACT, against a real logind
+# inhibitor, a real idle clock and a real transient unit.
+#
+# NOTHING IS FAKED, and the idle clock is why that took finding: the shipped
+# source counts interrupts and URBs, which this guest cannot do, and a clock is
+# on this file's own list of things that may never be faked. x11-idle reads the
+# real X server, whose seat here receives no input at all.
+= inhibitor-held-past-the-bound
+m the inhibit escalation, and the forced lock it ends in
+f a real idle inhibitor is held while the seat is idle past the deadline
+e ACT: silent under the bound, then the session is secured, src=inhibit-bound
+t fault-inhibit

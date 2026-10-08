@@ -2730,7 +2730,20 @@ _trig_holder() {   # <handler> -> "a, b" or nothing
 # findings that arrive as the same empty string. Only a definite YES may
 # suppress a finding; "cannot tell" has to leave the detector as it was, or an
 # unreadable bus silently switches off the tier that watches the lock.
-
+#
+# IT ASKS logind BECAUSE THAT IS WHAT THE IDLE TIMER HONOURS, and that coupling
+# is the point rather than an implementation detail: the question is not "has
+# anyone anywhere asked for idleness to be suppressed" but "is the thing that
+# suppresses OUR timer held". swayidle honours logind, so logind is the right
+# oracle here.
+#
+# THE BOUND THAT FOLLOWS, stated rather than left to be discovered: a stack
+# whose idle daemon honours `org.freedesktop.ScreenSaver.Inhibit` instead,
+# which is the common route on an X11 desktop, holds inhibitors this cannot
+# see. The deferral would then not happen and the overdue detector would report
+# as it did before, which is the safe direction but is a gap for that
+# integrator. Widening means asking whatever the DECLARED idle process honours,
+# and that is a decision about a second oracle rather than a line to add here.
 _idle_inhibited() {
   _iiv=$(_trig_blocked) || return 2
   # THE FIELD, NOT A SUBSTRING. busctl prints `s "idle:sleep"`, so the value is

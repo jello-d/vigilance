@@ -206,6 +206,16 @@ arms no way back.
 .PP
 Setting either knob to 0 disables that half, so "report but never act" and
 "trust the inhibitor completely" are both reachable as configuration.
+.PP
+The hold is read from logind, because logind is what the idle timer on this
+stack honours: the question is not whether anything anywhere asked for
+idleness to be suppressed, but whether the thing that suppresses THIS timer is
+held. An idle daemon honouring
+.B org.freedesktop.ScreenSaver.Inhibit
+instead, which is the common route on an X11 desktop, holds inhibitors
+vigilance cannot see here; the deferral then does not happen and the deadline
+is reported overdue exactly as it was before, which is the safe direction and
+still a gap for that integration.
 .SH RESCUE
 .B "vigilant rescue"
 is meant for a bare, unmodified key, pressable BLIND when the screen is gone. It
