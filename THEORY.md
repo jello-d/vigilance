@@ -267,6 +267,48 @@ that same corruption is what finally exercised the bisect.
 
 Stated plainly rather than implied:
 
+- **A LOCK CAN OUTLIVE EVERY LOCKER, and then `open` is a false rung.** The
+  model above defines `open` as "here; unlocked and lit", and vigilance infers
+  that from the locker's PRESENCE. Lock state belongs to the COMPOSITOR, and
+  ext-session-lock makes the two come apart in a MANDATED way:
+
+        If the client dies while the session is locked the session remains
+        locked, possibly permanently depending on compositor policy.
+        If the client dies while the session is locked, the compositor must
+        not unlock the session in response.
+
+  So a locker that is SIGKILLed, crashes, or takes a SIGTERM (which it does
+  not handle) sends no `unlock_and_destroy`, and the screen stays covered with
+  NO process anywhere. The provider's ExecStopPost fires regardless (its own
+  header says it "also fires on a CRASH"), so the ladder crosses `unlock` and
+  records `open` exactly as it does for a real release.
+
+  THIS IS NOT THE BOUND TAKEN 2026-10-03, which was about a locker vigilance
+  cannot SEE. Here there is no locker to see: "no locker of ours is up" is
+  true, and the screen is still locked. A reader following that wording goes
+  looking for a rival process that does not exist.
+
+  NOTHING CAN CATCH IT TODAY, and the reasons are each independently sound:
+  there is no process to find; the transient unit is gone and `--collect`ed;
+  systemd recorded no outcome for it (Type=forking with GuessMainPID=no leaves
+  MainPID=0, and seven days of journal hold no stop record); `_cross_one` runs
+  the act and report tiers only, never verify; and `screen-dark` is
+  dark-rung-only on purpose, because a lit-rung emission check would fire on
+  every waking moment and be switched off.
+
+  THE DIRECTION IS THE SAFE ONE FOR SECURITY and the unsafe one for use: the
+  screen is MORE locked than claimed, so nothing is exposed. Two real costs,
+  though. `rescue`, whose entire purpose is "the screen is dark and nothing
+  will bring it back", crosses to `open`, finds no locker to clear, and reports
+  success: it cannot clear the one state it exists for. And the box recovers
+  only BY ACCIDENT, when the idle timer raises a fresh locker at its next
+  deadline and the compositor grants it because the dead client's lock object
+  went with it.
+
+  Whether `rescue` should raise a locker to clear it is a DECISION and is not
+  improvised here; raising one is the protocol's own recovery and is the
+  opposite of a bypass, since the user then authenticates normally.
+
 - **An idle source whose counter is reset by READING it goes undetected, and
   reads as a false green.** MEASURED on the VM guest's X server, whose display
   has no input devices:

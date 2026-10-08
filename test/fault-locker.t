@@ -35,12 +35,24 @@ await 10 locker_up || fail "no locker came up, so there is nothing to kill"
 _before=$(crossed unlock)
 pkill -KILL -x swaylock || fail "pkill found no swaylock to kill"
 
-# --- then: the ladder must come back to a rung that is TRUE -----------------
+# --- then: the ladder must follow the SPAN's end ----------------------------
+# AND `open` IS NOT A CLAIM THAT THE SCREEN IS USABLE HERE, which this case
+# used to assert in as many words ("the screen is unlocked"). It is not: a
+# SIGKILLed locker sends no unlock_and_destroy, and ext-session-lock REQUIRES
+# the compositor to keep the session locked in response, so the screen stays
+# covered with no process anywhere. See THEORY.md, "A LOCK CAN OUTLIVE EVERY
+# LOCKER".
+#
+# The assertion stands on the provider's actual design rather than on that
+# false premise: the UNIT IS THE SPAN of the lock, so the span ending is the
+# unlock edge whether or not the compositor released. What a ladder stuck at
+# `lock` would cost is the restore hooks never running and a later
+# `go lock atleast` declining from there, which is the 2026-10-04 shape.
 _open() { [ "$(depth)" = open ]; }
 await 20 _open || fail "the locker was KILLED and the machine still records
-depth='$(depth)'. The screen is unlocked and every tier that trusts the record
-says the session is secured, which is the worst failure this package has,
-because nothing about it looks wrong"
+depth='$(depth)'. The span has ended, so the unlock edge is owed: without it
+nothing that restores on unlock runs, and a later 'go lock atleast' declines
+from '$(depth)' and locks nothing"
 [ "$(crossed unlock)" -gt "$_before" ] || fail "depth reached open without the
 unlock edge being crossed. The rung is right and no hook ran, so anything that
 restores on unlock did not"
