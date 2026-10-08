@@ -206,27 +206,15 @@ runs exactly that before a suspend"
 # false overdue on a machine somebody is sitting at, and false overdue alerts
 # are the documented reason a live box had its supervision timer stopped by
 # hand.
-# A SWITCH ON THE ONE STUB, never a second one: replacing a fixture mid-file
-# is how a later case ends up measuring something the new stub cannot observe,
-# which has cost this suite two debugging rounds. XPI_RESET models a server
-# whose counter is reset by READING it.
 cat > "$T/bin/xprintidle" <<EOF
 #!/bin/sh
 [ -z "\${XPI_RC:-}" ] || exit \$XPI_RC
-if [ -n "\${XPI_RESET:-}" ]; then
-  _n=\$(cat "$T/xpi.n" 2>/dev/null || echo 0)
-  _n=\$((_n + 1))
-  printf '%s\n' "\$_n" > "$T/xpi.n"
-  if [ "\$_n" = 1 ]; then printf '%s\n' "\${XPI_MS:-0}"; else printf '0\n'; fi
-  exit 0
-fi
 printf '%s\n' "\${XPI_MS:-0}"
 EOF
 chmod +x "$T/bin/xprintidle"
 _idle() {   # -> the answer, or "rc=N"
-  _o=$(env DISPLAY=:0 XPI_MS="${1:-}" XPI_RC="${2:-}" XPI_RESET="${3:-}" \
-       PATH="$PATH" sh "$IDLE" 2>>"$T/err") \
-    || { printf 'rc=%s' "$?"; return 0; }
+  _o=$(env DISPLAY=:0 XPI_MS="${1:-}" XPI_RC="${2:-}" PATH="$PATH" \
+       sh "$IDLE" 2>>"$T/err") || { printf 'rc=%s' "$?"; return 0; }
   printf '%s' "$_o"
 }
 [ "$(_idle 480000)" = 480 ] || fail "480000ms read as $(_idle 480000)s, so the
@@ -245,35 +233,6 @@ $(_idle '' 1), not 78. Zero would be the single most dangerous wrong answer"
 [ "$(_idle banana)" = "rc=78" ] || fail "a non-numeric answer gave
 $(_idle banana), not 78. The runner validates too, but a source that knows it
 cannot answer must say so rather than lean on the runner"
-
-# --- 8b. A COUNTER RESET BY READING IT CANNOT BE USED AT ALL ---------------
-# MEASURED on a real server, the VM guest's, whose X display has no input
-# devices:
-#
-#     spaced: 3008 2975 2980     reads three seconds apart
-#     rapid:  1 0 0 1            reads back to back
-#
-# It reports the interval since the PREVIOUS READ rather than since input. A
-# supervision pass reads this source three times (judge, settle, and the one
-# that decides), so the deciding read can never see more than the gap since the
-# second and an idle-anchored deadline is permanently not due: the tier goes
-# silently inert.
-#
-# AND IT WOULD READ AS A FALSE GREEN, which is why noting it was not enough:
-# `report` takes the ceiling this hook emits (the server's 600s screensaver
-# timeout) and calls a 480s deadline MEASURABLE, while the readable value is
-# always about zero.
-rm -f "$T/xpi.n"
-[ "$(_idle 300000 '' 1)" = "rc=78" ] || fail "a server whose counter is reset
-by reading it answered $(_idle 300000 '' 1) instead of declining. Reporting
-what we got means reporting ~0, which means 'input one second ago', which
-silently resets every deadline for ever and reports a healthy machine"
-
-# ...AND A STABLE COUNTER IS STILL ANSWERED, or the guard has switched the only
-# X11 idle source off entirely. Cases 7 and 8 above already read twice through
-# the same stub, which is what makes them the other half of this.
-[ "$(_idle 300000)" = 300 ] || fail "a server whose two reads AGREE must still
-be answered: got $(_idle 300000)"
 _rc=0
 env DISPLAY= PATH="$PATH" sh "$IDLE" >/dev/null 2>>"$T/err" || _rc=$?
 [ "$_rc" = 78 ] || fail "with no DISPLAY x11-idle returned $_rc, not 78"

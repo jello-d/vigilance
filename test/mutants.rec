@@ -1236,9 +1236,3 @@ f bin/swayidle-mgr
 t swayidle-mgr
 -       if [ "$prev" -gt 0 ] && [ "$prev" -le "$now" ]; then
 +       if [ "$prev" -ge 0 ] && [ "$prev" -le "$now" ]; then
-
-= x11-idle-refuses-a-read-reset-counter
-f libexec/hooks/x11-idle
-t x11
--    && [ "$_out" -gt 2000 ] && [ "$_out2" -lt $(( _out / 2 )) ]; then
-+    && [ "$_out" -gt 2000 ] && [ "$_out2" -lt 0 ]; then

@@ -32,62 +32,108 @@ require x11
 DISPLAY=:99; export DISPLAY
 PLUG=$PLUGINS/hooks
 
-# --- 1. THE IDLE SOURCE RUNS FOR REAL, AND CORRECTLY REFUSES ---------------
-# THE FIRST REAL idle.d SOURCE THIS SUITE HAS EVER RUN, and what it does on
-# this server is decline. That is the right answer, and finding out why was
-# worth more than the three assertions this case used to make.
-#
-# MEASURED, after five guest rounds of guessing: this server's idle counter is
-# reset by READING it.
+# --- 1. THE IDLE SOURCE ANSWERS, AND THE ANSWER GROWS ----------------------
+# MEASURED LIMIT, AND THIS CASE CANNOT SEE IT: on this server the idle counter
+# is RESET BY READING IT, so it reports the interval since the previous reader
+# rather than since input.
 #
 #     spaced: 3008 2975 2980     reads three seconds apart
 #     rapid:  1 0 0 1            reads back to back
 #
-# It reports the interval since the PREVIOUS READER rather than since input,
-# which is consistent with a display that has no input devices at all. A
-# supervision pass reads this source three times (judge, settle, and the one
-# that decides), so the deciding read could never see more than the gap since
-# the second, and an idle-anchored deadline would be permanently not due.
+# The growth assertion below is satisfied either way, which is exactly why it
+# cannot distinguish them: read, wait three seconds, read again gives 0 then 3
+# on a healthy counter AND on a read-reset one. So this case is about the unit
+# conversion and the cap, and says nothing about whether the clock can witness
+# a deadline.
 #
-# AND IT WOULD HAVE READ AS A FALSE GREEN, which is why the hook now refuses:
-# `report` takes the ceiling the hook emits (the server's 600s screensaver
-# timeout) and calls a 480s deadline MEASURABLE, while the readable value is
-# always about zero. Answering what we got would mean answering ~0, which
-# means "input one second ago", which silently resets every deadline for ever.
+# WHY IT MATTERS: a supervision pass reads this source THREE times (judge,
+# settle, and the one that decides), so on a read-reset server the deciding
+# read never sees more than the gap since the second, and an idle-anchored
+# deadline is permanently not due while `report` calls it measurable from the
+# ceiling below. THEORY.md carries it as a shortfall with the candidate fix (an
+# OBSERVED ceiling rather than the server's structural one, which is what
+# input-counters already does). A two-read discriminator was tried and reverted:
+# it only fires when the first read is large, which in a pass it never is.
 #
-# THE DECLINE HAS TO BE ATTRIBUTABLE, or this case passes for any of four
-# unrelated reasons (no xprintidle, no DISPLAY, an unreachable server, a
-# non-numeric answer). So the precondition establishes that the tool IS present
-# and DOES answer, and the message is required to name the counter.
-command -v xprintidle >/dev/null 2>&1 || fail "no xprintidle here, so a decline
-below would be about the missing tool rather than about the server's counter"
-[ -n "${DISPLAY:-}" ] || fail "no DISPLAY, same reason"
-_raw=$(xprintidle 2>/dev/null) || fail "xprintidle cannot reach $DISPLAY, so a
-decline below would be the substrate rather than the finding"
-case "${_raw:-}" in
-  ''|*[!0-9]*) fail "xprintidle answered '${_raw:-}', not a number, so the
-decline below would be the parse guard rather than the counter check" ;;
+# THE FIRST REAL idle.d SOURCE THIS SUITE HAS EVER RUN. The shipped one counts
+# kernel interrupts and USB URBs, which this guest cannot do at all (no
+# countable input device), so the overdue tier has been structurally inert here
+# since the VM existed.
+#
+# THE SCREENSAVER IS THE HAZARD IN THIS CASE, and it is measured rather than
+# assumed away. The X server resets its idle counter when the saver activates,
+# which this scenario found the hard way (306s, then 2s three seconds later), so
+# a reading taken across that boundary proves nothing.
+#
+# `xset s <n>` DOES NOT TAKE ON THIS SERVER, asserted below rather than hoped
+# for, because the first version of this case set 3600 and then asserted against
+# 90, and got 600 both times. So the window is chosen to be far shorter than
+# whatever the server reports, which is a claim about three seconds rather than
+# about the saver.
+SS=$(xset q 2>/dev/null | sed -n 's/^ *timeout: *\([0-9][0-9]*\).*/\1/p' \
+     | head -1)
+case "${SS:-}" in
+  ''|*[!0-9]*) fail "the server reports no screensaver timeout, so neither the
+cap below nor the safety of this three-second window can be established" ;;
 esac
-
-_irc=0
-_iout=$("$PLUG/x11-idle" 2>&1) || _irc=$?
-[ "$_irc" = 78 ] || fail "x11-idle returned $_irc against a server whose
-counter is reset by reading it, answering '$_iout'. A source that cannot
-measure must say 78: zero is the single most dangerous wrong answer here,
-because it means input one second ago"
-case "$_iout" in
-  *"reset by READING"*) ;;
-  *) fail "the decline did not name the counter, so a reader cannot tell it
-from the three other reasons this hook declines for: $_iout" ;;
+[ "$SS" -eq 0 ] || [ "$SS" -gt 30 ] || fail "the screensaver timeout is ${SS}s,
+which is inside the window this case measures across: the counter would reset
+mid-case and the growth assertion would be about the saver, not the clock"
+_i1=$("$PLUG/x11-idle" | awk '{print $1}') || fail "x11-idle declined against a
+live X server. The probe found xprintidle answering, so this is the hook and not
+the substrate"
+case "$_i1" in
+  ''|*[!0-9]*) fail "x11-idle printed '$_i1', which is not a number of seconds.
+A source that cannot answer must exit 78 rather than print something
+unparseable" ;;
 esac
+sleep 3
+_i2=$("$PLUG/x11-idle" | awk '{print $1}') || fail "x11-idle declined on its
+second call"
+[ "$_i2" -ge "$_i1" ] || fail "idle time went BACKWARDS across three seconds of
+doing nothing: ${_i1}s then ${_i2}s, with the screensaver pushed out to an hour.
+A clock that can do that satisfies every overdue comparison in the package"
+[ "$_i2" -ge 2 ] || fail "after 3 seconds of a seat nobody touched, the X server
+reported ${_i2}s idle. Either the conversion is wrong (it reports milliseconds)
+or something is resetting the clock; both make a deadline unmeasurable"
 
-# --- 2. AND THE UNIT AND CAP ARE COVERED WHERE THEY CAN BE ----------------
-# Deliberately NOT here any more. Seconds-not-milliseconds and the `ceiling=`
-# emission were asserted against this server until it turned out to be
-# unreadable, and a server that declines can prove neither. test/x11.t drives
-# both through a stub, in both the timeout-600 and timeout-0 directions, and a
-# scenario that pretended to cover them would be asserting against a server it
-# cannot configure.
+# --- 2. AND IT IS SECONDS, NOT MILLISECONDS -------------------------------
+# The unit mismatch is the one bug in that file that INVENTS a finding: a
+# thousand-fold overstatement is a false overdue on a machine in use, and false
+# overdue alerts are the documented reason a live box had its supervision timer
+# stopped by hand. Three seconds of real time bounds it at both ends.
+[ "$_i2" -lt 100 ] || fail "three seconds of idle read as ${_i2}s, so the
+milliseconds are being reported as seconds"
+
+# --- 3. THE CAP IS REPORTED, and it is the server's own -------------------
+# The finding this scenario produced on its first run. A source that answers a
+# number while being structurally unable to witness the deadline is this
+# project's signature false green, and `ceiling=` is the field that breaks it.
+# THE EXPECTED VALUE COMES FROM THE SERVER, not from something this file tried
+# to set. Asserting a number we chose would test `xset s`, which does not work
+# here; asserting the SERVER's number tests the only thing that matters: that
+# the hook and the server agree about what can be witnessed.
+_ans=$("$PLUG/x11-idle")
+if [ "$SS" -gt 0 ]; then
+  case "$_ans" in
+    *"ceiling=$SS age=$SS"*) ;;
+    *) fail "the server's screensaver timeout is ${SS}s and the source answered
+'$_ans'. It must report that cap: XScreenSaverQueryInfo restarts when the saver
+activates, so any deadline past ${SS}s is unwitnessable here and report would
+otherwise call it measurable" ;;
+  esac
+else
+  case "$_ans" in
+    *ceiling=*) fail "the screensaver is DISABLED on this server and the source
+still qualified its answer ('$_ans'); a cap that does not exist must not be
+reported" ;;
+  esac
+fi
+# BOTH BRANCHES EXIST BECAUSE ONLY ONE CAN RUN HERE, and the stub tier covers
+# the other: test/x11.t drives a fixture through timeout 600 and timeout 0. A
+# scenario that pretended to cover both would be asserting against a server it
+# could not configure.
+
 # --- 4. THE LUMA PROBE CAPTURES THROUGH import -----------------------------
 # `grim` cannot see an X server and `import` cannot see a Wayland output, so the
 # grabber is the platform and the MEASUREMENT is not. This is the only place the

@@ -261,6 +261,40 @@ that same corruption is what finally exercised the bisect.
 
 Stated plainly rather than implied:
 
+- **An idle source whose counter is reset by READING it goes undetected, and
+  reads as a false green.** MEASURED on the VM guest's X server, whose display
+  has no input devices:
+
+        spaced: 3008 2975 2980     reads three seconds apart
+        rapid:  1 0 0 1            reads back to back
+
+  It reports the interval since the previous READER rather than since input. A
+  supervision pass reads three times (judge, settle, and the one that decides),
+  so the deciding read can never see more than the gap since the second, and an
+  idle-anchored deadline is permanently not due: the overdue detector and the
+  inhibit escalation both go silently inert. Worse, `x11-idle` reports the
+  server's 600s screensaver timeout as its `ceiling=`, so `report` calls a 480s
+  deadline MEASURABLE while the readable value is always about zero. That is
+  this project's signature false green, arriving through a door the ceiling
+  machinery does not watch.
+
+  LATENT on this fleet (both boxes are Wayland and use input-counters) and real
+  for any X11 integrator who wires the source.
+
+  A TWO-READ DISCRIMINATOR WAS TRIED AND REVERTED. Two immediate reads tell a
+  stable counter from a read-reset one only when the FIRST read is large, and
+  inside a supervision pass it never is: the previous read of the same pass
+  just reset it. So it fired for hand-runs and not for the case that matters.
+
+  THE CANDIDATE FIX is the mechanism that already exists one source over:
+  report an OBSERVED ceiling (the longest value this clock has actually seen,
+  with the age over which it watched) rather than the server's STRUCTURAL
+  timeout, exactly as input-counters does. On a read-reset server polled once a
+  minute the ceiling then settles near the poll interval and `report` correctly
+  says the deadline cannot be measured. Not built: it needs its own thought
+  about what a long gap between readers should do to the high-water mark, and
+  shipping a second half-understood fix is how the first one happened.
+
 - **The greeter's sleep path is observed only in the guest.** session-greeter.t
   drives the real machine hook set at the `lock` rung against a real sway and
   reads output dpms back with swaymsg independently of the hook, so the edge is
