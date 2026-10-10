@@ -85,7 +85,14 @@ LIVE_OK='_rep_machinery _rep_unit_runnable _rep_idle_armed _r_session
 _r_locker_up cmd_rescue cmd_report _rep_budget_secs
 _proc_pids _proc_running _proc_pid
 _unit_known _unit_state_ok _rep_unit_role
-_trig_blocked _screensaver_active _rep_coherence'
+_trig_blocked _screensaver_active _rep_coherence _overdue_rearm'
+
+# _overdue_rearm IS THE FIRST ENTRY HERE THAT WRITES. Every other declared
+# function READS the running machine; that one restarts a unit, by the name the
+# INTEGRATOR declared through VIGILANCE_IDLE_UNIT. So the sandbox that matters
+# for it is not an override of the answer but a pin of the NAME, which
+# scenario_init now sets to a unit that cannot resolve: without it a scenario
+# reaching the overdue bound would restart the developer's own idle timer.
 
 _offenders=$(awk -v ok="$LIVE_OK" '
   BEGIN { n = split(ok, a, /[[:space:]]+/)

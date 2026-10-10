@@ -1009,10 +1009,17 @@ runcmd:
       # merely running at the time, which cost an investigation into a hang that
       # did not exist.
       #
-      # SO THE ELAPSED LINE IS THE REAL FIX AND THE NUMBER IS THE CONSEQUENCE.
-      # 600s leaves ~180s of headroom over the measurement, and the host bound
-      # moved with it: provisioning costs about 30s from the preserved image, so
-      # 600 + 30 must stay clear of VM_TIMEOUT. A hang now costs 600s of waiting
+      # SO THE ELAPSED LINE IS THE REAL FIX AND THE NUMBER IS THE CONSEQUENCE,
+      # and it has now paid for itself twice. The bound fired again 2026-10-10
+      # at 606s of 600, naming watchdog.t, which was merely the last test to
+      # START: no test had failed and the suite had simply grown, which is the
+      # one distinction the elapsed line exists to make. The trajectory is the
+      # whole argument for printing it: 302s when the bound was 420, then 418,
+      # 481, 502, 557, 606. So 900 now, against a measured 606.
+      #
+      # THE HOST BOUND MOVES WITH IT: provisioning costs about 30s from the
+      # preserved image, so the suite bound + 30 must stay clear of
+      # VM_TIMEOUT. A hang now costs 600s of waiting
       # instead of 420, which is the right trade: a false failure on a correct
       # run is more expensive than a slow true one, and this already proved it.
       # AND IT REPORTS THE ELAPSED TIME WHETHER OR NOT IT FIRES, because the
@@ -1029,11 +1036,11 @@ runcmd:
       VIGILANCE_RUNNING_FILE=/root/running; export VIGILANCE_RUNNING_FILE
       _src=0
       _st=$(date +%s)
-      timeout -k 10 "${VIG_SUITE_TIMEOUT:-600}" sh test/run @FILTER@ || _src=$?
+      timeout -k 10 "${VIG_SUITE_TIMEOUT:-900}" sh test/run @FILTER@ || _src=$?
       _el=$(( $(date +%s) - _st ))
-      echo "suite: ${_el}s of a ${VIG_SUITE_TIMEOUT:-600}s bound"
+      echo "suite: ${_el}s of a ${VIG_SUITE_TIMEOUT:-900}s bound"
       if [ "$_src" = 124 ]; then
-        echo "SUITE EXCEEDED ITS BOUND of ${VIG_SUITE_TIMEOUT:-600}s."
+        echo "SUITE EXCEEDED ITS BOUND of ${VIG_SUITE_TIMEOUT:-900}s."
         echo "RUNNING AT THE TIME: $(cat /root/running 2>/dev/null || echo \
           '<unknown>') (the last test to START, which is a HANG only if the"
         echo "  elapsed time above is far short of the bound; otherwise the"
@@ -1179,7 +1186,7 @@ _qpid=$!
 # Poll the log for the guest's completion marker, then stop the VM. Bounded, so
 # a guest that never reports cannot hang the run either way.
 _waited=0
-while [ "$_waited" -lt "${VM_TIMEOUT:-900}" ]; do
+while [ "$_waited" -lt "${VM_TIMEOUT:-1200}" ]; do
   if grep -q 'VIGILANCE_VM_EXIT=' "$CONSOLE" 2>/dev/null; then break; fi
   if ! kill -0 "$_qpid" 2>/dev/null; then break; fi
   sleep 2

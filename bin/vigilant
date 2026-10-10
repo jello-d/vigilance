@@ -224,6 +224,10 @@ IDLE_DEMO=$RUN_DIR/idle-demonstrated
 # counter snapshot, then nearly again for a throttle stamp).
 INHIBIT_SINCE=$RUN_DIR/inhibit-since
 INHIBIT_CLOCK=$RUN_DIR/inhibit-clock
+# `<edge> <since> <last-seen>`: the edge because an episode belongs to one, and
+# the last-seen because the span must not credit an interval nothing watched.
+OVERDUE_SINCE=$RUN_DIR/overdue-since
+OVERDUE_ACTED=$RUN_DIR/overdue-acted
 
 # WHEN THE SUPERVISION PASS LAST RAN, which is what makes every countdown in
 # `timer` worth printing. Those clocks do not advance on their own: a pass
@@ -339,6 +343,32 @@ GRACE=${VIGILANCE_GRACE:-30}
 # as forks of this logic.
 INHIBIT_REPORT=${VIGILANCE_INHIBIT_REPORT:-10800}    # 3h
 INHIBIT_FORCE=${VIGILANCE_INHIBIT_FORCE:-14400}      # 4h
+
+# AN OVERDUE EDGE GETS ONE BOUND, NOT TWO, because the two cases are not
+# alike. An idle inhibitor is a LEGITIMATE deferral, so it earns a quiet
+# period before anybody is told; an overdue edge is already a FAULT and is
+# alerted on the first pass that sees one. What was missing was the other
+# half: a fault reported every minute, for ever, to a human who may not be
+# at the machine to read it.
+#
+# ONE FURTHER DEADLINE PERIOD is the default. Long enough that every transient
+# cause has cleared, and those genuinely do clear themselves: a released
+# inhibitor and a reset clock both END the episode by dropping idle back under
+# the deadline. Short enough to bound the damage, which on the box that
+# prompted this was a static lock surface lit on an OLED for 23 minutes.
+#
+# 0 DISABLES THE ACT and leaves the reporting exactly as it was, which is how
+# "tell me but never touch it" stays reachable as configuration.
+OVERDUE_ACT=${VIGILANCE_OVERDUE_ACT:-600}
+
+# THE SAME QUESTION THE IDLE CLOCK ASKS, ABOUT THE SAME SAMPLER, so it is the
+# same value: how long a gap between passes means we were not watching. The
+# supervision timer does not fire in S3, so without this a suspend spanning an
+# episode would be credited as time overdue and the bound would fire the
+# instant the box came back. That is exactly what the watchdog was counting as
+# silence until 2026-10-07, measured there as 15941s of S3 inside a 16045s
+# "silence", so it is a trap this file has already paid for once.
+OVERDUE_MAXGAP=${VIGILANCE_IDLE_MAXGAP:-300}
 
 # vigilant's OWN record. Built in and mechanism-free (it is a file), because
 # the whole charter is noticing when something silently did not happen, and a
@@ -4711,6 +4741,198 @@ _inhibit_escalate() {   # <edge> <idle> <deadline> <span> -> 1 if a finding
   return 0
 }
 
+# HOW LONG HAS THIS EDGE BEEN CONTINUOUSLY OVERDUE? Seconds, or nothing when
+# there is no episode of its own to measure. PURE, like `_inhibit_span`: it
+# reads one file and prints a number, so `timer` can borrow it without a
+# read-only view acquiring side effects.
+#
+# THE EDGE IS PART OF THE EPISODE. A record naming a different one is a
+# different finding, so it reads as no episode rather than lending this edge
+# the other's age: the machine changed rungs, and changing rungs is the very
+# thing the edge going overdue was about.
+_overdue_span() {   # <edge> -> seconds, or nothing
+  # TESTED BEFORE READ, and `2>/dev/null` on the read is NOT enough:
+  # redirections are processed left to right, so the failing `< file` has
+  # already written to the real stderr by the time the suppression applies.
+  # Measured on a healthy box, where there is no episode and so no file:
+  # every `vigilant timer` printed "cannot open ...: No such file" while
+  # otherwise working, in the one view a human runs most.
+  [ -r "$OVERDUE_SINCE" ] || return 0
+  read -r _ose _oss _osl < "$OVERDUE_SINCE" 2>/dev/null || return 0
+  case "${_oss:-}" in '' | *[!0-9]*) return 0 ;; esac
+  [ "${_ose:-}" = "${1:-}" ] || return 0
+  # _elapsed REFUSES A FUTURE STAMP rather than returning a negative, and
+  # printing nothing then means no bound can be judged this pass. That is the
+  # safe direction for something that can restart a unit and take a lock.
+  _elapsed "$_oss" 2>/dev/null || true
+  return 0
+}
+
+# OPEN, CONTINUE OR RE-ANCHOR the episode, and print its span. ALWAYS RETURNS
+# 0: the caller reads it through a command substitution, where a non-zero
+# return would be killed by `set -e` before the value could be used.
+_overdue_track() {   # <edge> -> seconds overdue, 0 on a fresh episode
+  _ote=$1
+  _otn=$(date +%s)
+  _ots=
+  if [ -r "$OVERDUE_SINCE" ] \
+     && read -r _otre _otrs _otrl < "$OVERDUE_SINCE" 2>/dev/null; then
+    case "${_otrs:-}" in '' | *[!0-9]*) _otrs= ;; esac
+    case "${_otrl:-}" in '' | *[!0-9]*) _otrl= ;; esac
+    if [ "${_otre:-}" = "$_ote" ] && [ -n "$_otrs" ] && [ -n "$_otrl" ]; then
+      # A GAP MEANS NOTHING WAS WATCHING, so the interval is not credited. An
+      # unreadable elapsed reads as a gap, which re-anchors: erring toward a
+      # shorter span is erring toward not acting.
+      _otg=$(_elapsed "$_otrl" 2>/dev/null || true)
+      case "${_otg:-}" in '' | *[!0-9]*) _otg=$((OVERDUE_MAXGAP + 1)) ;; esac
+      if [ "$_otg" -le "$OVERDUE_MAXGAP" ]; then
+        _ots=$_otrs
+      else
+        _log "overdue $_ote: ${_otg}s since this episode was last seen, past"\
+" the ${OVERDUE_MAXGAP}s bound, so nothing was watching it; re-anchoring"
+      fi
+    fi
+  fi
+  if [ -z "$_ots" ]; then
+    _ots=$_otn
+    # A FRESH EPISODE EARNS A FRESH ACTION. Without this, one act per boot.
+    rm -f "$OVERDUE_ACTED" 2>/dev/null || true
+  fi
+  printf '%s %s %s\n' "$_ote" "$_ots" "$_otn" > "$OVERDUE_SINCE" 2>/dev/null \
+    || true
+  _elapsed "$_ots" 2>/dev/null || printf '0'
+  return 0
+}
+
+# THE EPISODE IS OVER, so the next one starts its own clock and earns its own
+# single action. Called from every path that is NOT overdue, which is what
+# makes "once per episode" mean once per fault rather than once per boot.
+_overdue_clear() {
+  if [ -f "$OVERDUE_SINCE" ]; then
+    _log "overdue episode ended"
+  fi
+  rm -f "$OVERDUE_SINCE" "$OVERDUE_ACTED" 2>/dev/null || true
+  return 0
+}
+
+# RE-ARM THE IDLE TIMER, named by the unit the INTEGRATOR declared rather than
+# by any mechanism of ours: this function knows nothing about swayidle, which
+# is what keeps the runner mechanism-free. 0 when a FRESH instance is running
+# afterwards.
+#
+# THE WITNESS IS A CHANGED MainPID, because `is-active` answers `active`
+# whether or not anything happened: the absent-versus-stopped ambiguity, which
+# would make a re-arm that silently did nothing read exactly like one that
+# worked, in the one place that must not over-claim.
+#
+# `restart`, NOT A KILL, and the asymmetry with `screen-unlock` is deliberate.
+# A restart is the generic documented action for any unit, and the replay it
+# causes is harmless at both rungs this is reachable from: swayidle runs its
+# pending RESUME commands on SIGTERM, and the shipped resume arm is a
+# `go lock`, which from `lock` is a no-op and from `open` is the lock this
+# escalation wants anyway. The tool needs the opposite choice because it
+# re-arms from `open` having just UNLOCKED, where that replay would undo it.
+_overdue_rearm() {
+  [ -n "$IDLE_UNIT" ] || return 1
+  _orb=$(systemctl --user show "$IDLE_UNIT" -p MainPID --value 2>/dev/null \
+         || true)
+  case "${_orb:-}" in '' | *[!0-9]*) _orb=0 ;; esac
+  systemctl --user restart "$IDLE_UNIT" >/dev/null 2>&1 || true
+  _orn=0
+  while [ "$_orn" -lt 5 ]; do
+    _ora=$(systemctl --user show "$IDLE_UNIT" -p MainPID --value 2>/dev/null \
+           || true)
+    case "${_ora:-}" in '' | *[!0-9]*) _ora=0 ;; esac
+    if [ "$_ora" -gt 0 ] && [ "$_ora" != "$_orb" ]; then return 0; fi
+    sleep 1
+    _orn=$((_orn + 1))
+  done
+  return 1
+}
+
+# AN OVERDUE EDGE IS A FAULT NOBODY MAY BE PRESENT TO READ. Reporting it was
+# the whole of this tier; after a bound it is acted on. Always returns 1,
+# because every path through here is a finding.
+#
+# THE ACTION IS A RE-ARM, NEVER A FORCED DESCENT, and that follows from the
+# ladder's own invariant rather than from timidity: nothing may enter a dark
+# state unless its way back is armed, which is why `suspend` is NEVER_ENFORCED
+# and why `_inhibit_escalate` refuses a deferred `sleep`. A forced `go sleep`
+# here would be that refusal broken, and on a genuinely wedged timer it would
+# strand a dark screen with nothing to bring it back. Re-arming fixes the
+# CAUSE and enters no rung at all.
+#
+# A LIT EDGE IS ALSO CROSSED, because waiting is not free there: an overdue
+# `lock` means the session is still open past its own deadline, and a re-arm
+# alone would push that deadline out by its whole length. `lock` is the one
+# edge whose rung is a guarantee, so it is the one this may drive directly,
+# with the same verb and the same attribution as the inhibit bound. The
+# literal is what keeps that honest, exactly as it does there.
+#
+# ONCE PER EPISODE, and the second pass is where the real diagnostic is. A
+# re-arm that did not help is positive evidence of a WEDGE rather than of a
+# timer that had merely spent its timeouts, which NOTHING here could
+# distinguish before. It is reported and never retried: a restart every minute
+# would reset the deadlines every minute, and a box whose lock deadline is
+# perpetually reset never locks at all.
+_overdue_escalate() {   # <edge> <idle> <deadline> <span> -> 1
+  _oee=$1; _oei=$2; _oed=$3; _oes=$4
+  case "${_oes:-}" in '' | *[!0-9]*) _oes=0 ;; esac
+
+  # THE REPORT FIRST, unchanged: it is the forensic record and the audit tier
+  # reads it, so the act must not replace it.
+  _log "OVERDUE $_oee: seat idle ${_oei}s against a ${_oed}s deadline and"\
+" the edge has not fired"
+  _alert overdue "$_oee should have fired ${_oei}s into a ${_oed}s idle"\
+" deadline; the primary mechanism for it is not working"
+
+  if [ "$OVERDUE_ACT" -le 0 ] || [ "$_oes" -lt "$OVERDUE_ACT" ]; then
+    echo "enforce: $_oee OVERDUE (idle ${_oei}s of ${_oed}s); reported"
+    return 1
+  fi
+
+  if [ -f "$OVERDUE_ACTED" ]; then
+    _log "OVERDUE-WEDGED $_oee: still overdue ${_oes}s after the idle timer"\
+" was re-armed, so this is a wedge rather than a spent timer"
+    _alert overdue-wedged "'$_oee' is STILL overdue after the idle timer was"\
+" re-armed, so it is WEDGED rather than merely out of armed timeouts."\
+" Nothing further is attempted automatically."
+    echo "enforce: $_oee still overdue after a re-arm; WEDGED"
+    return 1
+  fi
+
+  # STAMPED BEFORE ACTING, so a crash mid-action still spends this episode's
+  # one attempt. The alternative retries for ever against whatever broke.
+  printf '%s\n' "$(date +%s)" > "$OVERDUE_ACTED" 2>/dev/null || true
+
+  _oew=
+  if [ "$_oee" = lock ]; then
+    # A SUBSHELL, so the source cannot leak: an env prefix on a shell FUNCTION
+    # persists past the call in dash, and VIGILANCE_SOURCE reaching every
+    # later crossing in this pass would mis-attribute all of them.
+    ( VIGILANCE_SOURCE=overdue-bound; export VIGILANCE_SOURCE
+      cmd_go lock atleast ) || true
+    _oew=" The session was secured first."
+  fi
+
+  if _overdue_rearm; then
+    _log "OVERDUE-BOUND $_oee: overdue ${_oes}s past the ${OVERDUE_ACT}s"\
+" bound; re-armed $IDLE_UNIT"
+    _alert overdue-acted "'$_oee' was overdue past the ${OVERDUE_ACT}s bound,"\
+" so the idle timer was re-armed and its deadlines count from now.$_oew"
+    echo "enforce: $_oee overdue past the bound; idle timer re-armed"
+  else
+    _log "OVERDUE-BOUND $_oee: overdue ${_oes}s past the ${OVERDUE_ACT}s"\
+" bound, and ${IDLE_UNIT:-no declared idle unit} did not come back"
+    _alert overdue-rearm-failed "'$_oee' was overdue past the"\
+" ${OVERDUE_ACT}s bound and the idle timer could not be re-armed"\
+" (${IDLE_UNIT:-this box declares none}), so the deadline will go on being"\
+" missed.$_oew"
+    echo "enforce: $_oee overdue past the bound; the re-arm FAILED"
+  fi
+  return 1
+}
+
 # `timer`: WHAT IS COUNTING, AND HOW LONG IS LEFT. A read-only view, and
 # `timer reset` is the one thing here that can be reset.
 #
@@ -4810,6 +5032,22 @@ _timer_show() {
         if [ -n "${_tidle:-}" ]; then
           echo "idle:     ${_tidle}s since last input"
           echo "next:     '$_te' $(_timer_left "$_td" "$_tidle") (${_td}s idle)"
+          # THE OVERDUE EPISODE, AND ONLY WHEN THERE IS ONE. A line reading
+          # "not overdue" on every healthy box is a line nobody reads, and
+          # this view's whole job is that its numbers mean something.
+          _tov=$(_overdue_span "$_te")
+          if [ -n "${_tov:-}" ]; then
+            echo "overdue:  ${_tov}s, and the edge still has not fired"
+            if [ "$OVERDUE_ACT" -le 0 ]; then
+              echo "  act:    disabled (VIGILANCE_OVERDUE_ACT=0)"
+            elif [ -f "$OVERDUE_ACTED" ]; then
+              echo "  act:    spent on this episode; a further miss is"\
+" reported as a WEDGE rather than retried"
+            else
+              echo "  act:    $(_timer_left "$OVERDUE_ACT" "$_tov") (then a"\
+" re-arm of ${IDLE_UNIT:-the idle timer})"
+            fi
+          fi
         else
           # NO CLOCK IS NOT ZERO IDLE. Printing a countdown from a reading
           # nothing produced is how a deadline gets certified as measurable on
@@ -5038,10 +5276,16 @@ cmd_enforce() {
     _idle=$(_idle_secs)
     if [ -n "$_idle" ]; then
       if [ "$_idle" -le $((_d + GRACE)) ]; then
+        # THE EPISODE IS OVER, which is also how every transient cause clears
+        # itself: a released inhibitor and a reset clock both land here.
+        _overdue_clear   # the seat went busy again
         echo "enforce: $_e not due yet (idle ${_idle}s of $((_d + GRACE))s)"
         return "$_erc"
       fi
       if _blocked "$_e" "$_from"; then
+        # A BLOCK IS A LEGITIMATE HOLD, like an inhibitor, so it must not
+        # accumulate a span that fires the bound the moment it is lifted.
+        _overdue_clear   # a block hook is holding it off
         _log "OVERDUE $_e: idle ${_idle}s of ${_d}s, but blocked; holding off"
         echo "enforce: $_e overdue but blocked; holding off"
         return "$_erc"
@@ -5066,6 +5310,10 @@ cmd_enforce() {
       # definite yes, so an unreadable bus leaves this detector exactly as it
       # was rather than silently switching it off.
       if [ -n "$_ispan" ]; then
+        # DEFERRED IS NOT OVERDUE, so the inhibitor's own escalation owns this
+        # and the overdue episode must not run in parallel with it. Crediting
+        # the hold would fire the overdue bound the instant the call ended.
+        _overdue_clear   # an inhibitor owns this deadline
         _inhibit_escalate "$_e" "$_idle" "$_d" "$_ispan" || _erc=1
         return "$_erc"
       fi
@@ -5075,12 +5323,9 @@ cmd_enforce() {
       # argv check, logs no event for audit to reconcile, and leaves the
       # machine at a rung it genuinely matches. Nothing else here can see it,
       # and it is the failure that created this package.
-      _log "OVERDUE $_e: seat idle ${_idle}s against a ${_d}s deadline and"\
-" the edge has not fired"
-      _alert overdue "$_e should have fired ${_idle}s into a ${_d}s idle"\
-" deadline; the primary mechanism for it is not working"
-      echo "enforce: $_e OVERDUE (idle ${_idle}s of ${_d}s); reported"
-      return 1
+      _ospan=$(_overdue_track "$_e")
+      _overdue_escalate "$_e" "$_idle" "$_d" "$_ospan" || _erc=1
+      return "$_erc"
     fi
   fi
   if [ "$_anch" = idle ]; then

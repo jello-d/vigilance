@@ -173,6 +173,21 @@ with
 .BR VIGILANCE_SOURCE=inhibit-bound ,
 so the crossing is attributable in the log.
 .PP
+An edge overdue with NO inhibitor deferring it is a different case: a fault
+rather than a deferral, so it is alerted on the first pass that sees one. Past
+.B VIGILANCE_OVERDUE_ACT
+the idle timer's unit is re-armed, ONCE per episode. The action is a re-arm and
+never a forced descent, because nothing may enter a dark state unless its way
+back is armed; where the overdue edge is
+.BR lock ,
+whose rung is a guarantee, that edge is crossed first as well.
+.PP
+A re-arm that does not clear it is the stronger finding, and the one thing
+nothing here could establish before: a timer merely out of armed timeouts comes
+back, so one still silent afterwards is WEDGED. That is reported and never
+retried, because restarting it every minute would reset the deadlines every
+minute, and a box whose lock deadline is perpetually reset never locks at all.
+.PP
 .B "vigilant timer"
 shows what is counting and how long is left: whether an inhibitor is held and
 by what, the time to each bound, and the next edge's deadline. It says FIRST
@@ -497,6 +512,11 @@ crash and a human typing their password read alike here.
 the idle inhibit bound forcing a lock. See
 .B THE IDLE INHIBIT BOUND
 above.
+.TP
+.B overdue\-bound
+the overdue bound securing a session whose
+.B lock
+edge never fired. Only that edge: a dark one is re-armed, never forced.
 .TP
 .B rescue
 the panic key.
@@ -894,6 +914,10 @@ is reported (default 10800); 0 never reports
 .TP
 .B VIGILANCE_INHIBIT_FORCE
 how long before the session is secured anyway (default 14400); 0 never acts
+.TP
+.B VIGILANCE_OVERDUE_ACT
+how long an edge may stay OVERDUE, with no inhibitor deferring it, before the
+idle timer is re-armed (default 600); 0 reports and never acts
 .TP
 .B VIGILANCE_ALERT_COOLDOWN
 repeat-alert suppression; 0 disables

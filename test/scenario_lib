@@ -66,6 +66,14 @@ scenario_init() {   # <name>
   # does not exist: the check then has nothing to read and says nothing, and a
   # scenario that cares writes the file itself.
   export VIGILANCE_IDLE_CMDLINE=$T/no-swayidle
+  # AND THE IDLE UNIT'S NAME, WHICH IS NOT OPTIONAL NOW THAT THE RUNNER CAN
+  # ACT ON IT. The overdue bound re-arms that unit, so a scenario reaching it
+  # with the shipped default would restart the DEVELOPER'S OWN live idle
+  # timer, dropping idle-lock coverage on a machine nobody asked us to touch.
+  # A name that cannot resolve makes the re-arm fail honestly instead, which
+  # is also the branch worth asserting; a scenario wanting the other one
+  # names a unit of its own.
+  export VIGILANCE_IDLE_UNIT=vig-test-no-idle-unit.service
   # And the SESSION probe, for the same reason and a sharper one: the two
   # substrates genuinely differ. The developer's box has a graphical session;
   # the VM guest has none, so `loginctl` there answers "No sessions". A scenario

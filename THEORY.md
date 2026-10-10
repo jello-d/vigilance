@@ -119,6 +119,12 @@ wishes are visible.
         sources the debounce must let through), idle-audit.t (the armed
         command resolves past the label), swayidle-due.t case 9 (a label
         cannot invent a deadline)
+    35  an edge left OVERDUE with nothing deferring it is ACTED on after a
+        bound, once per episode, and the act RE-ARMS the timer rather than
+        forcing a dark rung
+        overdue-bound.t (the bound, the dark-edge refusal, the lit edge and
+        its attribution, the wedge finding, the unwatched gap, and 0
+        disabling the act)
 
 ### Why the idle reading has two ceilings and not one
 
@@ -144,10 +150,11 @@ from zero however long the seat has been quiet.
 The integrator restarts that unit whenever the armed argv changes, so every
 deploy touching it opened this window.
 
-### The one place supervision ACTS, and what makes that safe
+### The two places supervision ACTS, and what makes each safe
 
-Invariant 31 is the single exception to "supervision reports, it does not act",
-so it is worth stating why it is not the return of `enforce`'s forcing.
+Invariants 31 and 35 are the only exceptions to "supervision reports, it does
+not act", so it is worth stating why neither is the return of `enforce`'s
+forcing.
 
 A held logind idle inhibitor suppresses every idle timeout, because
 `swayidle-mgr` arms a logind event so the request is HONOURED: a video call
@@ -173,6 +180,38 @@ measurement:
 A call somebody is attending fails the second. `vigilant timer reset` answers
 first. The third is invariant 1. And either bound at 0 disables that half, so
 an operator who wants no actuator here keeps none.
+
+The second (invariant 35) is the OTHER half of the same question, and the
+asymmetry between them is the whole design. A deferred deadline has a reason;
+an overdue one is a fault, and reporting a fault every minute to somebody who
+is not at the machine is half a mechanism. MEASURED on manifestor 2026-10-09: a
+remote unlock/lock pair left the ladder at `lock` with the idle timer's
+timeouts already spent, the detector said so correctly for five passes running,
+and a static lock surface sat lit on an OLED for 23 minutes until an unrelated
+deploy ended it.
+
+What keeps it safe is that the act is a RE-ARM rather than a crossing. A forced
+`go sleep` would break invariant 1 in precisely the case it exists for: if the
+timer really is wedged, the way back is not armed and the screen is stranded
+dark. Re-arming the timer fixes the CAUSE and enters no rung at all. Only where
+the overdue edge is `lock`, whose rung is a guarantee, is the edge crossed
+directly, because there a re-arm alone would push an already-missed lock
+deadline out by its whole length again.
+
+ONCE PER EPISODE, and the second pass carries the better finding. A timer that
+had merely spent its armed timeouts comes back when restarted, so one still
+silent afterwards is WEDGED: positive evidence of the founding failure of this
+package, which nothing here could previously tell apart from a timer that was
+simply out of timeouts. It is reported and never retried, because a restart
+every minute would reset the deadlines every minute, and a box whose lock
+deadline is perpetually reset never locks at all.
+
+AND THE SPAN MAY ONLY COUNT TIME A PASS WAS THERE TO SEE. The supervision timer
+does not fire in S3, so a suspend spanning an episode would otherwise be
+credited as time overdue and fire the bound the instant the box came back. That
+is the same rule the idle clock's MAXGAP enforces, against the same sampler, and
+it is the trap the watchdog was caught in on 2026-10-07 with 15941s of S3
+inside a 16045s "silence".
 
 ### Why the peripheral cadence is an hour, and what makes that safe
 

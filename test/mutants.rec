@@ -185,8 +185,8 @@ t due
 = enforce-idle-overdue-not-detected
 f bin/vigilant
 t due
--       echo "enforce: $_e OVERDUE (idle ${_idle}s of ${_d}s); reported"
-+       echo "enforce: $_e fine"
+-     echo "enforce: $_oee OVERDUE (idle ${_oei}s of ${_oed}s); reported"
++     echo "enforce: $_oee fine"
 
 = watchdog-tier-never-runs
 f bin/vigilant
@@ -1260,3 +1260,32 @@ f bin/vigilant
 t rescue
 -   ( VIGILANCE_SOURCE=rescue; export VIGILANCE_SOURCE
 +   VIGILANCE_SOURCE=rescue; export VIGILANCE_SOURCE; (
+= overdue-acts-with-no-bound
+f bin/vigilant
+t overdue-bound
+-   if [ "$OVERDUE_ACT" -le 0 ] || [ "$_oes" -lt "$OVERDUE_ACT" ]; then
++   if false; then
+
+= overdue-retries-every-pass
+f bin/vigilant
+t overdue-bound
+-   if [ -f "$OVERDUE_ACTED" ]; then
++   if false; then
+
+= overdue-credits-an-unwatched-gap
+f bin/vigilant
+t overdue-bound
+-       if [ "$_otg" -le "$OVERDUE_MAXGAP" ]; then
++       if true; then
+
+= overdue-claims-a-dark-edge-was-secured
+f bin/vigilant
+t overdue-bound
+-   if [ "$_oee" = lock ]; then
++   if [ "$_oee" != zz ]; then
+
+= overdue-episode-outlives-the-fault
+f bin/vigilant
+t overdue-bound
+-         _overdue_clear   # the seat went busy again
++         true
