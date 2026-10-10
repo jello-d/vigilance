@@ -355,7 +355,8 @@ INHIBIT_FORCE=${VIGILANCE_INHIBIT_FORCE:-14400}      # 4h
 # cause has cleared, and those genuinely do clear themselves: a released
 # inhibitor and a reset clock both END the episode by dropping idle back under
 # the deadline. Short enough to bound the damage, which on the box that
-# prompted this was a static lock surface lit on an OLED for 23 minutes.
+# prompted this was a static lock surface lit on an OLED for 39 minutes,
+# ended only by a human walking to the machine.
 #
 # 0 DISABLES THE ACT and leaves the reporting exactly as it was, which is how
 # "tell me but never touch it" stays reachable as configuration.

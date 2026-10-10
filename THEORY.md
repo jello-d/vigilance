@@ -187,8 +187,11 @@ an overdue one is a fault, and reporting a fault every minute to somebody who
 is not at the machine is half a mechanism. MEASURED on manifestor 2026-10-09: a
 remote unlock/lock pair left the ladder at `lock` with the idle timer's
 timeouts already spent, the detector said so correctly for five passes running,
-and a static lock surface sat lit on an OLED for 23 minutes until an unrelated
-deploy ended it.
+and a static lock surface sat lit on an OLED for 39 minutes, ended only when a
+human walked to the machine: the log shows a real unlock at 22:14:18
+(`src=locker-exit`) and a keybind lock two seconds later, which gave the
+compositor the seat input swayidle needed, after which the blank fired normally
+600s later. What ended it is the one thing a remote operator cannot do.
 
 What keeps it safe is that the act is a RE-ARM rather than a crossing. A forced
 `go sleep` would break invariant 1 in precisely the case it exists for: if the

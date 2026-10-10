@@ -7,9 +7,11 @@
 # spent, and swayidle re-arms only after a RESUME, which needs seat input a
 # remote command does not supply. So the `sleep` edge could never fire, the
 # detector reported it correctly for five passes running, and nothing acted:
-# a static lock surface lit on an OLED for 23 minutes, ended only by an
-# unrelated deploy. Reporting a fault to a human who is not at the machine is
-# half a mechanism.
+# a static lock surface lit on an OLED for 39 minutes, ended only when a human
+# walked to the machine and gave the compositor the seat input swayidle was
+# waiting for. Reporting a fault to somebody who is not at the machine is half
+# a mechanism, and what ended this one is the thing a remote operator cannot
+# do.
 #
 # WHY THE ACTION IS NOT `go sleep`. The ladder's own invariant is that nothing
 # may enter a dark state unless its way back is armed, which is why `suspend`
