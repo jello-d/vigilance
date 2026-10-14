@@ -98,6 +98,15 @@ _reset() {
 # every case below silently exercise the other tier.
 VIGILANCE_BLOCK_INHIBITED=''; export VIGILANCE_BLOCK_INHIBITED
 
+# AND THE ACT IS TURNED ON EXPLICITLY, because it ships OFF. Every case below
+# is about what an integrator who has opted in should get, and until
+# 2026-10-14 they all leaned on a 600s default instead of saying so. Leaning on
+# it was not merely untidy: when the default changed, three cases that assert
+# the act FIRES would have gone green against a tier that no longer acts, which
+# is the shape of an assertion passing for its neighbour's reason. Case 9 holds
+# the default itself down, and is the only case here that must not inherit this.
+VIGILANCE_OVERDUE_ACT=600; export VIGILANCE_OVERDUE_ACT
+
 # --- 1. UNDER THE BOUND: reported, and nothing is touched -------------------
 # FIRST, because every case after this one makes the tier act, and a change
 # that simply acted on sight would pass all of them while turning a
@@ -122,6 +131,20 @@ a unit over a blip"
 case "$(_kinds)" in
   *acted*|*wedged*|*rearm*) fail "an act was reported under the bound:
 $(_kinds)" ;;
+esac
+# AND THE ALERT MUST NOT ASSERT A CAUSE IT CANNOT ESTABLISH. It used to read
+# "the primary mechanism for it is not working", which was false on 2026-10-14:
+# a compositor-level idle inhibitor held swayidle off, this clock could not see
+# it, and the sentence sent a reader after a timer behaving exactly correctly.
+# Silence from the owner of a deadline is ambiguous, so it is reported as
+# ambiguous. Asserted because a wording fix is the kind that comes back
+# silently the next time somebody rewrites a message.
+case "$(cat "$T/alerts")" in
+  *"is not working, or the seat is not idle"*) ;;
+  *) fail "the overdue alert names ONE cause for a silence that has two. A
+wrong cause is worse than none because it is confidently actionable: this one
+pointed at a healthy idle timer while a browser held an inhibitor we cannot
+see. $(cat "$T/alerts")" ;;
 esac
 
 # --- 2. PAST THE BOUND, A DARK EDGE: re-armed and NOT descended -------------
@@ -339,7 +362,40 @@ case "$_tv" in
 record of one: $_tv" ;;
 esac
 
-pass "reported under the bound, a dark edge re-armed and never descended into,\
- the lit edge secured and attributed, a second miss called a WEDGE and not\
- retried, a gap re-anchored, the episode cleared, 0 disabling the act,\
- and the view showing the episode and its bound"
+# --- 9. AND THE DEFAULT IS OFF, the premise this tier cannot check ----------
+# `env -u` IS LOAD-BEARING: this file exports a bound for every case above, so
+# a case that merely omits it still inherits one and would assert the override
+# rather than the default. Same trap as a scenario inheriting
+# VIGILANCE_LOCKER_UP and testing the knob instead of the probe.
+#
+# WHY IT SHIPS OFF. The act rests on OUR clock agreeing with the deadline
+# owner's about what an idle seat is, and on 2026-10-14 it did not: a browser
+# in a video call held the compositor's own idle inhibitor, so swayidle was
+# told the seat was ACTIVE and correctly never fired the 480s lock, while the
+# input counters read 1166s of idle. The act then locked a machine somebody was
+# working at. Whether a box has an inhibitor-aware clock is the integrator's
+# fact to declare, so acting is opt-in, and this case is what keeps it so.
+_reset
+duehook sleep 10-fake '600 idle'
+_backdate lock 9999
+_idle 700
+_episode sleep 99999
+_alerts
+env -u VIGILANCE_OVERDUE_ACT "$VIGILANT" enforce >>"$T/out" 2>>"$T/stderr" \
+  && fail "enforce reported success on a genuinely overdue edge"
+case "$(_kinds)" in
+  *overdue*) ;;
+  *) fail "a box that opted into nothing stopped REPORTING an overdue edge.
+The report has never been opt-in and it is the entire detector: $(_kinds)" ;;
+esac
+_acted && fail "the act fired on a box that never asked for it. It ships OFF
+because its premise is that this clock agrees with the deadline owner about
+what an idle seat is, and an inhibitor this clock cannot see breaks that. The
+measured cost of getting it wrong was a forced lock on a machine whose user was
+in a video call"
+
+pass "reported under the bound and never blaming one cause for an ambiguous\
+ silence, a dark edge re-armed and never descended into, the lit edge secured\
+ and attributed, a second miss called a WEDGE and not retried, a gap\
+ re-anchored, the episode cleared, 0 disabling the act, the view showing the\
+ episode and its bound, and the act OFF unless an integrator asks"

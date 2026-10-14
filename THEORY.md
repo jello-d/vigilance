@@ -119,12 +119,13 @@ wishes are visible.
         sources the debounce must let through), idle-audit.t (the armed
         command resolves past the label), swayidle-due.t case 9 (a label
         cannot invent a deadline)
-    35  an edge left OVERDUE with nothing deferring it is ACTED on after a
-        bound, once per episode, and the act RE-ARMS the timer rather than
-        forcing a dark rung
-        overdue-bound.t (the bound, the dark-edge refusal, the lit edge and
-        its attribution, the wedge finding, the unwatched gap, and 0
-        disabling the act)
+    35  an edge left OVERDUE with nothing deferring it is REPORTED on every
+        pass, naming both causes of the silence rather than one; and where an
+        integrator has opted in, ACTED on after a bound, once per episode,
+        the act RE-ARMING the timer rather than forcing a dark rung
+        overdue-bound.t (the bound, the ambiguous wording, the dark-edge
+        refusal, the lit edge and its attribution, the wedge finding, the
+        unwatched gap, 0 disabling the act, and the act OFF by default)
 
 ### Why the idle reading has two ceilings and not one
 
@@ -209,12 +210,75 @@ simply out of timeouts. It is reported and never retried, because a restart
 every minute would reset the deadlines every minute, and a box whose lock
 deadline is perpetually reset never locks at all.
 
+AND "ONCE PER EPISODE" IS NOT "ONCE PER FAULT", measured in the same incident.
+On the lit edge the act SECURES the session, the human unlocks it, the unlock
+is seat input, that input drops idle back under the deadline and ENDS the
+episode, and a fresh one opens as soon as idle passes the deadline again. So
+the act repeats every deadline-plus-bound for as long as the underlying
+condition holds. Measured 22 minutes apart against a 480s deadline and a 600s
+bound:
+
+    15:28:16  forced lock, and the idle timer re-armed
+    15:28:24  cross unlock: the human is back, 8 seconds later
+    15:29:22  overdue episode ENDED, because that input cleared it
+    15:40:06  a NEW episode opens at 516s of idle
+    15:50:56  forced lock again
+
+TWO CONSEQUENCES, and the second is worse than the repetition. The WEDGE
+finding above is UNREACHABLE on the lit edge whenever the act succeeds, because
+a second miss inside one episode cannot happen if the act's own side effect
+ends the episode. And alert dedup makes the repetition SILENT: the first act
+notified and the second was suppressed as a repeat inside the 3600s cooldown,
+so the human was told once and locked twice. The warning window that makes the
+inhibit bound safe does not exist here at all.
+
+AN ACT WHOSE SIDE EFFECT CLEARS ITS OWN PRECONDITION IS SELF-RETRIGGERING, and
+counting attempts per episode cannot bound it. Also stronger evidence than the
+silence alone: swayidle was restarted by the FIRST act, so it entered the
+second window with every timeout freshly armed and still emitted no tick, which
+rules out "it had merely spent its timeouts" outright. Not changed, since the
+act is off by default and bounding it properly is a design decision rather than
+an improvisation; written down so that whoever opts in knows what they get.
+
 AND THE SPAN MAY ONLY COUNT TIME A PASS WAS THERE TO SEE. The supervision timer
 does not fire in S3, so a suspend spanning an episode would otherwise be
 credited as time overdue and fire the bound the instant the box came back. That
 is the same rule the idle clock's MAXGAP enforces, against the same sampler, and
 it is the trap the watchdog was caught in on 2026-10-07 with 15941s of S3
 inside a 16045s "silence".
+
+BUT THAT ACT IS OFF BY DEFAULT, and the retreat was measured rather than
+cautious. It rests on a premise this tier cannot check: that OUR idea of an
+idle seat agrees with the deadline owner's. "Overdue" is built from two halves
+that come from different places, the DEADLINE from the idle timer and the
+IDLENESS from `idle.d`, so where something holds the timer off through a
+channel `idle.d` cannot see, a correct deferral is indistinguishable from a
+wedged timer.
+
+LIVE on manifold 2026-10-14, which is how this was found. A browser in a video
+call took the compositor's own idle inhibitor
+(`zwp_idle_inhibit_manager_v1`), so swayidle was told the seat was ACTIVE and
+correctly never fired the 480s lock: ZERO `idle-tick` events for 22 minutes
+with a 60s heartbeat armed, which is the evidence, and no logind inhibitor and
+no owner on `org.freedesktop.ScreenSaver`, so neither channel vigilance CAN see
+was in play. The shipped `10-input-counters` reads kernel input counters, which
+see no inhibitor of any kind, and read 1166s of idle. The act then locked a
+machine somebody was working at, under an alert asserting that the primary
+mechanism was not working about one that was declining on purpose.
+
+THE EXACT GAP WAS RECORDED THREE DAYS EARLIER AND CALLED "THE SAFE DIRECTION".
+It was, while overdue only REPORTED. Adding an actuator is what made it unsafe,
+and the sentence saying so was never revisited. The watchdog one tier over had
+the right shape all along: it says an idle inhibitor "produces IDENTICAL
+silence and cannot be queried" and offers two causes rather than asserting a
+fault. The general rule, now paid for: AN EXCLUSION THAT IS ADEQUATE FOR A
+REPORT IS NOT NECESSARILY ADEQUATE FOR AN ACT, so adding an actuator to a
+detector means re-deriving every "this errs in the safe direction" the detector
+rests on, because the safe direction changed.
+
+Reporting stays on, and names both causes: a report that is wrong costs a
+reader a few seconds, and one that names the only cause it can think of sends
+them after a healthy mechanism.
 
 ### Why the peripheral cadence is an hour, and what makes that safe
 
@@ -818,6 +882,33 @@ On top of that:
    guards have to be proven to bite by hand, by running the scenario against the
    unfixed code once, and saying so: invariant 30 and the sway-dpms drift path
    were both closed that way.
+6. **The idle clock cannot see every inhibitor its idle timer honours.** This
+   is the premise behind invariant 35's act, and it is why that act ships off.
+   An idle deadline has two halves from two places: the DEADLINE is the idle
+   timer's and the IDLENESS is `idle.d`'s. There are at least three channels
+   through which something can hold a timer off, and the shipped source sees
+   none of them:
+
+       logind Inhibit what=idle          vigilant reads it (_idle_inhibited)
+       org.freedesktop.ScreenSaver       vigilant can query an owner of it
+       zwp_idle_inhibit_manager_v1       NOTHING here can see it
+
+   The third is the Wayland protocol a browser takes during a video call, and
+   it is the one the compositor honours, which is also why it cannot be
+   queried: it is a client-side protocol with no introspection and no "is one
+   held" request. `10-input-counters` reads kernel input counters, which see no
+   inhibitor of ANY kind, so on a Wayland box the clock and the timer routinely
+   disagree about whether the seat is idle, and the clock is the one that is
+   wrong. Measured live 2026-10-14: 1166s of counted idle against a timer that
+   had not seen one second of it.
+
+   The direction is safe for REPORTING (a false overdue costs a reader a few
+   seconds, and the message names both causes) and unsafe for ACTING, which is
+   the whole reason the two are now configured separately. The fix available
+   without a daemon is a source that reports the TIMER'S OWN view, since the
+   timer's heartbeat is a durable record and therefore sampling-safe, and
+   minimum-wins would then let the timer's reading stop a counter-manufactured
+   overdue exactly as it was designed to. Not built.
 
 ## 6. Rules of thumb that earned their place
 

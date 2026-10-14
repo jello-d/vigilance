@@ -1289,3 +1289,15 @@ f bin/vigilant
 t overdue-bound
 -         _overdue_clear   # the seat went busy again
 +         true
+
+= overdue-act-ships-on
+f bin/vigilant
+t overdue-bound
+- OVERDUE_ACT=${VIGILANCE_OVERDUE_ACT:-0}
++ OVERDUE_ACT=${VIGILANCE_OVERDUE_ACT:-600}
+
+= overdue-blames-one-cause
+f bin/vigilant
+t overdue-bound
+- " deadline. Either its timer is not working, or the seat is not idle by"\
++ " deadline; the primary mechanism for it is not working. Never mind"\

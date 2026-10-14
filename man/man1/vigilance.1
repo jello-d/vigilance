@@ -182,6 +182,34 @@ back is armed; where the overdue edge is
 .BR lock ,
 whose rung is a guarantee, that edge is crossed first as well.
 .PP
+THAT ACT IS OFF BY DEFAULT, and turning it on is a statement about this box's
+idle clock. "Overdue" means the seat is idle past a deadline the idle timer did
+not act on, and the two halves of that come from different places: the deadline
+is the timer's and the idleness is
+.BR idle.d 's.
+Where something can hold the timer off through a channel
+.B idle.d
+cannot see, a correct deferral is indistinguishable from a wedged timer, and
+acting then interrupts a machine in use. The shipped
+.B 10-input-counters
+reads kernel input counters, which see no inhibitor of any kind, so a
+compositor-level idle inhibitor (the Wayland
+.BR zwp_idle_inhibit_manager_v1 ,
+which a browser in a video call takes) is invisible to it while
+.B swayidle
+honours it. Reporting is unaffected and stays on: a report that names both
+causes costs nothing when it is wrong.
+.PP
+ONCE PER EPISODE IS NOT ONCE PER FAULT, which matters to anyone turning this
+on. On the
+.B lock
+edge the act secures the session, the human unlocks it, that unlock is seat
+input, and the input ends the episode: a fresh one opens as soon as the seat is
+idle past the deadline again, so the act repeats every deadline-plus-bound for
+as long as whatever caused it persists. Alert dedup makes the repeats quiet,
+since they share one finding, so the human is told once and acted on
+repeatedly.
+.PP
 A re-arm that does not clear it is the stronger finding, and the one thing
 nothing here could establish before: a timer merely out of armed timeouts comes
 back, so one still silent afterwards is WEDGED. That is reported and never
@@ -917,7 +945,9 @@ how long before the session is secured anyway (default 14400); 0 never acts
 .TP
 .B VIGILANCE_OVERDUE_ACT
 how long an edge may stay OVERDUE, with no inhibitor deferring it, before the
-idle timer is re-armed (default 600); 0 reports and never acts
+idle timer is re-armed. Default 0, which reports and never acts; set a bound
+only where this box's idle clock can see every inhibitor its idle timer
+honours, since otherwise a legitimate deferral reads as a fault
 .TP
 .B VIGILANCE_ALERT_COOLDOWN
 repeat-alert suppression; 0 disables

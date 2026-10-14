@@ -360,7 +360,22 @@ INHIBIT_FORCE=${VIGILANCE_INHIBIT_FORCE:-14400}      # 4h
 #
 # 0 DISABLES THE ACT and leaves the reporting exactly as it was, which is how
 # "tell me but never touch it" stays reachable as configuration.
-OVERDUE_ACT=${VIGILANCE_OVERDUE_ACT:-600}
+#
+# AND 0 IS THE DEFAULT, which is a measured retreat rather than caution. The
+# act rests on a premise this clock cannot establish: that OUR idea of an idle
+# seat agrees with the deadline owner's. On 2026-10-14 it did not. A browser in
+# a video call held the compositor's own idle inhibitor, so swayidle was told
+# the seat was ACTIVE and correctly never fired the 480s lock, while the input
+# counters, which know nothing about any inhibitor, read 1166s of idle. The act
+# then locked a machine somebody was working at, under an alert blaming a
+# broken primary mechanism for one that was declining on purpose.
+#
+# SO ACTING WANTS AN INHIBITOR-AWARE CLOCK, and whether this box has one is
+# the integrator's fact to declare, by setting this. The watchdog one tier
+# over has always drawn that line: it says an idle inhibitor produces
+# IDENTICAL silence and cannot be queried, and offers two causes rather than
+# asserting a fault. This tier holds an ACTUATOR and had no such exclusion.
+OVERDUE_ACT=${VIGILANCE_OVERDUE_ACT:-0}
 
 # THE SAME QUESTION THE IDLE CLOCK ASKS, ABOUT THE SAME SAMPLER, so it is the
 # same value: how long a gap between passes means we were not watching. The
@@ -4884,8 +4899,16 @@ _overdue_escalate() {   # <edge> <idle> <deadline> <span> -> 1
   # reads it, so the act must not replace it.
   _log "OVERDUE $_oee: seat idle ${_oei}s against a ${_oed}s deadline and"\
 " the edge has not fired"
+  # NAMING BOTH CAUSES IS THE POINT, and the old wording named the wrong one.
+  # It said "the primary mechanism for it is not working", which on 2026-10-14
+  # was false: a compositor-level idle inhibitor held swayidle off, this clock
+  # could not see it, and the sentence sent a reader after a timer that was
+  # behaving correctly. Silence from the owner of a deadline is ambiguous, so
+  # it is reported as ambiguous. Both durations still normalise out of the
+  # dedup key (a digit run followed by `s`), so the identity is unchanged.
   _alert overdue "$_oee should have fired ${_oei}s into a ${_oed}s idle"\
-" deadline; the primary mechanism for it is not working"
+" deadline. Either its timer is not working, or the seat is not idle by"\
+" that timer's own reckoning and this clock cannot see what holds it off"
 
   if [ "$OVERDUE_ACT" -le 0 ] || [ "$_oes" -lt "$OVERDUE_ACT" ]; then
     echo "enforce: $_oee OVERDUE (idle ${_oei}s of ${_oed}s); reported"
@@ -5040,7 +5063,11 @@ _timer_show() {
           if [ -n "${_tov:-}" ]; then
             echo "overdue:  ${_tov}s, and the edge still has not fired"
             if [ "$OVERDUE_ACT" -le 0 ]; then
-              echo "  act:    disabled (VIGILANCE_OVERDUE_ACT=0)"
+              # STATE THE VALUE, NOT WHO SET IT. 0 is the default now, so
+              # "disabled (VIGILANCE_OVERDUE_ACT=0)" read as though the
+              # operator had turned something off that ships on.
+              echo "  act:    off (VIGILANCE_OVERDUE_ACT is 0); a bound"\
+" there would re-arm ${IDLE_UNIT:-the idle timer}"
             elif [ -f "$OVERDUE_ACTED" ]; then
               echo "  act:    spent on this episode; a further miss is"\
 " reported as a WEDGE rather than retried"
