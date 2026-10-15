@@ -276,6 +276,13 @@ NEVER_ENFORCED='suspend'
 # made an audit hook read as wired while nothing would ever run it.
 CROSS_KINDS='audit alert cursor idle watchdog'
 
+_is_cross_kind() {   # <name>
+  case " $CROSS_KINDS " in
+    *" $1 "*) return 0 ;;
+  esac
+  return 1
+}
+
 _lt() { printf '%s\n' "$LADDER_TABLE"; }
 
 _all_edges() {   # every edge name, descents then ascents
@@ -1067,12 +1074,18 @@ _hooks_for() {   # edge [suffix]
     # Coming UP: the lower layer first, each scope unwinding its own order.
     _hooks_in "$MACHINE_HOOK_ROOT" "$1" "${2:-}" desc
     _hooks_in "$HOOK_ROOT" "$1" "${2:-}" desc
-  elif [ "$1" = alert ] || [ "$1" = audit ] || [ "$1" = idle ] \
-       || [ "$1" = watchdog ]; then
-    # NEITHER IS A LADDER EDGE, so say so explicitly rather than letting them
-    # fall through to the descent branch and be ordered as if they were one.
-    # `audit` landed in that branch by accident; the order it produced happened
-    # to be the same, which is exactly why it went unnoticed.
+  elif _is_cross_kind "$1"; then
+    # NONE OF THESE IS A LADDER EDGE, so say so explicitly rather than letting
+    # them fall through to the descent branch and be ordered as if they were
+    # one. `audit` landed in that branch by accident; the order it produced
+    # happened to be the same, which is exactly why it went unnoticed.
+    #
+    # DERIVED FROM CROSS_KINDS, because the hand-written list this replaced had
+    # ALREADY drifted: `cursor` was added to CROSS_KINDS and not to the list, so
+    # it was filed as a descent and ordered user-scope first. Immaterial for a
+    # one-answer tier, which is exactly why nobody noticed, and the same shape
+    # as the `audit` slip the paragraph above records. One declaration, nothing
+    # to drift from.
     #
     # Machine first so the always-available journal sink records BEFORE any user
     # sink that might be slow or absent: the record must not be the part lost.

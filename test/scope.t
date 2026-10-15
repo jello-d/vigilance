@@ -84,6 +84,48 @@ expect_depth sleep
 expect_record "sleep lock M:10-m
 sleep lock M:90-m"
 
+# --- a CROSS-CUTTING tier is MACHINE FIRST, not ordered as a descent --------
+# `idle.d`, `audit.d`, `alert.d` and friends are not ladder edges. They take
+# the machine-first order for the reason the header gives: the always-available
+# machine sink records BEFORE any user sink that might be slow or absent, so
+# the RECORD is never the part that gets lost.
+#
+# ASSERTED FOR ONE TIER AND STRUCTURAL FOR THE REST. `_hooks_for` derives this
+# from CROSS_KINDS, so a new cross-cutting kind inherits the order rather than
+# needing a line here. It did not always: the branch carried a hand-written
+# list of four, and `cursor` was added to CROSS_KINDS without being added to
+# it, so it was filed as a DESCENT and ordered user-scope first. Immaterial for
+# a one-answer tier, which is exactly why it sat unnoticed, and the same slip
+# the branch's own comment already recorded about `audit`.
+# ASKED OF EVERY KIND, AND THE LIST COMES FROM THE DECLARATION. A hand-written
+# list here would be the same hazard one layer out, and `cursor` proves the
+# point: a per-tier assertion would have been written for the four that were
+# already right. `vigilant hooks` is the universal observer, because it labels
+# the scope and lists in _hooks_for order without executing anything, so this
+# covers tiers no verb in this file could drive.
+_ck=$(sed -n "s/^CROSS_KINDS='\(.*\)'\$/\1/p" "$HERE/bin/vigilant")
+[ -n "$_ck" ] || fail "could not read CROSS_KINDS out of bin/vigilant, so this
+check is about nothing. The declaration moved or changed shape"
+for _k in $_ck; do
+  for _scr in "$VIGILANCE_HOOK_ROOT" "$VIGILANCE_MACHINE_HOOKS"; do
+    mkdir -p "$_scr/$_k.d"
+    printf '#!/bin/sh\nexit 78\n' > "$_scr/$_k.d/50-both"
+    chmod +x "$_scr/$_k.d/50-both"
+  done
+done
+_hout=$("$VIGILANT" hooks 2>&1) || true
+for _k in $_ck; do
+  _gotord=$(printf '%s\n' "$_hout" | awk -v k="$_k.d:" '
+    $0 == k { f = 1; next } f && /\.d:$/ { f = 0 } f { print }' \
+    | sed -n 's/.*\[\([a-z]*\)\].*/\1/p' | tr '\n' ' ')
+  [ "$_gotord" = "machine user " ] || fail "the '$_k' tier is ordered
+'$_gotord' and must be 'machine user '. A cross-cutting tier is not a ladder
+edge and must not be ordered as a descent: the machine sink has to record
+before a user sink that may be slow or absent, or the record is the part that
+gets lost. If '$_k' is new, it was added to CROSS_KINDS while something else
+still decides the order from a list of its own"
+done
+
 # a nonsense value falls back to `open` and says so, rather than inventing a
 # rung the ladder does not have
 rm -rf "$VIGILANCE_RUN_DIR"; mkdir -p "$VIGILANCE_RUN_DIR"
