@@ -230,6 +230,14 @@ outside, which is what
 says too, and the two causes want the same response anyway, so the ambiguity
 costs only the wording of the message.
 .PP
+IT ALSO NEEDS CORROBORATION, not merely the absence of a disagreement. The act
+is only reached where a
+.B concur.d
+source says the timer DID observe the quiet stretch, which is what makes "the
+timer is alive and its acting arm is broken" an established diagnosis rather
+than one of two guesses, and a re-arm the remedy for it. On a box with no such
+source the overdue finding is reported and never acted on.
+.PP
 ONCE PER EPISODE IS NOT ONCE PER FAULT, which matters to anyone turning this
 on. On the
 .B lock
@@ -985,9 +993,12 @@ how long before the session is secured anyway (default 14400); 0 never acts
 .TP
 .B VIGILANCE_OVERDUE_ACT
 how long an edge may stay OVERDUE, with no inhibitor deferring it, before the
-idle timer is re-armed. Default 0, which reports and never acts; set a bound
-only where this box's idle clock can see every inhibitor its idle timer
-honours, since otherwise a legitimate deferral reads as a fault
+idle timer is re-armed. Default 0, which reports and never acts. Even with a
+bound set the act additionally requires a
+.B concur.d
+source to have POSITIVELY corroborated that the deadline's own timer saw the
+quiet stretch: without that the diagnosis a re-arm treats is a guess, and the
+pass says so rather than printing the same line as a box under the bound
 .TP
 .B VIGILANCE_ALERT_COOLDOWN
 repeat-alert suppression; 0 disables

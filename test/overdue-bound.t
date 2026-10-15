@@ -48,6 +48,22 @@ _backdate() {   # <rung> <seconds ago>
   printf '%s\n' "$(( $(date +%s) - $2 ))" > "$VIGILANCE_RUN_DIR/last-ascent"
 }
 
+# A CONCURRING SOURCE, because the act now REQUIRES one: positive evidence
+# that the deadline's own timer saw this quiet stretch, rather than merely the
+# absence of a disagreement. Wired by _reset for every case below, so that the
+# only thing preventing an act is whatever each case is actually about. Without
+# it cases 5, 7 and 9 would all pass for the WRONG reason, asserting "no act"
+# about a tier that could not have acted anyway, which is the
+# passing-for-a-neighbour's-reason trap this file already carries a note about.
+#
+# CASE 1 DELIBERATELY HAS NONE: it runs before the first _reset, and its
+# subject is the wording used when nothing settled the cause.
+_concurs() {
+  mkdir -p "$VIGILANCE_HOOK_ROOT/concur.d"
+  printf '#!/bin/sh\nexit 0\n' > "$VIGILANCE_HOOK_ROOT/concur.d/20-c"
+  chmod +x "$VIGILANCE_HOOK_ROOT/concur.d/20-c"
+}
+
 _idle() {   # <seconds>
   mkdir -p "$VIGILANCE_HOOK_ROOT/idle.d"
   printf '#!/bin/sh\necho "%s"\n' "$1" > "$VIGILANCE_HOOK_ROOT/idle.d/10-src"
@@ -87,9 +103,11 @@ _kinds() { cut -d' ' -f1 < "$T/alerts" | sort -u | tr '\n' ' '; }
 # written: an assertion satisfied by its neighbour is the trap this suite has
 # paid for repeatedly.
 _reset() {
-  rm -rf "$VIGILANCE_HOOK_ROOT/lock.due.d" "$VIGILANCE_HOOK_ROOT/sleep.due.d"
+  rm -rf "$VIGILANCE_HOOK_ROOT/lock.due.d" "$VIGILANCE_HOOK_ROOT/sleep.due.d" \
+         "$VIGILANCE_HOOK_ROOT/concur.d"
   _noepisode
   printf '' > "$VIGILANCE_LOG"
+  _concurs
 }
 
 # NO INHIBITOR ANYWHERE IN THIS FILE: a held one is a DEFERRAL and belongs to
@@ -157,6 +175,11 @@ esac
 # VIGILANCE_IDLE_UNIT to a name that cannot resolve so no test can restart the
 # developer's own idle timer. That is the honest branch to assert in a sandbox:
 # the act was attempted, it is reported, and it did not silently claim success.
+#
+# AND IT NEEDS A CONCURRENCE, which case 1 deliberately has not wired: the act
+# requires positive evidence that the timer saw this stretch, so without one
+# every assertion below would be about a tier that could not have acted.
+_concurs
 _episode sleep 1200
 _alerts
 _out=$("$VIGILANT" enforce 2>>"$T/stderr") && fail "enforce reported success
@@ -394,8 +417,47 @@ what an idle seat is, and an inhibitor this clock cannot see breaks that. The
 measured cost of getting it wrong was a forced lock on a machine whose user was
 in a video call"
 
+# --- 10. THE ACT REQUIRES CORROBORATION, not merely no disagreement --------
+# THE PREMISE THE WHOLE TIER RESTS ON, and reaching the act without it is
+# exactly the evidence that locked a screen somebody was working at on
+# 2026-10-14: the counters said quiet, nothing could say whether the deadline's
+# own timer agreed, and an actuator acted on that anyway.
+#
+# `concur.d` ABSENT is the "cannot tell" case, which is also what a declining
+# or broken source gives, so this is the state every box without that tier is
+# in. It must REPORT and never act.
+_reset
+rm -rf "$VIGILANCE_HOOK_ROOT/concur.d"
+duehook lock 10-fake '480 idle'
+_backdate open 9999
+_idle 600
+_episode lock 99999
+_alerts
+_out=$("$VIGILANT" enforce 2>>"$T/stderr") && fail "enforce reported success on
+an overdue edge: $_out"
+_acted && fail "the act fired with nothing corroborating that the idle timer
+saw this quiet stretch. That is the 2026-10-14 evidence exactly: an actuator
+acting on a measurement the deadline's own owner never agreed with"
+# AND IT MUST SAY WHY, or an operator who opted in cannot tell "not yet" from
+# "not on this evidence", and a silent skip is how a cadence becomes never.
+case "$_out" in
+  *"NOT acted on"*) ;;
+  *) fail "the pass printed the same line as a box under the bound, so a held
+act is indistinguishable from a pending one: $_out" ;;
+esac
+# THE VIEW TOO, because that is what a human runs, and a countdown shown here
+# would be a countdown to something that cannot happen.
+printf '%s\n' "$(date +%s)" > "$VIGILANCE_RUN_DIR/last-pass"
+_tv=$("$VIGILANT" timer 2>>"$T/stderr")
+case "$_tv" in
+  *HELD*) ;;
+  *) fail "the view counts the act down while it is unreachable for want of
+corroboration: $_tv" ;;
+esac
+
 pass "reported under the bound and never blaming one cause for an ambiguous\
  silence, a dark edge re-armed and never descended into, the lit edge secured\
  and attributed, a second miss called a WEDGE and not retried, a gap\
  re-anchored, the episode cleared, 0 disabling the act, the view showing the\
- episode and its bound, and the act OFF unless an integrator asks"
+ episode and its bound, the act OFF unless an integrator asks, and the act\
+ HELD unless something corroborates that the timer saw the quiet stretch"

@@ -121,11 +121,14 @@ wishes are visible.
         cannot invent a deadline)
     35  an edge left OVERDUE with nothing deferring it is REPORTED on every
         pass, naming both causes of the silence rather than one; and where an
-        integrator has opted in, ACTED on after a bound, once per episode,
-        the act RE-ARMING the timer rather than forcing a dark rung
+        integrator has opted in AND something positively corroborates that
+        the edge's own timer saw the quiet stretch, ACTED on after a bound,
+        once per episode, the act RE-ARMING the timer rather than forcing a
+        dark rung
         overdue-bound.t (the bound, the ambiguous wording, the dark-edge
         refusal, the lit edge and its attribution, the wedge finding, the
-        unwatched gap, 0 disabling the act, and the act OFF by default)
+        unwatched gap, 0 disabling the act, the act OFF by default, and the
+        act HELD without corroboration)
     36  a deadline whose own OWNER saw none of the quiet stretch is DEFERRED
         rather than missed, and takes the idle-inhibit escalation (silent,
         reported, then the session secured, with one veto) instead of a
@@ -296,6 +299,16 @@ rests on, because the safe direction changed.
 Reporting stays on, and names both causes: a report that is wrong costs a
 reader a few seconds, and one that names the only cause it can think of sends
 them after a healthy mechanism.
+
+AND THE ACT NEEDS POSITIVE CORROBORATION, not merely the absence of a
+disagreement, which is the second half of that retreat and the sounder footing.
+The commit that defaulted it off said the precondition was "an inhibitor-aware
+clock", and strictly the clock is still blind; what invariant 36 supplies is
+better than awareness. The act is now only REACHED where a source says the
+timer DID observe the stretch, which is exactly when "the timer is alive and
+its acting arm is broken" is an established diagnosis rather than one of two
+guesses, and a re-arm is the remedy for precisely that. Reaching it on "cannot
+tell" was the 2026-10-14 evidence itself.
 
 THE THIRD (invariant 36) IS WHAT MADE THAT RETREAT MORE THAN A RETREAT. The
 disagreement the overdue act could not see is itself observable: `concur.d`

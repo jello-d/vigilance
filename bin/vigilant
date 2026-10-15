@@ -5145,8 +5145,12 @@ _overdue_rearm() {
 # distinguish before. It is reported and never retried: a restart every minute
 # would reset the deadlines every minute, and a box whose lock deadline is
 # perpetually reset never locks at all.
-_overdue_escalate() {   # <edge> <idle> <deadline> <span> -> 1
+_overdue_escalate() {   # <edge> <idle> <deadline> <span> <concur> -> 1
   _oee=$1; _oei=$2; _oed=$3; _oes=$4
+  # 0 CONCURS, anything else is "nothing settled it". Named once rather than
+  # read as ${5:-} at each use, because two consumers branch on it (the wording
+  # and the act) and they must not be able to disagree about the same fact.
+  _oec=${5:-}
   case "${_oes:-}" in '' | *[!0-9]*) _oes=0 ;; esac
 
   # THE REPORT FIRST, unchanged: it is the forensic record and the audit tier
@@ -5166,7 +5170,7 @@ _overdue_escalate() {   # <edge> <idle> <deadline> <span> -> 1
   # outage exactly. Without a concurrence the silence is ambiguous and is
   # reported as ambiguous. Both durations normalise out of the dedup key (a
   # digit run followed by `s`), so neither wording counts upward.
-  if [ "${5:-}" = 0 ]; then
+  if [ "$_oec" = 0 ]; then
     _alert overdue "$_oee should have fired ${_oei}s into a ${_oed}s idle"\
 " deadline, and its timer DID observe the seat go idle inside that stretch, so"\
 " the timer is alive and whatever it was armed to run is not working"
@@ -5178,6 +5182,29 @@ _overdue_escalate() {   # <edge> <idle> <deadline> <span> -> 1
 
   if [ "$OVERDUE_ACT" -le 0 ] || [ "$_oes" -lt "$OVERDUE_ACT" ]; then
     echo "enforce: $_oee OVERDUE (idle ${_oei}s of ${_oed}s); reported"
+    return 1
+  fi
+
+  # THE ACT REQUIRES POSITIVE CORROBORATION, not merely the absence of a
+  # disagreement. Reaching here with "cannot tell" is EXACTLY the evidence that
+  # locked a screen somebody was working at on 2026-10-14: the counters said
+  # quiet, nothing could say whether the deadline's owner agreed, and an
+  # actuator acted on that anyway.
+  #
+  # WITH A CONCURRENCE THE DIAGNOSIS IS ESTABLISHED RATHER THAN ASSUMED: the
+  # timer observed the idleness and did not act, so its acting arm is what
+  # broke, and re-arming the unit is precisely the remedy for that. Without one
+  # the same act is a guess, and this tier holds the only actuator in
+  # supervision that can run on a lit rung.
+  #
+  # AND IT SAYS SO, rather than printing the same "reported" line as a box
+  # under the bound. A silent skip is how a cadence quietly becomes never, and
+  # an operator who has opted in deserves to know the difference between "not
+  # yet" and "not on this evidence".
+  if [ "$_oec" != 0 ]; then
+    echo "enforce: $_oee OVERDUE (idle ${_oei}s of ${_oed}s); reported, and"\
+" NOT acted on: nothing corroborated that its own timer saw this quiet"\
+" stretch, so a re-arm would be a guess"
     return 1
   fi
 
@@ -5360,6 +5387,14 @@ _timer_show() {
             elif [ -f "$OVERDUE_ACTED" ]; then
               echo "  act:    spent on this episode; a further miss is"\
 " reported as a WEDGE rather than retried"
+            elif [ "$_tcc" != 0 ]; then
+              # ARMED AND NOT REACHABLE, which is a different thing from
+              # either "off" or "counting down", and a countdown shown here
+              # would be a countdown to something that cannot happen. The act
+              # needs positive corroboration that the timer saw this stretch;
+              # nothing here can supply it, so it is held rather than pending.
+              echo "  act:    armed but HELD: nothing corroborates that the"\
+" idle timer saw this stretch, and a re-arm on that evidence is a guess"
             else
               echo "  act:    $(_timer_left "$OVERDUE_ACT" "$_tov") (then a"\
 " re-arm of ${IDLE_UNIT:-the idle timer})"

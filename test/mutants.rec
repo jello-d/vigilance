@@ -1329,7 +1329,7 @@ t unnamed-bound
 = overdue-wording-ignores-a-concurrence
 f bin/vigilant
 t unnamed-bound
--   if [ "${5:-}" = 0 ]; then
+-   if [ "$_oec" = 0 ]; then
 +   if false; then
 
 = concur-reads-the-mtime-not-the-record
@@ -1343,3 +1343,9 @@ f libexec/hooks/swayidle-concur
 t concur
 - if ! tr '\0' '\n' < "$_cl" 2>/dev/null | grep -q -- "$MARK"; then
 + if false; then
+
+= overdue-acts-without-corroboration
+f bin/vigilant
+t overdue-bound
+-   if [ "$_oec" != 0 ]; then
++   if false; then
