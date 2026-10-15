@@ -126,6 +126,16 @@ wishes are visible.
         overdue-bound.t (the bound, the ambiguous wording, the dark-edge
         refusal, the lit edge and its attribution, the wedge finding, the
         unwatched gap, 0 disabling the act, and the act OFF by default)
+    36  a deadline whose own OWNER saw none of the quiet stretch is DEFERRED
+        rather than missed, and takes the idle-inhibit escalation (silent,
+        reported, then the session secured, with one veto) instead of a
+        per-pass accusation; where the owner DID see it, the overdue finding
+        names which half broke; and a tier that cannot answer changes nothing
+        concur.t (the hook: agreement, disagreement, a resume that is not
+        agreement, the heartbeat precondition, abstention, and the heartbeat
+        facts shared with the watchdog), unnamed-bound.t (the framework: the
+        dispatch, both bounds, the dark-edge refusal, precedence for a
+        nameable hold, the veto, and the view)
 
 ### Why the idle reading has two ceilings and not one
 
@@ -151,11 +161,18 @@ from zero however long the seat has been quiet.
 The integrator restarts that unit whenever the armed argv changes, so every
 deploy touching it opened this window.
 
-### The two places supervision ACTS, and what makes each safe
+### Where supervision ACTS, and what makes each case safe
 
-Invariants 31 and 35 are the only exceptions to "supervision reports, it does
-not act", so it is worth stating why neither is the return of `enforce`'s
-forcing.
+Invariants 31, 35 and 36 are the only exceptions to "supervision reports, it
+does not act", so it is worth stating why none of them is the return of
+`enforce`'s forcing.
+
+THE THREE ARE TWO QUESTIONS, not three. Invariant 31 and invariant 36 are the
+SAME finding reached by different evidence, which is why they share their
+bounds, their action and their veto: a deadline is being deferred, and the only
+difference is whether vigilance can NAME what is deferring it. Invariant 35 is
+the opposite case, a deadline genuinely missed, and it is the one whose act
+ships off.
 
 A held logind idle inhibitor suppresses every idle timeout, because
 `swayidle-mgr` arms a logind event so the request is HONOURED: a video call
@@ -279,6 +296,35 @@ rests on, because the safe direction changed.
 Reporting stays on, and names both causes: a report that is wrong costs a
 reader a few seconds, and one that names the only cause it can think of sends
 them after a healthy mechanism.
+
+THE THIRD (invariant 36) IS WHAT MADE THAT RETREAT MORE THAN A RETREAT. The
+disagreement the overdue act could not see is itself observable: `concur.d`
+asks whether the deadline's OWNER agrees the seat has been quiet for the
+stretch `idle.d` measured, and the shipped source answers from the idle
+timer's own heartbeat. Where it says no, the edge was never DUE as far as the
+thing that owns it was concerned, so this is a deferral and takes invariant
+31's escalation rather than an accusation.
+
+IT DELIBERATELY CANNOT SAY WHY, and that does not matter to the action. A
+honoured compositor inhibitor and a wedged timer are IDENTICAL from outside,
+which is what `swayidle-watchdog` says in as many words and refuses to resolve.
+Both want the same response: not to interrupt a call early, and not to leave
+the session open for ever either. So the ambiguity costs only the wording of
+the message, and the message names both.
+
+AND IT IS NOT A LICENCE TO GO QUIET, which is the half that makes it safe to
+add. Leaving an unnameable hold to the overdue tier would mean nothing bounds
+it at all now that the act ships off: a LEAKED compositor inhibitor would hold
+the session open indefinitely with nothing saying so, which is the silent false
+green this package exists to prevent. The deferral is bounded on the same 3h
+and 4h as a nameable one, because a leak is exactly as dangerous either way.
+
+THE CONVERSE EARNS ITS KEEP TOO. A CONCURRENCE means the timer observed the
+idleness and still did not act, which turns the overdue message from one of two
+guesses into a statement that names the half that broke: the tick arm works and
+the acting arm does not. That is the 2026-09-12 outage, where a running timer
+was armed with a path that had been swept out from under it, and until now
+nothing could tell it apart from a timer that saw nothing.
 
 ### Why the peripheral cadence is an hour, and what makes that safe
 
@@ -904,11 +950,28 @@ On top of that:
 
    The direction is safe for REPORTING (a false overdue costs a reader a few
    seconds, and the message names both causes) and unsafe for ACTING, which is
-   the whole reason the two are now configured separately. The fix available
-   without a daemon is a source that reports the TIMER'S OWN view, since the
-   timer's heartbeat is a durable record and therefore sampling-safe, and
-   minimum-wins would then let the timer's reading stop a counter-manufactured
-   overdue exactly as it was designed to. Not built.
+   why the two are configured separately.
+
+   DETECTED NOW, AND STILL NOT SEEN, which is the distinction worth keeping.
+   `concur.d` (invariant 36) asks whether the deadline's owner agrees the seat
+   was quiet, so the DISAGREEMENT is observable even though the inhibitor
+   itself never will be: the Wayland protocol has no introspection and no "is
+   one held" request, so there is nothing to query, ever. What vigilance can
+   say is "something is holding this timer off, or it has wedged, and these are
+   indistinguishable from outside", which is enough to bound it.
+
+   AND THE FIRST FIX WAS WRONG, recorded because it is the obvious one and
+   somebody will re-derive it. This paragraph used to propose an `idle.d`
+   source relaying the TIMER'S OWN view, on the grounds that its heartbeat is a
+   durable record and therefore sampling-safe, with minimum-wins doing the
+   rest. It would have worked on the false positive and opened a worse hole:
+   the aggregate would read ~0 during a call, the deadline would never come
+   due, and a LEAKED compositor inhibitor would then hold the session open
+   indefinitely with nothing saying so. A false positive traded for a silent
+   false green. The question is also different in kind, which is the deeper
+   reason: `idle.d` MEASURES THE SEAT and `concur.d` OBSERVES A MECHANISM, and
+   putting the second into the first is what made the aggregator the wrong
+   place.
 
 ## 6. Rules of thumb that earned their place
 

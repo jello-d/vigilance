@@ -229,6 +229,18 @@ INHIBIT_CLOCK=$RUN_DIR/inhibit-clock
 OVERDUE_SINCE=$RUN_DIR/overdue-since
 OVERDUE_ACTED=$RUN_DIR/overdue-acted
 
+# THE UNNAMEABLE DEFERRAL'S RESET POINT, AND IT CANNOT SHARE INHIBIT_CLOCK.
+# That was the first design and its own test refused it: `_inhibit_track`
+# DELETES the inhibit clock on its release path, which runs whenever logind
+# reports nothing held, and that is precisely the state this route lives in. So
+# an acknowledgement survived exactly until the next pass, one minute later.
+#
+# ONE VERB, TWO CLOCKS, because the two spans have different LIFECYCLES: the
+# named one is bounded by a logind hold and this one by an overdue episode.
+# `timer reset` writes both, and _overdue_clear drops this one with the episode
+# so a later one starts a fresh escalation rather than inheriting a veto.
+UNNAMED_CLOCK=$RUN_DIR/unnamed-clock
+
 # WHEN THE SUPERVISION PASS LAST RAN, which is what makes every countdown in
 # `timer` worth printing. Those clocks do not advance on their own: a pass
 # samples them, so on a box whose timer has died "secure in 13988s" is not a
@@ -274,7 +286,7 @@ NEVER_ENFORCED='suspend'
 
 # The cross-cutting tiers are NOT edges. Listing them beside edges is what once
 # made an audit hook read as wired while nothing would ever run it.
-CROSS_KINDS='audit alert cursor idle watchdog'
+CROSS_KINDS='audit alert concur cursor idle watchdog'
 
 _is_cross_kind() {   # <name>
   case " $CROSS_KINDS " in
@@ -4066,6 +4078,91 @@ _idle_bound() {   # <seconds> -> the same, bounded by the ascent and the timer
   printf '%s' "$_ibv"
 }
 
+# DOES THE OWNER OF THIS DEADLINE AGREE THE SEAT HAS BEEN QUIET?
+#
+# AN IDLE DEADLINE IS BUILT FROM TWO HALVES THAT COME FROM DIFFERENT PLACES:
+# the DEADLINE belongs to the idle timer and the IDLENESS to `idle.d`. So a
+# deadline that passes with its edge unfired is only a FAULT if both halves
+# agree the seat was quiet. Where they disagree, the deadline was not MISSED;
+# as far as the thing that owns it is concerned it was never DUE.
+#
+# LIVE ON 2026-10-14, which is why this tier exists. A browser in a video call
+# took the compositor's own idle inhibitor, so the compositor reported the seat
+# ACTIVE and swayidle correctly never fired the 480s lock, while the input
+# counters, which see no inhibitor of any kind, read 1166s of idle. There are
+# three channels that hold an idle timer off and vigilance sees one and a half:
+# logind `Inhibit what=idle` (which `_idle_inhibited` reads), an
+# `org.freedesktop.ScreenSaver` hold (whose OWNER can be queried), and the
+# Wayland `zwp_idle_inhibit_manager_v1`, which has no introspection and no "is
+# one held" request, so it can NEVER be queried. This asks the question that is
+# answerable instead: did the timer SEE it?
+#
+# WHY A TIER AND NOT AN idle.d SOURCE, which was the first design and was
+# wrong. `_idle_secs` takes the MINIMUM across sources, so a source relaying
+# the timer's view would have reported ~0 during a call, the deadline would
+# never be due, and a LEAKED compositor inhibitor would then hold the session
+# open indefinitely with nothing saying so: the silent false green this package
+# exists to prevent, traded for the false positive it was meant to fix. The
+# question is also simply different in kind. `idle.d` MEASURES THE SEAT; this
+# OBSERVES A MECHANISM, and mixing the two is what made the aggregator the
+# wrong place.
+#
+#   0  CONCURS, and CONCUR_BY names the source. The timer observed idleness
+#      inside the stretch, so if the edge still did not fire the fault is real
+#      and nameable: the tick arm works and the acting arm does not. That is
+#      the 2026-09-12 outage, a running timer armed with a swept path.
+#   1  DOES NOT CONCUR, and CONCUR_WHY carries the source's own sentence. The
+#      seat looks quiet only to us.
+#   2  cannot tell, which leaves every caller exactly as it was. Nothing wired
+#      and every source declining are deliberately the SAME answer, because
+#      they have the same consequence.
+_concur_says() {   # <quiet-secs> -> 0 concurs, 1 does not, 2 cannot tell
+  CONCUR_BY=; CONCUR_WHY=
+  _csl=$(_hooks_for concur)
+  [ -n "$_csl" ] || return 2
+  _csno=
+  _cswhy=
+  _csifs=$IFS
+  IFS='
+'
+  for _csh in $_csl; do
+    IFS=$_csifs
+    [ -n "$_csh" ] || continue
+    _cso=$RUN_DIR/concur.$$
+    _csrc=0
+    # Through a FILE rather than $(...), like every other bounded tier: a
+    # command substitution waits for the PIPE to close, so a hook that leaves
+    # a child on stdout defeats the bound outright. Measured at 21s against 2s.
+    _cssd=$STATE_ROOT/$(basename "$_csh")
+    mkdir -p "$_cssd" 2>/dev/null || true
+    VIGILANCE_KIND=concur VIGILANCE_STATE_DIR="$_cssd" PATH="$HOOK_PATH" \
+      VIGILANCE_QUIET_SECS="$1" \
+      $HOOK_TMO "$_csh" > "$_cso" 2>/dev/null || _csrc=$?
+    case $_csrc in
+      0)  # ONE CONCURRENCE IS ENOUGH and ends the loop. A source that CAN see
+          # the timer observe idleness settles it; one that cannot must not
+          # overrule it. Same rule as the cursor tier, for the same reason.
+          CONCUR_BY=$(basename "$_csh")
+          rm -f "$_cso" 2>/dev/null || true
+          IFS=$_csifs
+          return 0 ;;   # one concurrence settles it
+      1)  _csno="${_csno:+$_csno }$(basename "$_csh")"
+          [ -n "$_cswhy" ] || _cswhy=$(head -1 "$_cso" 2>/dev/null) ;;
+      *)  ;;
+    esac
+    rm -f "$_cso" 2>/dev/null || true
+    IFS='
+'
+  done
+  IFS=$_csifs
+  if [ -n "$_csno" ]; then
+    CONCUR_BY=$_csno
+    CONCUR_WHY=$_cswhy
+    return 1
+  fi
+  return 2
+}
+
 # IS THE POINTER AUTO-HIDDEN? A cross-cutting question like idle time, and for
 # the same reason: it belongs to the SEAT rather than to any edge.
 #
@@ -4690,6 +4787,58 @@ _inhibit_track() {
   return 0
 }
 
+# WHICH BOUND HAS A DEFERRAL REACHED?  `force`, `report` or `under`.
+#
+# SHARED BY THE TWO ROUTES, and that is the point of extracting it. A deferral
+# reaches vigilance two ways: a logind inhibitor it can NAME, and a deadline
+# whose owner saw none of the quiet stretch, which it cannot. Those are
+# different findings with different remedies and different prose, so they keep
+# their own messages, but the DECISION must be one piece of code: two copies of
+# a three-branch bound comparison is how the level rules came to be right in
+# one implementation and wrong in the other.
+#
+# THE `lock` LITERAL AND THE IDLE RE-CHECK ARE BOTH LOAD-BEARING. A forced
+# descent into a dark rung arms no way back, which is why `suspend` is
+# NEVER_ENFORCED; and requiring the seat to be idle past the edge's OWN
+# deadline is what stops a leaked hold locking a machine somebody is working
+# at, since a hold alone is not evidence of an absent human.
+_defer_stage() {   # <span> <edge> <idle> <deadline> -> force|report|under
+  if [ "$INHIBIT_FORCE" -gt 0 ] && [ "$1" -ge "$INHIBIT_FORCE" ] \
+     && [ "$2" = lock ] && [ "$3" -gt "$(( $4 + GRACE ))" ]; then
+    printf 'force'
+    return 0
+  fi
+  if [ "$INHIBIT_REPORT" -gt 0 ] && [ "$1" -ge "$INHIBIT_REPORT" ]; then
+    printf 'report'
+    return 0
+  fi
+  printf 'under'
+  return 0
+}
+
+# SECURE THE SESSION BECAUSE A DEFERRAL REACHED ITS BOUND. Shared for the same
+# reason as the decision above: the two routes must not be able to disagree
+# about the verb, the attribution or the reset.
+#
+# THE CLOCK RESTARTS BECAUSE WE ACTED. Without it the whole escalation re-runs
+# every minute while the hold continues, which is the storm shape; with it, a
+# hold that survives the lock produces its next report a report-bound later
+# rather than immediately.
+#
+# A SUBSHELL, so the source cannot leak: an env prefix on a shell FUNCTION
+# persists past the call in dash, and VIGILANCE_SOURCE reaching every later
+# crossing in this pass would mis-attribute them all.
+#
+# `atleast` because this is a security request and must never raise a sleeping
+# box, which is the lid bug. The source so the crossing is ATTRIBUTABLE: an
+# unexplained lock cost this fleet a day of investigation once.
+_defer_secure() {   # <source-label> <clock-file>
+  printf '%s\n' "$(date +%s)" > "$2" 2>/dev/null || true
+  ( VIGILANCE_SOURCE=$1; export VIGILANCE_SOURCE
+    cmd_go lock atleast ) || true
+  return 0
+}
+
 # A DEFERRED DEADLINE IS STILL A DEADLINE, under a bound. Returns 1 when this
 # pass produced a finding, 0 when the hold is simply being honoured.
 #
@@ -4713,40 +4862,26 @@ _inhibit_escalate() {   # <edge> <idle> <deadline> <span> -> 1 if a finding
   _iew=
   if [ -n "$_ieh" ]; then _iew=" Held by: $_ieh."; fi
 
-  if [ "$INHIBIT_FORCE" -gt 0 ] && [ "$_ies" -ge "$INHIBIT_FORCE" ] \
-     && [ "$_iee" = lock ] && [ "$_iei" -gt "$((_ied + GRACE))" ]; then
+  _ist=$(_defer_stage "$_ies" "$_iee" "$_iei" "$_ied")
+
+  if [ "$_ist" = force ]; then
     _log "INHIBIT-BOUND $_iee: idle inhibited ${_ies}s past the"\
 " ${INHIBIT_FORCE}s bound with the seat idle ${_iei}s; securing the session"
     _alert inhibit-forced "an idle inhibitor has deferred '$_iee' for"\
 " ${_ies}s, past the ${INHIBIT_FORCE}s bound, and nobody acknowledged it;"\
 " securing the session now.$_iew"
-    # THE CLOCK RESTARTS BECAUSE WE ACTED. Without this the whole escalation
-    # re-runs every minute while the hold continues, which is the storm shape;
-    # with it, a leaked inhibitor that survives the lock produces its next
-    # report a report-bound later rather than immediately.
-    printf '%s\n' "$(date +%s)" > "$INHIBIT_CLOCK" 2>/dev/null || true
-    # A SUBSHELL, so the source cannot leak. An env prefix on a shell FUNCTION
-    # persists past the call in dash, and VIGILANCE_SOURCE reaching every later
-    # crossing in this pass would mis-attribute them all.
-    #
-    # `atleast` because this is a security request and must never raise a
-    # sleeping box, which is the lid bug. The source so the crossing is
-    # ATTRIBUTABLE: an unexplained lock cost this fleet a day of investigation,
-    # and `src=inhibit-bound` is that answer written down where it is known.
-    #
-    # THE ACTION IS `lock` LITERALLY, and only the `$_iee` = lock guard above
-    # keeps that honest. Drop the guard and a deferred `sleep` deadline fires a
-    # LOCK, which is incoherent rather than dangerous, and the test says so by
+    # THE ACTION IS `lock` LITERALLY, and only _defer_stage's `lock` guard
+    # keeps that honest. Drop it and a deferred `sleep` deadline fires a LOCK,
+    # which is incoherent rather than dangerous, and the test says so by
     # catching that mutation on the alert kind rather than on a crossing. The
     # two must move together: this acts on the edge it was asked about, and the
     # only edge it is ever asked about is the one whose rung is a guarantee.
-    ( VIGILANCE_SOURCE=inhibit-bound; export VIGILANCE_SOURCE
-      cmd_go lock atleast ) || true
+    _defer_secure inhibit-bound "$INHIBIT_CLOCK"
     echo "enforce: $_iee deferred past the ${INHIBIT_FORCE}s bound; locked"
     return 1
   fi
 
-  if [ "$INHIBIT_REPORT" -gt 0 ] && [ "$_ies" -ge "$INHIBIT_REPORT" ]; then
+  if [ "$_ist" = report ]; then
     _log "INHIBIT-HELD $_iee: idle inhibited ${_ies}s, deferring a ${_ied}s"\
 " deadline"
     # THE DURATION IS SAFE IN THIS KEY. `_alert_repeat` normalises digit-runs
@@ -4767,6 +4902,111 @@ _inhibit_escalate() {   # <edge> <idle> <deadline> <span> -> 1 if a finding
   # forensic story without a line a minute.
   echo "enforce: $_iee deferred, idle inhibited ${_ies}s (under the"\
 " ${INHIBIT_REPORT}s report bound)"
+  return 0
+}
+
+# A DEFERRAL NOBODY CAN NAME, under the SAME bounds. Returns 1 when this pass
+# produced a finding.
+#
+# REACHED WHEN THE SEAT LOOKS QUIET TO US AND NOT TO THE DEADLINE'S OWNER,
+# which `_concur_says` is the tier that establishes. That is a DEFERRAL and not
+# a missed deadline: the edge never came due as far as the thing that owns it
+# was concerned.
+#
+# WHY IT TAKES THE INHIBIT BOUNDS RATHER THAN THE OVERDUE ONE, which is the
+# whole design and was the user's call. The two causes this cannot separate (a
+# compositor-level inhibitor being honoured, or a wedged timer) want the SAME
+# response, and it is the inhibit response rather than the overdue one:
+#
+#   silent while it is short, because a call is not a fault
+#   reported once past VIGILANCE_INHIBIT_REPORT, naming what was observed
+#   the session secured past VIGILANCE_INHIBIT_FORCE, unless a human vetoed it
+#
+# The overdue response is the wrong shape for it twice over: it accuses every
+# pass, and its act has no interruptible window at all, which is how a forced
+# lock once arrived with no notification (the first act notified and the second
+# was suppressed as a repeat inside the cooldown, so the human was told once
+# and locked twice).
+#
+# AND LEAVING IT TO THE OVERDUE TIER IS NOT AN OPTION EITHER, which is why this
+# exists rather than simply deferring. With the overdue act off, nothing bounds
+# an unnameable hold at all: a LEAKED compositor inhibitor would hold the
+# session open indefinitely with nothing saying so, which is the silent false
+# green this package exists to prevent.
+# THE ESCALATION SPAN FOR AN UNNAMEABLE HOLD: the raw overdue span, shortened
+# by any acknowledgement. PURE, like `_inhibit_span`, and shared with the
+# `timer` view for the reason that one is: the number a human is counting down
+# and the number the bound is judged against must not be able to differ.
+#
+# THE RESET IS SHARED WITH THE NAMED ROUTE, because a human saying "this one is
+# expected" is saying it about the CALL, not about the channel it happened to
+# arrive through. `timer reset` writes one clock and it vetoes both.
+_unnamed_span() {   # <raw-span> -> seconds, or nothing
+  case "${1:-}" in '' | *[!0-9]*) return 0 ;; esac
+  _unv=$1
+  _unc=$(cat "$UNNAMED_CLOCK" 2>/dev/null || true)
+  case "${_unc:-}" in
+    '' | *[!0-9]*) ;;
+    *) if _unr=$(_elapsed "$_unc" 2>/dev/null); then
+         if [ "$_unr" -lt "$_unv" ]; then _unv=$_unr; fi
+       fi ;;
+  esac
+  printf '%s' "$_unv"
+  return 0
+}
+
+_unnamed_escalate() {   # <edge> <idle> <deadline> <span> -> 1 if a finding
+  _uee=$1; _uei=$2; _ued=$3
+  _ues=$(_unnamed_span "$4")
+  case "${_ues:-}" in '' | *[!0-9]*) return 0 ;; esac
+
+  # THE SOURCE'S OWN SENTENCE, because it is the only part that says what was
+  # actually observed, and a bare duration sends the reader hunting.
+  _uew=
+  if [ -n "${CONCUR_WHY:-}" ]; then _uew=" $CONCUR_WHY"; fi
+
+  # THE START IS RECORDED ONCE, mirroring _inhibit_track's two records per
+  # hold. Without it the log says nothing at all for the three hours before the
+  # report bound, and the audit tier reads this file. A fresh span elapses
+  # exactly 0, and a continuing one has had a pass interval to grow.
+  if [ "$_ues" = 0 ]; then
+    _log "$_uee deferred by something that cannot be named; the idle timer has"\
+" seen none of the ${_uei}s this clock measured"
+  fi
+
+  _ust=$(_defer_stage "$_ues" "$_uee" "$_uei" "$_ued")
+
+  if [ "$_ust" = force ]; then
+    _log "UNNAMED-BOUND $_uee: deferred ${_ues}s past the ${INHIBIT_FORCE}s"\
+" bound by something that cannot be named, with the seat idle ${_uei}s;"\
+" securing the session"
+    _alert unnamed-forced "'$_uee' has been deferred for ${_ues}s by something"\
+" this box cannot name, past the ${INHIBIT_FORCE}s bound, and nobody"\
+" acknowledged it; securing the session now.$_uew"
+    _defer_secure unnamed-bound "$UNNAMED_CLOCK"
+    echo "enforce: $_uee deferred past the ${INHIBIT_FORCE}s bound by"\
+" something unnameable; locked"
+    return 1
+  fi
+
+  if [ "$_ust" = report ]; then
+    _log "UNNAMED-HELD $_uee: deferred ${_ues}s by something that cannot be"\
+" named, holding off a ${_ued}s deadline"
+    # THE DURATIONS ARE SAFE IN THIS KEY: `_alert_repeat` normalises digit-runs
+    # followed by `s` out of it, precisely because a message that counts upward
+    # hashes as a fresh onset every pass and produced a 45-notification storm
+    # once.
+    _alert unnamed-held "'$_uee' has been deferred for ${_ues}s by something"\
+" this box cannot name.$_uew If that is expected, 'vigilant timer reset'"\
+" restarts the clock; otherwise find what is holding the idle timer off."
+    echo "enforce: $_uee deferred ${_ues}s by something unnameable, past the"\
+" ${INHIBIT_REPORT}s report bound; reported"
+    return 1
+  fi
+
+  # UNDER BOTH BOUNDS: stdout only. The start is logged above, once.
+  echo "enforce: $_uee deferred, the idle timer has seen none of the ${_uei}s"\
+" this clock measured (under the ${INHIBIT_REPORT}s report bound)"
   return 0
 }
 
@@ -4840,7 +5080,8 @@ _overdue_clear() {
   if [ -f "$OVERDUE_SINCE" ]; then
     _log "overdue episode ended"
   fi
-  rm -f "$OVERDUE_SINCE" "$OVERDUE_ACTED" 2>/dev/null || true
+  rm -f "$OVERDUE_SINCE" "$OVERDUE_ACTED" "$UNNAMED_CLOCK" \
+    2>/dev/null || true
   return 0
 }
 
@@ -4912,16 +5153,28 @@ _overdue_escalate() {   # <edge> <idle> <deadline> <span> -> 1
   # reads it, so the act must not replace it.
   _log "OVERDUE $_oee: seat idle ${_oei}s against a ${_oed}s deadline and"\
 " the edge has not fired"
-  # NAMING BOTH CAUSES IS THE POINT, and the old wording named the wrong one.
-  # It said "the primary mechanism for it is not working", which on 2026-10-14
-  # was false: a compositor-level idle inhibitor held swayidle off, this clock
-  # could not see it, and the sentence sent a reader after a timer that was
-  # behaving correctly. Silence from the owner of a deadline is ambiguous, so
-  # it is reported as ambiguous. Both durations still normalise out of the
-  # dedup key (a digit run followed by `s`), so the identity is unchanged.
-  _alert overdue "$_oee should have fired ${_oei}s into a ${_oed}s idle"\
+  # NAMING THE CAUSE ONLY AS PRECISELY AS THE EVIDENCE ALLOWS. This said "the
+  # primary mechanism for it is not working", which on 2026-10-14 was false: a
+  # compositor-level idle inhibitor held swayidle off, this clock could not see
+  # it, and the sentence sent a reader after a timer behaving exactly
+  # correctly.
+  #
+  # NOW THERE IS A TIER THAT CAN SOMETIMES SETTLE IT. A CONCURRENCE means the
+  # timer observed idleness inside this very stretch and the edge still did not
+  # fire, which makes the strong sentence TRUE and names the half that broke:
+  # the tick arm works and the acting arm does not, which is the 2026-09-12
+  # outage exactly. Without a concurrence the silence is ambiguous and is
+  # reported as ambiguous. Both durations normalise out of the dedup key (a
+  # digit run followed by `s`), so neither wording counts upward.
+  if [ "${5:-}" = 0 ]; then
+    _alert overdue "$_oee should have fired ${_oei}s into a ${_oed}s idle"\
+" deadline, and its timer DID observe the seat go idle inside that stretch, so"\
+" the timer is alive and whatever it was armed to run is not working"
+  else
+    _alert overdue "$_oee should have fired ${_oei}s into a ${_oed}s idle"\
 " deadline. Either its timer is not working, or the seat is not idle by"\
 " that timer's own reckoning and this clock cannot see what holds it off"
+  fi
 
   if [ "$OVERDUE_ACT" -le 0 ] || [ "$_oes" -lt "$OVERDUE_ACT" ]; then
     echo "enforce: $_oee OVERDUE (idle ${_oei}s of ${_oed}s); reported"
@@ -5028,7 +5281,11 @@ _timer_show() {
   _ts=$(cat "$INHIBIT_SINCE" 2>/dev/null || true)
   case "${_ts:-}" in ''|*[!0-9]*) _ts= ;; esac
   if [ -z "$_ts" ]; then
-    echo "inhibit:  none held, so no deadline is deferred"
+    # SCOPED TO LOGIND, because it is only ever about logind. Written as "none
+    # held, so no deadline is deferred" this line sat directly above a
+    # `deferred:` line reporting a hold logind cannot see, and a view that
+    # contradicts itself one line later is worse than one that says less.
+    echo "inhibit:  no logind idle inhibitor held"
   else
     _tsp=$(_elapsed "$_ts" 2>/dev/null || true)
     _tsh=$(_trig_holder idle 2>/dev/null || true)
@@ -5073,7 +5330,26 @@ _timer_show() {
           # "not overdue" on every healthy box is a line nobody reads, and
           # this view's whole job is that its numbers mean something.
           _tov=$(_overdue_span "$_te")
+          # WHOSE ESCALATION IS ACTUALLY COUNTING? Where the deadline's owner
+          # saw none of this stretch, the overdue act is NOT what is coming:
+          # the unnameable-hold escalation is, on the inhibit bounds, and
+          # showing the other one would count down to something that will
+          # never happen. Asked here because this is where the stretch is
+          # known, and the tier reads a log and /proc rather than touching an
+          # input device, so it cannot disturb the clock the way a verify does.
+          _tcc=0
           if [ -n "${_tov:-}" ]; then
+            _concur_says "$_tidle" || _tcc=$?
+          fi
+          if [ -n "${_tov:-}" ] && [ "$_tcc" = 1 ]; then
+            _tus=$(_unnamed_span "$_tov")
+            echo "deferred: ${_tus}s by something that cannot be named; the"\
+" idle timer has seen none of it"
+            echo "  report: $(_timer_left "$INHIBIT_REPORT" "$_tus")"
+            echo "  secure: $(_timer_left "$INHIBIT_FORCE" "$_tus") (then a"\
+" 'go lock atleast')"
+            echo "  reset:  vigilant timer reset"
+          elif [ -n "${_tov:-}" ]; then
             echo "overdue:  ${_tov}s, and the edge still has not fired"
             if [ "$OVERDUE_ACT" -le 0 ]; then
               # STATE THE VALUE, NOT WHO SET IT. 0 is the default now, so
@@ -5113,6 +5389,22 @@ _timer_show() {
 #
 # THREE ANSWERS, because they are three different states and a caller that
 # cannot tell them apart would report a deferral it never made.
+# IS AN UNNAMEABLE DEFERRAL IN FORCE?  0 yes, 1 no.
+#
+# THE EDGE IS NOT ASKED ABOUT, deliberately: the escalation clock is global, so
+# a reset is about the hold in front of the human rather than about which
+# deadline it happens to be deferring. Split out so the refusal above reads as
+# one question rather than three nested ones.
+_timer_reset_unnamed() {
+  [ -f "$OVERDUE_SINCE" ] || return 1
+  _tri=$(_idle_secs 2>/dev/null || true)
+  case "${_tri:-}" in '' | *[!0-9]*) return 1 ;; esac
+  _trc=0
+  _concur_says "$_tri" || _trc=$?
+  [ "$_trc" = 1 ] || return 1
+  return 0
+}
+
 _timer_reset() {
   mkdir -p "$RUN_DIR" 2>/dev/null || true
   _trrc=0
@@ -5122,16 +5414,34 @@ _timer_reset() {
     2) echo "vigilant: cannot tell whether idle is inhibited (logind did" >&2
        echo "  not answer), so there is no timer to reset." >&2
        return "$HOOK_NA" ;;
-    *) echo "nothing to reset: no idle inhibitor is held, so no deadline is"
-       echo "  being deferred and no escalation is counting. A reset taken"
-       echo "  BEFORE a hold begins is a no-op, because the clock starts at"
-       echo "  the hold."
-       return "$HOOK_SKIP" ;;
+    *) # LOGIND SAYS NO, WHICH IS NOT THE WHOLE QUESTION. A deferral also
+       # arrives through a channel logind cannot see, and that escalation
+       # shares this clock, so refusing here would leave the one route a human
+       # cannot otherwise veto with no veto at all. Measured live: a browser in
+       # a video call holds the compositor's own idle inhibitor and logind
+       # reports nothing held.
+       if ! _timer_reset_unnamed; then
+         echo "nothing to reset: no idle inhibitor is held and the idle timer"
+         echo "  agrees the seat is not idle past a deadline, so nothing is"
+         echo "  being deferred and no escalation is counting. A reset taken"
+         echo "  BEFORE a hold begins is a no-op, because the clock starts at"
+         echo "  the hold."
+         return "$HOOK_SKIP"
+       fi ;;
   esac
   if [ ! -f "$INHIBIT_SINCE" ]; then
     printf '%s\n' "$(date +%s)" > "$INHIBIT_SINCE" 2>/dev/null || true
   fi
-  if ! printf '%s\n' "$(date +%s)" > "$INHIBIT_CLOCK" 2>/dev/null; then
+  # BOTH CLOCKS, because a deferral reaches vigilance two ways and only one of
+  # them has a holder it can name. One verb, two files: the named span is
+  # bounded by a logind hold and the unnameable one by an overdue episode, so
+  # they cannot share a file (see UNNAMED_CLOCK). Writing only one left the
+  # route a human cannot otherwise veto with a veto that did nothing.
+  # ONE TIMESTAMP FOR BOTH, not two `date` calls: they can straddle a second
+  # and give a single acknowledgement two different reset points.
+  _trn=$(date +%s)
+  if ! { printf '%s\n' "$_trn" > "$INHIBIT_CLOCK" \
+         && printf '%s\n' "$_trn" > "$UNNAMED_CLOCK"; } 2>/dev/null; then
     # LOUD, because the whole point of the verb is to stop a forced lock, and a
     # reset that silently did not record is one the operator believes in.
     echo "vigilant: could NOT record the reset at $INHIBIT_CLOCK; the" >&2
@@ -5358,14 +5668,32 @@ cmd_enforce() {
         _inhibit_escalate "$_e" "$_idle" "$_d" "$_ispan" || _erc=1
         return "$_erc"
       fi
+      # AND NOW ASK THE DEADLINE'S OWNER WHETHER IT AGREES THE SEAT WAS QUIET,
+      # because "overdue" is only a FAULT if it does. The deadline is the
+      # timer's and the idleness is `idle.d`'s, so where they disagree the edge
+      # was never DUE as far as the thing that owns it was concerned, and that
+      # is a DEFERRAL by something this box cannot name rather than a miss.
+      #
+      # CANNOT TELL CHANGES NOTHING, which is what makes this safe to add: a
+      # box with no `concur.d` source wired behaves exactly as it did before.
+      _cc=0
+      _concur_says "$_idle" || _cc=$?
+      _ospan=$(_overdue_track "$_e")
+      if [ "$_cc" = 1 ]; then
+        _unnamed_escalate "$_e" "$_idle" "$_d" "$_ospan" || _erc=1
+        return "$_erc"
+      fi
       # THE FINDING THIS TIER EXISTS FOR, finally expressible: the seat has
       # been quiet past the deadline and the edge did not happen. A WEDGED
       # idle timer is running, correctly armed and silent: it passes the
       # argv check, logs no event for audit to reconcile, and leaves the
       # machine at a rung it genuinely matches. Nothing else here can see it,
       # and it is the failure that created this package.
-      _ospan=$(_overdue_track "$_e")
-      _overdue_escalate "$_e" "$_idle" "$_d" "$_ospan" || _erc=1
+      #
+      # THE VERDICT TRAVELS WITH IT so the message is only as strong as the
+      # evidence: a concurrence makes "the timer is alive and its acting arm is
+      # broken" a true sentence, and nothing else does.
+      _overdue_escalate "$_e" "$_idle" "$_d" "$_ospan" "$_cc" || _erc=1
       return "$_erc"
     fi
   fi

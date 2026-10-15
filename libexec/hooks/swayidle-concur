@@ -1,0 +1,188 @@
+#!/bin/sh
+# swayidle-concur - does the idle timer AGREE that the seat has been quiet?
+#
+# AN IDLE DEADLINE IS BUILT FROM TWO HALVES THAT COME FROM DIFFERENT PLACES:
+# the DEADLINE belongs to the idle timer, and the IDLENESS to `idle.d`. So a
+# deadline that passes with its edge unfired is only a FAULT if both halves
+# agree the seat was quiet. If the timer never observed the stretch our
+# counters measured, the deadline was not MISSED; as far as the thing that owns
+# it is concerned it was never DUE.
+#
+# MEASURED LIVE ON 2026-10-14, which is why this exists. A browser in a video
+# call took the compositor's own idle inhibitor (the Wayland
+# zwp_idle_inhibit_manager_v1), so the compositor reported the seat ACTIVE and
+# swayidle correctly never fired the 480s lock: ZERO heartbeat ticks in 22
+# minutes with a 60s tick armed. The input counters, which see no inhibitor of
+# any kind, read 1166s of idle. The two halves disagreed, nothing asked, and
+# the overdue escalation locked a screen somebody was working at.
+#
+# THERE ARE THREE WAYS TO HOLD AN IDLE TIMER OFF AND VIGILANCE SEES ONE AND A
+# HALF: a logind `Inhibit what=idle` (which `_idle_inhibited` reads), an
+# `org.freedesktop.ScreenSaver` hold (which it can query an OWNER of), and the
+# Wayland protocol above, which has no introspection and no "is one held"
+# request at all, so it can never be queried. THIS HOOK DOES NOT TRY. It asks
+# the one question that is answerable from outside: did the timer SEE it?
+#
+# WHAT IT DELIBERATELY CANNOT TELL YOU IS WHY. A wedged timer and an honoured
+# compositor inhibitor produce IDENTICAL evidence here, which is exactly what
+# `swayidle-watchdog` says in as many words and refuses to resolve. That
+# ambiguity does not matter to the ACTION, and seeing why is the point of this
+# tier: both causes want the same thing, which is not to interrupt a call
+# early and not to leave the session open for ever either. So a
+# non-concurrence earns the INHIBIT BOUND's bounded escalation (silent, then
+# reported, then the session secured unless a human vetoes), and only a
+# CONCURRENCE earns the loud per-pass overdue accusation, because only then is
+# "the timer saw the idleness and did not act" a true sentence.
+#
+# NO STATE, NO DAEMON, AND NO PRIVILEGE. It reads a log the idle timer already
+# writes and the argv the kernel already holds.
+#
+# THE EXIT CODES ARE THE ANSWER:
+#
+#   0   CONCURS. The timer observed idleness inside the stretch, so if the
+#       edge still did not fire, the fault is real and nameable: the tick arm
+#       works and the acting arm does not. That is the 2026-09-12 outage, where
+#       a running timer was armed with a path that had been swept.
+#   1   DOES NOT CONCUR. The timer observed nothing across the whole stretch,
+#       so the seat looks quiet only to us.
+#   78  cannot tell, which leaves every caller exactly as it was.
+set -eu
+
+# THE SAME DEFAULTS AS swayidle-watchdog, deliberately and not by coincidence:
+# two hooks reading one heartbeat must not be able to disagree about where it
+# is or what marks it. test/concur.t asserts they still match, because that is
+# a RELATION between two files and neither one alone can keep it.
+LOG=${SWAYIDLE_LOG_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/swayidle-mgr}
+LOG=$LOG/events.log
+MARK=${VIGILANCE_HEARTBEAT_MARK:-idle-tick}
+
+# WHICH RECORDS COUNT AS "THE TIMER SAW THE SEAT GO IDLE". swayidle-mgr emits
+# `idle-tick` at the heartbeat threshold and `idle-lock` at the lock deadline,
+# both in the idle DIRECTION; `active` is a resume and `start` is a launch, and
+# neither is an observation of idleness. Matching the mtime instead would be
+# simpler and wrong for exactly that reason: a resume would read as agreement.
+EVENTS=${VIGILANCE_CONCUR_EVENTS:-idle-}
+
+_now=$(date +%s)
+
+# --- can this question be asked at all? -------------------------------------
+# THE FRAMEWORK SUPPLIES THE STRETCH, because the framework owns the clock. A
+# hook that chose its own window would be answering a different question from
+# the one the deadline is about.
+QUIET=${VIGILANCE_QUIET_SECS:-}
+case "${QUIET:-}" in
+  '' | *[!0-9]*)
+    echo "no quiet stretch supplied (VIGILANCE_QUIET_SECS), so there is"\
+" nothing to agree or disagree about"
+    exit 78 ;;
+esac
+if [ "$QUIET" -le 0 ]; then
+  echo "the measured quiet stretch is ${QUIET}s, so the seat is not quiet by"\
+" anyone's reckoning and there is nothing to corroborate"
+  exit 78
+fi
+
+if ! command -v swayidle >/dev/null 2>&1; then
+  echo "no swayidle on this host; nothing to ask"
+  exit 78
+fi
+if ! pgrep -x swayidle >/dev/null 2>&1; then
+  # NOT THIS HOOK'S FINDING. `report` already asserts the timer is running, and
+  # two tiers reporting one fault in different words is how a reader learns to
+  # discount both. A timer that is not running has not DISAGREED about
+  # anything; it is simply absent.
+  echo "swayidle is not running; that is report's finding, not this one"
+  exit 78
+fi
+if [ ! -r "$LOG" ]; then
+  echo "no event log at $LOG; the heartbeat is not wired, so silence here"\
+" carries no information"
+  exit 78
+fi
+
+# IS THE HEARTBEAT ACTUALLY ARMED IN THE RUNNING DAEMON? This is the decisive
+# precondition and it has bitten this fleet before: A DAEMON PINS ITS ARGV AT
+# START, so an instance predating the heartbeat emits nothing however healthy
+# it is. Reading that silence as a disagreement would defer every idle deadline
+# on the box, which is the unsafe direction: it would suppress the finding this
+# whole tier exists to make. The watchdog learned the same lesson within a day
+# of shipping and for the same reason.
+#
+# OVERRIDABLE, or this branch can only ever be exercised against whatever the
+# developer's own swayidle happens to be armed with, which is a verdict about
+# the substrate rather than about the code.
+_cl=${VIGILANCE_IDLE_CMDLINE:-}
+if [ -z "$_cl" ]; then
+  _pid=$(pgrep -x swayidle 2>/dev/null | head -1)
+  if [ -n "${_pid:-}" ]; then _cl=/proc/$_pid/cmdline; fi
+fi
+if [ -z "${_cl:-}" ] || [ ! -r "$_cl" ]; then
+  echo "cannot read the running idle timer's argv, so whether the heartbeat"\
+" is armed is unknown and its silence means nothing"
+  exit 78
+fi
+if ! tr '\0' '\n' < "$_cl" 2>/dev/null | grep -q -- "$MARK"; then
+  echo "the running idle timer has no '$MARK' heartbeat in its argv, so it"\
+" observes nothing this hook could read. It predates the heartbeat; restart"\
+" vigilance-idle.service (or relogin) and this becomes answerable."
+  exit 78
+fi
+
+# --- when did the timer last observe the seat go idle? ----------------------
+# THE LAST RECORD IN THE IDLE DIRECTION, parsed rather than taken from the
+# file's mtime: an `active` record updates the mtime and is a RESUME, so an
+# mtime reading would report a resume as agreement that the seat was quiet.
+# `-F`, SO THE MARKER IS A LITERAL. This value is configurable, and a pattern
+# taken from configuration and used as a regex is the shape that has already
+# cost this package a box-wide signal: `pkill -x "$LOCKER"` where the knob was
+# an ERE. Nothing here needs a regex, so nothing here accepts one.
+_last=$(grep -F -- "$EVENTS" "$LOG" 2>/dev/null | tail -1 | cut -d' ' -f1)
+_seen=0
+if [ -n "${_last:-}" ]; then
+  # NOT FATAL IF IT WILL NOT PARSE. A record this cannot read is a reason to
+  # ABSTAIN, never to assert that the timer saw nothing: that assertion defers
+  # a real deadline, which is the one direction that hides a fault. An EMPTY
+  # result is different and falls through below, because "no idle record at
+  # all" is a real observation rather than a parse failure.
+  _seen=$(date -d "$_last" +%s 2>/dev/null || echo 0)
+  case "${_seen:-}" in '' | *[!0-9]*) _seen=0 ;; esac
+  if [ "$_seen" = 0 ]; then
+    echo "cannot read a timestamp from the last idle record in $LOG, so this"\
+" cannot be measured"
+    exit 78
+  fi
+fi
+
+# A STAMP FROM THE FUTURE IS NOT A RECENT OBSERVATION. A wall clock is not
+# monotonic, and a backward step would otherwise make every stale record look
+# fresh and manufacture a concurrence, which is the direction that cries wolf.
+# Same family as every other elapsed guard in this package.
+if [ "$_seen" -gt "$_now" ]; then
+  echo "the last idle record in $LOG is stamped in the future, so the clock"\
+" has stepped and this cannot be measured"
+  exit 78
+fi
+
+# THE TIMER'S AGE IS NOT CHECKED HERE, deliberately: `_idle_bound` already caps
+# the stretch the framework hands us at how long the declared idle timer has
+# been running, so a restart mid-stretch cannot reach this hook as a window the
+# timer could not have watched. Re-checking it would be a second source of
+# truth for one fact.
+_ago=$(( _now - _seen ))
+if [ "$_seen" -gt 0 ] && [ "$_ago" -le "$QUIET" ]; then
+  echo "the idle timer observed the seat go idle ${_ago}s ago, inside the"\
+" ${QUIET}s stretch, so it agrees the seat has been quiet"
+  exit 0
+fi
+
+if [ "$_seen" = 0 ]; then
+  echo "the idle timer has never recorded the seat going idle, while the seat"\
+" has been quiet for ${QUIET}s by our own clock, so it does not agree"
+else
+  echo "the idle timer last observed the seat go idle ${_ago}s ago, before the"\
+" ${QUIET}s stretch began, so it has seen none of it and does not agree."\
+" Either something is holding it off through a channel logind cannot see (a"\
+" compositor-level idle inhibitor, which a browser in a video call takes), or"\
+" it is wedged; this hook cannot tell those apart and does not try."
+fi
+exit 1

@@ -104,10 +104,15 @@ esac
 VIGILANCE_BLOCK_INHIBITED=''; export VIGILANCE_BLOCK_INHIBITED
 rm -f "$VIGILANCE_RUN_DIR/inhibit-since" "$VIGILANCE_RUN_DIR/inhibit-clock"
 _o=$(_t)
+# SCOPED TO LOGIND IN THE WORDING, because that is all this line ever asked.
+# It read "none held, so no deadline is deferred" until a second route existed,
+# and then sat one line above a `deferred:` line reporting a hold logind cannot
+# see. A view that contradicts itself is worse than one that says less.
 case "$_o" in
-  *"none held"*) ;;
+  *"no logind idle inhibitor held"*) ;;
   *) printf '%s\n' "$_o" >&2; fail "with no inhibitor held the view must say
-so plainly" ;;
+so plainly, and say which KIND it is talking about: a bare 'none held' reads as
+a claim about every channel, and there is one it cannot see" ;;
 esac
 case "$_o" in
   *secure:*) printf '%s\n' "$_o" >&2

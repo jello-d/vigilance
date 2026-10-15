@@ -200,6 +200,36 @@ which a browser in a video call takes) is invisible to it while
 honours it. Reporting is unaffected and stays on: a report that names both
 causes costs nothing when it is wrong.
 .PP
+SO THERE IS A SECOND ROUTE TO THE SAME BOUNDS, for the deferral that cannot be
+named. A
+.B concur.d
+hook is asked whether the deadline's own owner agrees the seat has been quiet
+for the stretch
+.B idle.d
+measured; the shipped
+.B swayidle-concur
+answers from the idle timer's heartbeat. Where it says NO, the edge was never
+due as far as the thing that owns it was concerned, so this is a DEFERRAL and
+takes the escalation above (silent, then reported, then the session secured
+past
+.BR VIGILANCE_INHIBIT_FORCE ,
+with
+.B "vigilant timer reset"
+vetoing either route) rather than a per\-pass accusation. Where it says YES the
+timer observed the idleness and still did not act, which makes the overdue
+finding both true and specific: the timer is alive and whatever it was armed to
+run is not working.
+.PP
+NOTHING WIRED CHANGES NOTHING. A box with no
+.B concur.d
+source behaves exactly as it did before, because "cannot tell" and "nothing to
+ask" are the same answer. The tier deliberately cannot say WHY a timer saw
+nothing: a honoured compositor inhibitor and a wedged timer are identical from
+outside, which is what
+.B swayidle-watchdog
+says too, and the two causes want the same response anyway, so the ambiguity
+costs only the wording of the message.
+.PP
 ONCE PER EPISODE IS NOT ONCE PER FAULT, which matters to anyone turning this
 on. On the
 .B lock
@@ -540,6 +570,16 @@ crash and a human typing their password read alike here.
 the idle inhibit bound forcing a lock. See
 .B THE IDLE INHIBIT BOUND
 above.
+.TP
+.B unnamed\-bound
+the same bound, reached through the other route: a deadline deferred for too
+long by something this box cannot NAME, which is what a
+.B concur.d
+hook establishes. Same bounds and same veto as
+.BR inhibit\-bound ,
+distinguished in the log because the remedy differs: there is no process to go
+and fix, so the question becomes whether the idle timer is being held off or
+has wedged.
 .TP
 .B overdue\-bound
 the overdue bound securing a session whose
@@ -1025,6 +1065,23 @@ timer, so a box wired with a 15\-minute pass is not faulty for having gone a
 minute without verifying. Raise it to match a slower timer. The section states
 the fact either way; this only decides whether it is reported as pending or as
 a warning.
+.TP
+.B VIGILANCE_QUIET_SECS
+set by the runner, never by hand: the seat\-quiet stretch, in seconds, that a
+.B concur.d
+hook is being asked about. The framework owns the clock, so a hook that chose
+its own window would be answering a different question from the one the
+deadline is about.
+.TP
+.B VIGILANCE_CONCUR_EVENTS
+which records in the idle timer's heartbeat count as "the timer saw the seat go
+idle", as a LITERAL substring (default
+.BR idle- ).
+Matched literally and not as a regex, because a pattern taken from
+configuration and used as one is the shape that once turned a
+.B pkill
+into a box\-wide signal. Only relevant if another idle timer writes a heartbeat
+with different record names.
 .TP
 .B VIGILANCE_IDLE_PHASE
 set by the runner, never by hand: `settle` tells an

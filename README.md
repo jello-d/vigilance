@@ -293,6 +293,15 @@ An integrator chooses which run on which edge, because that is policy:
     hooks/swayidle-watchdog  is the idle timer FIRING, not merely running?
     hooks/input-counters   idle.d: seconds since input, from kernel counters
     hooks/x11-idle         idle.d: the same, ASKED of an X server (xprintidle)
+    hooks/swayidle-concur  concur.d: does the idle timer AGREE the seat has
+                           been quiet for the stretch `idle.d` measured? A
+                           deadline that passes is only a FAULT if it does.
+                           Reads the timer's own heartbeat, so it needs no
+                           privilege and no daemon. It deliberately cannot say
+                           WHY a timer saw nothing, because a honoured
+                           compositor idle inhibitor and a wedged timer look
+                           identical from outside; both get the bounded
+                           deferral escalation rather than an accusation
     hooks/cursor-autohide  cursor.d: is the POINTER auto-hidden on this seat?
                            Only asked where the panel is darkened by painting
                            black, because there a notification brings the

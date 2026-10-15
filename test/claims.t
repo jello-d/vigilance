@@ -223,10 +223,20 @@ _wa=$(awk '/^\.SS WHO ASKED/ { s = 1; next } s && /^\.SS/ { exit }
 [ -n "$_wa" ] || fail "the man page has no WHO ASKED vocabulary section, so
 nothing documents what src= in a crossing record can say"
 
+# AN EMISSION IS NOT ALWAYS A LITERAL ASSIGNMENT, and this check found that out
+# by firing the day it stopped being one. `_defer_secure <label>` crosses the
+# edge for both deferral routes, so its label is an ARGUMENT and a scanner
+# keyed on `VIGILANCE_SOURCE=` could no longer see it: `inhibit-bound` read as
+# documented-but-never-emitted the moment the shared actor was extracted.
+# EXTRACTING A SHARED HELPER IS A WAY TO LAUNDER A FACT PAST A CHECK THAT
+# GREPS FOR A SPELLING, which is exactly what hermetic.t names its process
+# helpers for. So the helper's NAME is part of the pattern, both ways round.
+_SRCPAT='VIGILANCE_SOURCE=[a-z0-9-]+|_defer_secure [a-z0-9-]+'
+
 _srcbad=
-for _s in $(grep -rhoE 'VIGILANCE_SOURCE=[a-z0-9-]+' "$HERE"/bin "$HERE"/lib \
+for _s in $(grep -rhoE "$_SRCPAT" "$HERE"/bin "$HERE"/lib \
               "$HERE"/libexec "$HERE"/systemd 2>/dev/null \
-            | sed 's/.*=//' | sort -u); do
+            | sed 's/.*[= ]//' | sort -u); do
   printf '%s\n' "$_wa" | grep -qxF "$_s" || _srcbad="$_srcbad $_s"
 done
 [ -z "$_srcbad" ] || fail "source(s) SET by shipped code and documented
@@ -255,7 +265,8 @@ dark, why did it come back) cannot be answered from a value nothing explains."
 _srcorphan=
 for _s in $(printf '%s\n' "$_wa"); do
   case "$_s" in unset|invalid|manual) continue ;; esac
-  grep -rqF "VIGILANCE_SOURCE=$_s" "$HERE"/bin "$HERE"/lib "$HERE"/libexec \
+  grep -rqE "(VIGILANCE_SOURCE=|_defer_secure )$_s([^a-z0-9-]|\$)" \
+    "$HERE"/bin "$HERE"/lib "$HERE"/libexec \
     "$HERE"/systemd 2>/dev/null || _srcorphan="$_srcorphan $_s"
 done
 [ -z "$_srcorphan" ] || fail "source(s) DOCUMENTED but emitted by

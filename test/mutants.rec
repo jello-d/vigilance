@@ -1156,8 +1156,8 @@ t idle-inhibit inhibit-bound
 = inhibit-force-refuses-a-dark-rung
 f bin/vigilant
 t inhibit-bound
--      && [ "$_iee" = lock ] && [ "$_iei" -gt "$((_ied + GRACE))" ]; then
-+      && [ "$_iei" -gt "$((_ied + GRACE))" ]; then
+-      && [ "$2" = lock ] && [ "$3" -gt "$(( $4 + GRACE ))" ]; then
++      && [ "$3" -gt "$(( $4 + GRACE ))" ]; then
 
 = inhibit-field-not-substring-runner
 f bin/vigilant
@@ -1180,14 +1180,14 @@ t triggers
 = timer-reset-records-the-clock
 f bin/vigilant
 t inhibit-bound timer
--   if ! printf '%s\n' "$(date +%s)" > "$INHIBIT_CLOCK" 2>/dev/null; then
-+   if ! printf '%s\n' "$(date +%s)" > /dev/null 2>&1; then
+-   if ! { printf '%s\n' "$_trn" > "$INHIBIT_CLOCK" \
++  if ! { printf '%s\n' "$_trn" > /dev/null \
 
 = inhibit-force-resets-the-clock
 f bin/vigilant
 t inhibit-bound
--     printf '%s\n' "$(date +%s)" > "$INHIBIT_CLOCK" 2>/dev/null || true
-+     printf '%s\n' "$(date +%s)" > /dev/null 2>&1 || true
+-   printf '%s\n' "$(date +%s)" > "$2" 2>/dev/null || true
++  printf '%s\n' "$(date +%s)" > /dev/null 2>&1 || true
 
 = watchdog-counts-only-watched-silence
 f libexec/hooks/swayidle-watchdog
@@ -1301,3 +1301,45 @@ f bin/vigilant
 t overdue-bound
 - " deadline. Either its timer is not working, or the seat is not idle by"\
 + " deadline; the primary mechanism for it is not working. Never mind"\
+
+= timer-reset-records-the-unnamed-clock
+f bin/vigilant
+t unnamed-bound
+-          && printf '%s\n' "$_trn" > "$UNNAMED_CLOCK"; } 2>/dev/null; then
++          && printf '%s\\n' "$_trn" > /dev/null; } 2>/dev/null; then
+
+= concur-disagreement-routed-to-overdue
+f bin/vigilant
+t unnamed-bound
+-       if [ "$_cc" = 1 ]; then
++       if false; then
+
+= concur-one-yes-is-not-enough
+f bin/vigilant
+t unnamed-bound
+-           return 0 ;;   # one concurrence settles it
++           _csno="${_csno:+$_csno }$(basename "$_csh")" ;;
+
+= unnamed-span-ignores-the-reset
+f bin/vigilant
+t unnamed-bound
+-          if [ "$_unr" -lt "$_unv" ]; then _unv=$_unr; fi
++          true
+
+= overdue-wording-ignores-a-concurrence
+f bin/vigilant
+t unnamed-bound
+-   if [ "${5:-}" = 0 ]; then
++   if false; then
+
+= concur-reads-the-mtime-not-the-record
+f libexec/hooks/swayidle-concur
+t concur
+- _last=$(grep -F -- "$EVENTS" "$LOG" 2>/dev/null | tail -1 | cut -d' ' -f1)
++ _last=$(tail -1 "$LOG" 2>/dev/null | cut -d' ' -f1)
+
+= concur-ignores-an-unarmed-heartbeat
+f libexec/hooks/swayidle-concur
+t concur
+- if ! tr '\0' '\n' < "$_cl" 2>/dev/null | grep -q -- "$MARK"; then
++ if false; then
