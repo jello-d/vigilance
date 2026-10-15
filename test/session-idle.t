@@ -66,6 +66,59 @@ VIGILANCE_KIND=watchdog VIGILANCE_UPTIME_FILE=$T/uptime \
 [ "$_wrc" != 1 ] || fail "the watchdog called a swayidle that has just driven
 two edges WEDGED: $(head -1 "$T/wd.out")"
 
+# --- 2b. concur.d AGAINST THE REAL HEARTBEAT ------------------------------
+# WHAT A FIXTURE CANNOT PROVE, which is the whole reason this case is here and
+# not only in concur.t. That file drives the hook against event logs I WROTE,
+# and three of the things it depends on are agreements with a real writer:
+#
+#   the LOG PATH          the hook derives it from SWAYIDLE_LOG_DIR or
+#                         $XDG_STATE_HOME/swayidle-mgr, and swayidle-mgr
+#                         derives its own. Deliberately NOT pinned here, so a
+#                         disagreement shows up as a decline instead of being
+#                         papered over by the fixture that set both.
+#   the TIMESTAMP FORMAT  the hook PARSES the record with `date -d`, and my
+#                         fixture writes `.000000000` where the real emitter
+#                         writes `%N`. A format `date` could not read would
+#                         make the hook abstain on every real box.
+#   the RUNNING ARGV      the heartbeat precondition is read from
+#                         /proc/<pid>/cmdline of a daemon that really pinned it
+#                         at start, not from a file a test laid down.
+#
+# A DAEMON HAS JUST DRIVEN TWO EDGES by the time this runs, so the log holds
+# real idle-direction records seconds old. That is the state in which both
+# answers are unambiguous.
+sleep 2
+_cc_run() {   # <quiet-secs> -> sets CRC, output in $T/cc.out
+  CRC=0
+  VIGILANCE_KIND=concur VIGILANCE_QUIET_SECS="$1" \
+    sh "$PLUGINS/hooks/swayidle-concur" >"$T/cc.out" 2>&1 || CRC=$?
+}
+
+# A STRETCH THAT CONTAINS THE RECORDS: the timer agrees the seat was quiet.
+_cc_run 3600
+[ "$CRC" = 0 ] || fail "against a REAL swayidle that has just driven lock and
+sleep, the hook did not agree the seat had been quiet for 3600s (rc=$CRC).
+rc=78 means it could not even look, and the three things only a real writer can
+confirm are the log PATH, the record FORMAT its own date must parse, and the
+heartbeat in the running argv: $(cat "$T/cc.out")"
+
+# A STRETCH THAT PREDATES THEM: it saw none of it, and says so. The `sleep 2`
+# above is what makes this unambiguous rather than a race on the record's age.
+_cc_run 1
+[ "$CRC" = 1 ] || fail "asked about a 1s stretch, with the timer's last idle
+record at least 2s old, the hook answered rc=$CRC instead of disagreeing. Both
+directions have to work against a real log or the tier cannot tell a deferral
+from a missed deadline: $(cat "$T/cc.out")"
+
+# AND NOT BECAUSE IT COULD NOT READ THE LOG, which is the failure mode a
+# fixture hides: an abstention and a disagreement are different answers and
+# only one of them routes a deadline to the deferral escalation.
+case "$(cat "$T/cc.out")" in
+  *"cannot read"*|*"no event log"*|*"not running"*)
+    fail "the hook ABSTAINED where it should have disagreed, so one of its
+agreements with the real swayidle-mgr is broken: $(cat "$T/cc.out")" ;;
+esac
+
 # --- 3. RESTARTING THE TIMER MUST NOT MANUFACTURE AN OVERDUE ---------------
 # swayidle RUNS ALL PENDING RESUME COMMANDS ON SIGTERM: documented, and there
 # so a killed timer does not leave a dimmed screen. So stopping it from the

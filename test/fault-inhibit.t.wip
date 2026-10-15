@@ -5,9 +5,16 @@
 # shape; it cannot run because this guest has no trustworthy idle clock, and
 # the escalation is only ever reachable from the idle-anchored branch.
 #
-#   input-counters  cannot answer here at all: no countable input device, and
-#                   with nothing sampling between scenarios every reading is a
-#                   fresh gap, which reports ACTIVITY (about zero).
+#   input-counters  CORRECTED 2026-10-15: it answers here perfectly well, and
+#                   this line was wrong. The guest has FOUR input devices (q35
+#                   gives it PS/2 keyboard and mouse, which the hook counts
+#                   through /proc/interrupts) and nothing ever types on them,
+#                   so the counter is flat and idle grows: measured '2' -> '6'
+#                   across a 2s gap. What misled me is that the source is
+#                   STATEFUL, so its FIRST call has no baseline and correctly
+#                   declines; a single-call test reads that as "no clock here".
+#                   The guest now claims an `idleclock` capability, probed by
+#                   priming and then requiring two readings to GROW.
 #   x11-idle        DECLINES now, correctly, and finding out why is what this
 #                   work actually produced: the server's counter is reset by
 #                   READING it (spaced 3008 2975 2980, rapid 1 0 0 1), so it
@@ -31,10 +38,19 @@
 #      whole point was that nothing had been logged. enforce's own stdout is
 #      what names the ceiling that bit.
 #
-# WHAT WOULD MAKE IT BUILDABLE: a real countable input device in the guest that
-# goes quiet, which uinject can create. input-counters would then accumulate
-# across the passes this cell already drives. That is the next thing to try,
-# and it is a change to the guest rather than to this file.
+# WHAT WOULD MAKE IT BUILDABLE, CORRECTED: nothing in the guest. It already has
+# the clock (above), and `require idleclock` is the gate. What this file needs
+# is to take its idle source from input-counters rather than x11-idle, and
+# numbers that suit a clock reading single-digit seconds: a 1s deadline, a
+# small GRACE, and small bounds, all of them knobs an integrator sets anyway.
+#
+# AND uinject WAS THE WRONG LEVER, which is worth recording because it is the
+# obvious guess and it is measurable in seconds. A uinput device lands under
+# /sys/devices/virtual/input, whose ancestry contains no USB at all, so it
+# offers neither `urbnum` nor an i8042 interrupt: verified read-only on the
+# development box, where `find /sys/devices/virtual -name urbnum` is empty
+# while urbnum appears only under `pci*/usb*`. A qemu USB keyboard would have
+# worked and was not needed.
 #
 # THE `.wip` SUFFIX KEEPS IT OUT OF test/run's `*.t` glob while keeping the
 # work, which is the pattern fault-clock.t used while it was set aside. The

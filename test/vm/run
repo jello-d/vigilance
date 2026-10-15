@@ -674,6 +674,72 @@ runcmd:
         echo "  NO /dev/uinput; lid and input faults will SKIP"
       fi
 
+      # --- the IDLE CLOCK, which decides whether the overdue tier exists --
+      # THE CAPABILITY IS THE ROUND TRIP, not the presence of a device, for
+      # the reason the x11dpms probe gives: a counter that exists and is being
+      # DRIVEN by something would answer a number and never accumulate, which
+      # is the contaminated state a live box in this fleet actually has (a QMK
+      # keyboard reporting to itself pinned a real clock at 74s). So the probe
+      # asks twice and requires the reading to GROW.
+      #
+      # WHY THIS IS NEWLY POSSIBLE: the run boot now has a real USB keyboard
+      # nobody ever types on, so `input-counters` has a real kernel counter to
+      # walk up to and it stays flat. Without one this guest could not answer
+      # at all, and the escalation reachable only from the idle-anchored branch
+      # was unbuildable for it.
+      # A PHASE MARKER STRAIGHT TO THE SERIAL, which is the only output that
+      # survives the host giving up on us: everything else goes to /root/log
+      # and is catted at the END, so a hang anywhere in setup loses the whole
+      # diagnostic and the run can only say "guest never reported". Four
+      # consecutive 20-minute hangs reported exactly that, with the console
+      # silent past 11 seconds, which is what made them undiagnosable.
+      echo "GUESTMARK: probes/idle-clock begin" > /dev/ttyS0 2>/dev/null || true
+      echo "=== the idle clock ==="
+      _idleclock=
+      _icsd=/root/ic-probe; rm -rf "$_icsd"; mkdir -p "$_icsd"
+      # awk, NOT `grep -c`: that exits 1 on a zero count, so `|| echo 0`
+      # appends a SECOND zero and the variable becomes the two-line string
+      # "0\n0". The crash tier already paid for this one.
+      _icdev=$(ls /sys/class/input 2>/dev/null | awk '/^input/ { n++ }
+               END { print n + 0 }')
+      echo "  input devices the kernel offers: $_icdev"
+      _ich=/root/vigilance/libexec/hooks/input-counters
+      # BOUNDED, and that is not belt-and-braces: these probes run OUTSIDE
+      # the suite's own VIG_SUITE_TIMEOUT, so anything that hangs here is
+      # bounded only by the HOST, whose timeout kills qemu before the guest
+      # can cat its log. The whole diagnostic is then lost and the run reports
+      # "guest never reported", which is what happened on the first try.
+      # PRIMED FIRST, because the source is STATEFUL: the only unprivileged
+      # way to read idle time is to sample a counter and remember what it
+      # said, so the FIRST call has no baseline and correctly declines. The
+      # first version of this probe took that for "no clock here" and reported
+      # '<declined>' -> '4' as NO usable idle clock, about a clock that was
+      # plainly working: a wrong statement about the substrate, which is the
+      # one thing a capability probe must never make.
+      timeout 15 env VIGILANCE_STATE_DIR=$_icsd VIGILANCE_KIND=idle \
+        sh "$_ich" >/dev/null 2>&1 || true
+      sleep 2
+      _ic1=$(timeout 15 env VIGILANCE_STATE_DIR=$_icsd VIGILANCE_KIND=idle \
+             sh "$_ich" 2>/dev/null | awk '{print $1}' || true)
+      sleep 4
+      _ic2=$(timeout 15 env VIGILANCE_STATE_DIR=$_icsd VIGILANCE_KIND=idle \
+             sh "$_ich" 2>/dev/null | awk '{print $1}' || true)
+      echo "  input-counters: '${_ic1:-<declined>}' -> '${_ic2:-<declined>}'"
+      case "${_ic1:-x}" in ''|*[!0-9]*) _ic1= ;; esac
+      case "${_ic2:-x}" in ''|*[!0-9]*) _ic2= ;; esac
+      if [ -n "$_ic1" ] && [ -n "$_ic2" ] && [ "$_ic2" -gt "$_ic1" ]; then
+        _idleclock=idleclock
+        # ONE LINE, NO CONTINUATION. A `"..."\` continuation puts the rest
+        # at COLUMN 0, and this script lives in a cloud-init YAML LITERAL
+        # BLOCK where a column-0 line ENDS the block: the runcmd is truncated
+        # and the guest never reports. That is what the check beside the
+        # `dash -n` parse now refuses.
+        echo "  the clock ACCUMULATES: idle deadlines measurable here"
+      else
+        echo "  NO usable idle clock; idle-anchored escalations will SKIP"
+      fi
+      echo "GUESTMARK: probes/idle-clock done" > /dev/ttyS0 2>/dev/null || true
+
       # --- X11: a second platform, for the assumptions it reads back ------
       # THE HOOKS TALK TO THE SERVER, not to a window manager, so a bare X
       # server is the whole substrate they need: xset owns DPMS and the
@@ -978,7 +1044,7 @@ runcmd:
       SCENARIO_CAPS_EXTRA="$_compositor $_userbus $_wayfire"
       SCENARIO_CAPS_EXTRA="$SCENARIO_CAPS_EXTRA $_tackup $_uinput $_x11"
       SCENARIO_CAPS_EXTRA="$SCENARIO_CAPS_EXTRA $_x11dpms $_xfce"
-      SCENARIO_CAPS_EXTRA="$SCENARIO_CAPS_EXTRA $_x11locker"
+      SCENARIO_CAPS_EXTRA="$SCENARIO_CAPS_EXTRA $_x11locker $_idleclock"
       echo "  capabilities: $SCENARIO_CAPS_EXTRA"
       # SAY WHICH ENVIRONMENT THIS IS. Four flavours produce four console logs
       # that are otherwise near-identical, and a verdict filed against the wrong
@@ -1036,7 +1102,9 @@ runcmd:
       VIGILANCE_RUNNING_FILE=/root/running; export VIGILANCE_RUNNING_FILE
       _src=0
       _st=$(date +%s)
+      echo "GUESTMARK: suite begin" > /dev/ttyS0 2>/dev/null || true
       timeout -k 10 "${VIG_SUITE_TIMEOUT:-900}" sh test/run @FILTER@ || _src=$?
+      echo "GUESTMARK: suite done rc=$_src" > /dev/ttyS0 2>/dev/null || true
       _el=$(( $(date +%s) - _st ))
       echo "suite: ${_el}s of a ${VIG_SUITE_TIMEOUT:-900}s bound"
       if [ "$_src" = 124 ]; then
@@ -1076,6 +1144,29 @@ _gs=$VMF/guest-script
 awk '/^  - \|$/ { f = 1; next } f' "$_seed/user-data" | sed 's/^    //' > "$_gs"
 [ -s "$_gs" ] || _die "could not extract the guest script from the seed"
 dash -n "$_gs" || _die "the guest runcmd does not parse; see $_gs"
+
+# AND THE YAML BLOCK MUST STILL BE A BLOCK, which `dash -n` cannot tell you.
+# The runcmd is a LITERAL SCALAR, so every line of it has to stay indented; a
+# line at column 0 ENDS the block, cloud-init runs a truncated script, and the
+# guest produces NO OUTPUT AT ALL because its log is only catted at the end.
+#
+# MEASURED COST: five consecutive 20-minute runs reporting "guest never
+# reported" with the console silent past 11 seconds, from a single `"..."\`
+# continuation whose second half landed at column 0. The rule was already
+# written at the top of that heredoc, and the notes already record it biting
+# three separate ways; a rule that needs remembering is weaker than a check.
+#
+# THE SCAN IS OVER user-data ITSELF, not over the extracted script, because
+# extraction is exactly what hides the fault: a column-0 line is captured and
+# then not stripped, so the script can still parse while the YAML has already
+# ended somewhere above.
+_ybad=$(awk '/^  - \|$/ { f = 1; next }
+             f && NF && $0 !~ /^    / { printf "%d: %s\n", NR, $0 }' \
+          "$_seed/user-data" | head -3)
+[ -z "$_ybad" ] || _die "the guest script has line(s) at column 0, which END
+the cloud-init literal block and truncate the runcmd. Indent them, or avoid the
+\`\"...\"\\\` continuation that puts a string's tail at column 0:
+$_ybad"
 
 xorriso -as mkisofs -R -J -V CIDATA -quiet \
   -o "$VMF/seed.iso" "$_seed" 2>/dev/null || _die "seed.iso failed"
@@ -1186,7 +1277,19 @@ _qpid=$!
 # Poll the log for the guest's completion marker, then stop the VM. Bounded, so
 # a guest that never reports cannot hang the run either way.
 _waited=0
-while [ "$_waited" -lt "${VM_TIMEOUT:-1200}" ]; do
+# THE HOST BOUND MUST EXCEED THE GUEST'S BY MORE THAN THE BOOT, or the guest's
+# own diagnostic is the thing that gets killed. Measured the hard way across
+# four consecutive 20-minute runs: the suite's bound is 900s and boot plus
+# setup is about 240s, so the guest needed 1140 of an allowance of 1200 and the
+# host won the race often enough that every hang reported "guest never
+# reported" with no console output past 11 seconds, which is the least
+# informative thing it could say about the one failure mode where knowing how
+# far it got is the whole question.
+#
+# A HANG IN SETUP OR IN THE CAPABILITY PROBES IS BOUNDED BY THIS ALONE, because
+# the suite's timeout covers `test/run` and nothing before it. So this is not
+# merely a margin, it is the only backstop for most of the guest script.
+while [ "$_waited" -lt "${VM_TIMEOUT:-1800}" ]; do
   if grep -q 'VIGILANCE_VM_EXIT=' "$CONSOLE" 2>/dev/null; then break; fi
   if ! kill -0 "$_qpid" 2>/dev/null; then break; fi
   sleep 2

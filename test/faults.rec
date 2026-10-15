@@ -396,13 +396,27 @@ t fault-wiring
 # stub source is refused outright: an idle source is a clock, and a clock is on
 # this file's own list of what may never be faked.
 #
+# UNBLOCKED 2026-10-15, and the blocker above was my own measurement error.
+# input-counters answers in this guest perfectly well: it has FOUR input
+# devices (q35 provides PS/2 keyboard and mouse, counted through
+# /proc/interrupts) and nothing ever types on them, so the counter is flat and
+# idle GROWS, measured '2' -> '6' across a 2s gap. The source is STATEFUL, so
+# its first call has no baseline and correctly declines, and a single-call test
+# reads that as "no clock here". The guest claims an `idleclock` capability
+# now, probed by priming and then requiring two readings to grow.
+#
+# AND uinject WAS THE WRONG LEVER, worth recording because it is the obvious
+# guess: a uinput device lands under /sys/devices/virtual/input, whose ancestry
+# has no USB in it, so it offers neither `urbnum` nor an i8042 interrupt.
+# Verified read-only rather than by trying it.
+#
 # The cell is written and kept at test/fault-inhibit.t.wip with the full state
 # of play, including the four fixture faults that cost four guest rounds. What
-# would make it buildable is a real countable input device in the guest that
-# then goes quiet, which uinject can create: a change to the guest, not to the
-# cell. The stub tier covers the DECISION (inhibit-bound.t, with a backdated
-# span and a recorder for a locker); what is still unproven is the ACT against
-# a real transient unit.
+# it still needs is its idle source taken from input-counters rather than
+# x11-idle, and numbers suiting a clock that reads single-digit seconds. The
+# stub tier covers the DECISION (inhibit-bound.t, with a backdated span and a
+# recorder for a locker); what is still unproven is the ACT against a real
+# transient unit.
 = inhibitor-held-past-the-bound
 m the inhibit escalation, and the forced lock it ends in
 f a real idle inhibitor is held while the seat is idle past the deadline
