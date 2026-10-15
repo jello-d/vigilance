@@ -499,14 +499,44 @@ Stated plainly rather than implied:
   inside a supervision pass it never is: the previous read of the same pass
   just reset it. So it fired for hand-runs and not for the case that matters.
 
-  THE CANDIDATE FIX is the mechanism that already exists one source over:
-  report an OBSERVED ceiling (the longest value this clock has actually seen,
-  with the age over which it watched) rather than the server's STRUCTURAL
-  timeout, exactly as input-counters does. On a read-reset server polled once a
-  minute the ceiling then settles near the poll interval and `report` correctly
-  says the deadline cannot be measured. Not built: it needs its own thought
-  about what a long gap between readers should do to the high-water mark, and
-  shipping a second half-understood fix is how the first one happened.
+  BUILT 2026-10-15, and the CEILING half is closed: `x11-idle` reports what it
+  has been SEEN to reach, with the age over which it watched, exactly as
+  input-counters does, and reads no `xset` at all. Measured end to end against
+  the real report: a counter capped at 5s now reads "longest quiet seen is 5s
+  ... NOT YET SHOWN" where it used to read "measurable (clock has observed 600s
+  quiet)", and the message becomes true the moment the counter genuinely
+  reaches 600.
+
+  TWO DEFECTS WERE VISIBLE WITHOUT THE DISPUTED MECHANISM AT ALL, which is why
+  this could be fixed while the mechanism stays open. `ceiling=600` came out of
+  `xset q`, and its consumer renders that field as "clock has observed": a
+  config value laundered into evidence, in the field invented to prevent
+  exactly that. And a timeout BELOW the deadline, which is a hard impossibility
+  known at the first call, landed in report's too-young exemption and read "NOT
+  YET SHOWN"; the hook's own comment claimed `age=cap` prevented that, and
+  asserted the opposite of what the code produced.
+
+  THE GAP QUESTION RESOLVED ONCE THE TWO FIELDS WERE TOLD APART. `age` is how
+  long WE watched, which a suspend interrupts, so a gap re-anchors it. The
+  ceiling is the SERVER'S own count of time since input, so a large value read
+  after a gap really was reported and really does demonstrate the counter's
+  reach, and it is KEPT. That is where this differs from input-counters, whose
+  ceiling is a wall-time inference between samples and was measured inflated to
+  241310s on a counter moving every 25s.
+
+  STILL OPEN, and deliberately not guessed at: WHETHER A READER RESETS THE
+  COUNTER. The two measurements on record disagree (this entry's, against the
+  306s-then-2s screensaver reset the hook's own header records), and the
+  development box cannot settle it because its Xwayland does not advertise
+  MIT-SCREEN-SAVER at all, so `xprintidle` there would fail and the hook
+  correctly declines. **The fix above does not depend on the answer**, which is
+  the property that made it safe to build: whatever caps the counter is what
+  shows up in a high-water mark. Settling it needs the guest, or an X11 box.
+
+  ALSO STILL OPEN: a STRUCTURAL cap has no field to carry it, so a deadline
+  longer than the screensaver timeout is now learned by watching rather than
+  stated at the first call. Slower and true. Giving it its own field is a
+  change to the `idle.d` contract and wants its own increment.
 
 - **The greeter's sleep path is observed only in the guest.** session-greeter.t
   drives the real machine hook set at the `lock` rung against a real sway and

@@ -105,34 +105,58 @@ or something is resetting the clock; both make a deadline unmeasurable"
 [ "$_i2" -lt 100 ] || fail "three seconds of idle read as ${_i2}s, so the
 milliseconds are being reported as seconds"
 
-# --- 3. THE CAP IS REPORTED, and it is the server's own -------------------
-# The finding this scenario produced on its first run. A source that answers a
-# number while being structurally unable to witness the deadline is this
-# project's signature false green, and `ceiling=` is the field that breaks it.
-# THE EXPECTED VALUE COMES FROM THE SERVER, not from something this file tried
-# to set. Asserting a number we chose would test `xset s`, which does not work
-# here; asserting the SERVER's number tests the only thing that matters: that
-# the hook and the server agree about what can be witnessed.
-_ans=$("$PLUG/x11-idle")
-if [ "$SS" -gt 0 ]; then
-  case "$_ans" in
-    *"ceiling=$SS age=$SS"*) ;;
-    *) fail "the server's screensaver timeout is ${SS}s and the source answered
-'$_ans'. It must report that cap: XScreenSaverQueryInfo restarts when the saver
-activates, so any deadline past ${SS}s is unwitnessable here and report would
-otherwise call it measurable" ;;
-  esac
-else
-  case "$_ans" in
-    *ceiling=*) fail "the screensaver is DISABLED on this server and the source
-still qualified its answer ('$_ans'); a cap that does not exist must not be
-reported" ;;
-  esac
+# --- 3. THE CEILING IS AN OBSERVATION, against a real server --------------
+# The finding this scenario produced on its first run was that a source can
+# answer a NUMBER while being structurally unable to witness the deadline, and
+# `ceiling=` is the field that breaks that. What it reported until 2026-10-15
+# was the server's CONFIGURED screensaver timeout, which its consumer renders
+# as "clock has observed N quiet": a config value laundered into evidence, in
+# the field invented to prevent exactly that.
+#
+# SO THE ASSERTION IS NOW EXACT AND NEEDS NO THEORY of why the counter resets.
+# Against a FRESH state dir the ceiling must equal the reading, because that is
+# the only thing the clock has seen. A hook that went back to reading `xset q`
+# fails this outright, and so does one that invents any other bound.
+_sd=$T/x11obs; rm -rf "$_sd"; mkdir -p "$_sd"
+_ans=$(VIGILANCE_STATE_DIR="$_sd" "$PLUG/x11-idle") \
+  || fail "x11-idle declined with a pinned state dir, so the rest of this case
+cannot run: $_ans"
+_f1=$(printf '%s' "$_ans" | awk '{print $1}')
+_ce=$(printf '%s' "$_ans" | sed -n 's/.*ceiling=\([0-9]*\).*/\1/p')
+_ag=$(printf '%s' "$_ans" | sed -n 's/.*age=\([0-9]*\).*/\1/p')
+[ -n "$_ce" ] && [ -n "$_ag" ] || fail "the source answered '$_ans' with no
+ceiling or age. Both are the evidence report needs to tell a clock that CAN
+witness a deadline from one that merely returns a number"
+[ "$_ce" = "$_f1" ] || fail "on a FRESH state dir the source read ${_f1}s and
+claimed a ceiling of ${_ce}s. The only thing it has observed is that one
+reading, so any other number came from somewhere it did not look, which is
+what the server's configured timeout used to be"
+if [ "$SS" -gt 0 ] && [ "$_ce" = "$SS" ] && [ "$_f1" != "$SS" ]; then
+  fail "the ceiling equals the server's screensaver timeout (${SS}s) and not
+the reading (${_f1}s), so it is still coming out of the configuration"
 fi
-# BOTH BRANCHES EXIST BECAUSE ONLY ONE CAN RUN HERE, and the stub tier covers
-# the other: test/x11.t drives a fixture through timeout 600 and timeout 0. A
-# scenario that pretended to cover both would be asserting against a server it
-# could not configure.
+
+# IT GROWS WITH WHAT IS SEEN AND NEVER SHRINKS, which is what makes it a
+# demonstration rather than a sample. Driven against the real server rather
+# than a fixture, because the stub tier can only show that the arithmetic is
+# right and this shows that the server's own answers drive it.
+sleep 3
+_ans2=$(VIGILANCE_STATE_DIR="$_sd" "$PLUG/x11-idle") || fail "second read
+declined: $_ans2"
+_ce2=$(printf '%s' "$_ans2" | sed -n 's/.*ceiling=\([0-9]*\).*/\1/p')
+[ "$_ce2" -ge "$_ce" ] || fail "the ceiling FELL from ${_ce}s to ${_ce2}s
+across two reads. It is a high-water mark: what this clock has been SEEN to
+reach, not what it reads now"
+_ag2=$(printf '%s' "$_ans2" | sed -n 's/.*age=\([0-9]*\).*/\1/p')
+[ "$_ag2" -ge "$_ag" ] || fail "the watched age went backwards, ${_ag}s to
+${_ag2}s, with no gap between the two reads"
+
+# AND WHAT THIS SERVER CANNOT DO IS LEFT AS A MEASUREMENT, not an assertion.
+# Section 2 records that the counter here never shows more than the gap since
+# the previous reader, so the ceiling stays far below any real deadline and
+# report correctly declines to call it measurable. Asserting a specific small
+# number would pin the first read ever taken on this boot, which is whatever
+# the server had accumulated before this scenario started.
 
 # --- 4. THE LUMA PROBE CAPTURES THROUGH import -----------------------------
 # `grim` cannot see an X server and `import` cannot see a Wayland output, so the

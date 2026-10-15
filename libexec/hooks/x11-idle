@@ -78,21 +78,79 @@ esac
 if [ "${#_out}" -gt 13 ]; then
   exit 78
 fi
-# THE SERVER'S SCREENSAVER TIMEOUT IS THE CAP. `timeout:` appears once in
-# `xset q`, in the Screen Saver block; the DPMS block spells its own thresholds
-# Standby/Suspend/Off, so there is nothing to confuse it with. An `xset` we
-# cannot run leaves the cap unknown, and unknown is reported as no opinion
-# rather than as unbounded, the same direction every other doubt in this
-# package takes.
-_cap=
-if command -v xset >/dev/null 2>&1; then
-  _cap=$(xset q 2>/dev/null | sed -n 's/^ *timeout: *\([0-9][0-9]*\).*/\1/p' \
-         | head -1)
-  case "${_cap:-}" in ''|*[!0-9]*) _cap= ;; esac
-  [ "${_cap:-0}" -gt 0 ] || _cap=
-fi
-if [ -n "$_cap" ]; then
-  printf '%s ceiling=%s age=%s\n' "$(( _out / 1000 ))" "$_cap" "$_cap"
+# THE CEILING IS WHAT THIS CLOCK HAS BEEN SEEN TO REACH, not what the server
+# is configured to allow. That is the correction, and the version it replaces
+# emitted the screensaver TIMEOUT through this field:
+#
+#     x11-idle -> "5 ceiling=600 age=600"
+#     report   -> "measurable (clock has observed 600s quiet)"
+#
+# It had observed no such thing. 600 was a line in `xset q`, and `ceiling=` is
+# read by its consumer as a DEMONSTRATION: a config value laundered into
+# evidence, which is the signature false green of this package in a field
+# invented to prevent it. Measured against the real report, not inferred.
+#
+# AND THE OTHER DIRECTION UNDER-STATED. A timeout BELOW the deadline is a hard
+# impossibility known at the first call, and `age=cap` was chosen so that
+# report's too-young exemption "must not apply to a hard limit". Measured: it
+# lands squarely in that exemption and reads "NOT YET SHOWN", which invites
+# waiting for something that will never happen. The comment asserted the
+# opposite of what the code produced.
+#
+# SO IT IS OBSERVED NOW, EXACTLY AS input-counters DOES IT, and the virtue is
+# that it needs no theory of WHY the counter resets. The screensaver resets it
+# (measured: 306s then 2s three seconds later). Whether a READER also resets it
+# is an open question this box cannot settle, because its Xwayland does not
+# advertise MIT-SCREEN-SAVER at all, and the two measurements on record
+# disagree. A high-water mark is right under any of those: whatever caps the
+# counter, the cap shows up, and a deadline longer than it is reported as
+# undemonstrated rather than as measurable.
+#
+# NO xset READ AT ALL ANY MORE. The structural cap is genuinely useful and has
+# no field to carry it: the contract has `ceiling=` for what was OBSERVED, and
+# putting a configured limit there is the defect above. So a hard impossibility
+# is learned by watching rather than stated at once, which is slower and true.
+# Giving it its own field is a contract change and wants its own increment.
+#
+# A LEADING DOT ON THE STATE FILE. `report` scans hook state dirs for
+# outstanding saved levels, and a bare name holding a number earns a permanent
+# FAIL at every lit rung; that has shipped once and was nearly repeated for a
+# throttle stamp. The content is three fields rather than a bare number, which
+# is the real protection, and the dot is the belt to its braces.
+STATE=${VIGILANCE_STATE_DIR:-/tmp}/.observed
+MAXGAP=${VIGILANCE_IDLE_MAXGAP:-300}
+
+_secs=$(( _out / 1000 ))
+_now=$(date +%s)
+
+_pmax=0; _pstart=0; _plast=0
+read -r _pmax _pstart _plast 2>/dev/null < "$STATE" || true
+case "${_pmax:-}" in '' | *[!0-9]*) _pmax=0 ;; esac
+case "${_pstart:-}" in '' | *[!0-9]*) _pstart=0 ;; esac
+case "${_plast:-}" in '' | *[!0-9]*) _plast=0 ;; esac
+
+# THE AGE IS RE-ANCHORED BY A GAP AND THE CEILING IS NOT, and the asymmetry is
+# the point rather than an oversight. `age` answers "how long have WE been
+# watching", which a suspend genuinely interrupts: the supervision timer does
+# not fire in S3, so crediting that would claim a watch nobody kept.
+#
+# THE CEILING ANSWERS A DIFFERENT QUESTION: has this clock been SEEN to reach
+# N. Here that is the SERVER'S OWN count of time since the last input event,
+# so a large value read after a gap really was reported and really does
+# demonstrate the counter's reach. That is where this differs from
+# input-counters, whose ceiling is a wall-time INFERENCE between samples and
+# therefore inflatable by one gap: measured there at 241310s (67 hours) on a
+# counter that was in fact moving every 25s.
+if [ "$_plast" -gt 0 ] && [ "$_now" -ge "$_plast" ] \
+   && [ "$(( _now - _plast ))" -le "$MAXGAP" ] && [ "$_pstart" -gt 0 ] \
+   && [ "$_pstart" -le "$_now" ]; then
+  _start=$_pstart
 else
-  printf '%s\n' "$(( _out / 1000 ))"
+  _start=$_now
 fi
+
+_max=$_pmax
+if [ "$_secs" -gt "$_max" ]; then _max=$_secs; fi
+printf '%s %s %s\n' "$_max" "$_start" "$_now" > "$STATE" 2>/dev/null || true
+
+printf '%s ceiling=%s age=%s\n' "$_secs" "$_max" "$(( _now - _start ))"

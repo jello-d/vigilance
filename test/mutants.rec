@@ -1349,3 +1349,9 @@ f bin/vigilant
 t overdue-bound
 -   if [ "$_oec" != 0 ]; then
 +   if false; then
+
+= x11-ceiling-is-not-a-high-water-mark
+f libexec/hooks/x11-idle
+t x11
+- if [ "$_secs" -gt "$_max" ]; then _max=$_secs; fi
++ _max=$_secs

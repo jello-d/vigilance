@@ -212,17 +212,29 @@ cat > "$T/bin/xprintidle" <<EOF
 printf '%s\n' "\${XPI_MS:-0}"
 EOF
 chmod +x "$T/bin/xprintidle"
-_idle() {   # -> the answer, or "rc=N"
+# A FRESH STATE DIR PER CALL BY DEFAULT, which is not tidiness: the ceiling is
+# a HIGH-WATER MARK now, so one case reading 480s would raise it for every case
+# after it and the unit assertions below would be about their predecessors.
+# The cases that need continuity across calls pass a dir explicitly.
+_idle() {   # [ms] [rc] [state-dir] -> the answer, or "rc=N"
+  _sd=${3:-$T/st.$$.$(date +%s%N)}
+  mkdir -p "$_sd"
   _o=$(env DISPLAY=:0 XPI_MS="${1:-}" XPI_RC="${2:-}" PATH="$PATH" \
-       sh "$IDLE" 2>>"$T/err") || { printf 'rc=%s' "$?"; return 0; }
+       VIGILANCE_STATE_DIR="$_sd" sh "$IDLE" 2>>"$T/err") \
+    || { printf 'rc=%s' "$?"; return 0; }
   printf '%s' "$_o"
 }
-[ "$(_idle 480000)" = 480 ] || fail "480000ms read as $(_idle 480000)s, so the
+# FIELD 1 ALONE, for the assertions that are about the NUMBER. The contract is
+# that a consumer takes the first field and extensions follow it, so a test of
+# the unit conversion must not also pin the extensions, or every added field
+# breaks assertions that were never about it.
+_idle1() { _idle "$@" | awk '{print $1}'; }
+[ "$(_idle1 480000)" = 480 ] || fail "480000ms read as $(_idle1 480000)s, so the
 unit conversion is wrong. A thousand-fold overstatement of idle time is a false
 overdue on a machine in use"
-[ "$(_idle 0)" = 0 ] || fail "zero idle must be reported as 0, not declined: it
+[ "$(_idle1 0)" = 0 ] || fail "zero idle must be reported as 0, not declined: it
 is the most important reading there is (input one second ago)"
-[ "$(_idle 1999)" = 1 ] || fail "1999ms should floor to 1s, got $(_idle 1999)"
+[ "$(_idle1 1999)" = 1 ] || fail "1999ms should floor to 1s, got $(_idle1 1999)"
 
 # --- 8. ...AND "I CANNOT TELL" IS 78, NEVER 0 ------------------------------
 # 0 means "input one second ago", so a missing answer read as zero would reset
@@ -240,42 +252,96 @@ env DISPLAY= PATH="$PATH" sh "$IDLE" >/dev/null 2>>"$T/err" || _rc=$?
 it overflows the shell's arithmetic, which is how an idle source once leaked
 '[: Illegal number:' into a comparison"
 
-# --- 9. THE CEILING IS THE SERVER'S SCREENSAVER TIMEOUT --------------------
-# MEASURED AGAINST A REAL SERVER, and the first version of this hook was wrong
-# about it: XScreenSaverQueryInfo reports idle time WITHIN the current
-# screensaver state, so when the saver activates the counter starts again.
+# --- 9. THE CEILING IS WHAT THIS CLOCK HAS BEEN SEEN TO REACH --------------
+# AND NOT WHAT THE SERVER IS CONFIGURED TO ALLOW, which is what it used to be.
+# Measured against the real report rather than inferred:
 #
-#     x11-idle -> 306s     ... 3 seconds later ...     x11-idle -> 2s
+#     x11-idle -> "5 ceiling=600 age=600"
+#     report   -> "measurable (clock has observed 600s quiet)"
 #
-# So a deadline longer than that timeout can never be witnessed here, which is
-# precisely the question `ceiling=` answers, and why the counter clock has
-# carried one since a chattering keyboard capped it at 74s. `age` is reported
-# equal to the ceiling because the cap is STRUCTURAL and known at the first
-# call: report's "too young to have seen that yet" exemption must not excuse a
-# hard limit.
+# It had observed no such thing: 600 was a line in `xset q`. `ceiling=` is read
+# by its consumer as a DEMONSTRATION, so a config value went in as evidence,
+# which is the signature false green of this package arriving in the field
+# invented to prevent it.
+#
+# WHY OBSERVED IS RIGHT WITHOUT A THEORY OF WHY THE COUNTER RESETS. The
+# screensaver resets it (306s, then 2s three seconds later, on a real server).
+# Whether a READER also resets it is an open question: the two measurements on
+# record disagree and this box cannot settle it, because its Xwayland does not
+# advertise MIT-SCREEN-SAVER at all. A high-water mark is correct under every
+# one of those, because whatever caps the counter is what shows up.
+_SD=$T/ceil; rm -rf "$_SD"; mkdir -p "$_SD"
+
+# A CONFIGURED TIMEOUT IS NOT A CEILING. The stub still answers `xset q`, so a
+# hook that went back to reading it would be caught here rather than passing
+# because the fixture stopped offering one.
 printf 'Screen Saver:\n  timeout:  600    cycle:  600\n' > "$XSET_Q"
-_a=$(env DISPLAY=:0 XPI_MS=5000 PATH="$PATH" sh "$IDLE")
-[ "$_a" = "5 ceiling=600 age=600" ] || fail "with the server's screensaver at
-600s the source answered '$_a'. It must report that cap, or report calls a 480s
-deadline measurable on a clock that resets before it: the exact false
-green the ceiling field was invented for"
+_a=$(_idle 5000 "" "$_SD")
+case "$_a" in
+  *ceiling=600*) fail "the source reported the server's CONFIGURED screensaver
+timeout as its ceiling ('$_a'). report reads that field as an observation and
+says 'clock has observed 600s quiet' about a number out of a config file: a
+config value laundered into evidence" ;;
+esac
+case "$_a" in
+  "5 ceiling=5 age="*) ;;
+  *) fail "a first reading of 5s should set the observed ceiling to 5 and an
+age of about zero, got '$_a'" ;;
+esac
 
-# ...AND NO CEILING WHEN THE SCREENSAVER IS OFF, because then the answer really
-# does stand on its own. Silence is "no opinion", which the runner passes
-# through and report reads as measurable.
+# IT GROWS WITH WHAT IS ACTUALLY SEEN, and never shrinks: that is what makes it
+# a demonstration rather than a sample.
+_a=$(_idle 300000 "" "$_SD")
+case "$_a" in
+  "300 ceiling=300 age="*) ;;
+  *) fail "a 300s reading did not raise the observed ceiling: '$_a'" ;;
+esac
+_a=$(_idle 7000 "" "$_SD")
+case "$_a" in
+  "7 ceiling=300 age="*) ;;
+  *) fail "the ceiling FELL back to a later, smaller reading ('$_a'). It is
+a high-water mark: what the clock has been SEEN to reach, not what it reads
+now" ;;
+esac
+
+# AND A CEILING BELOW THE DEADLINE IS WHAT report NEEDS TO SEE, which is the
+# whole point of the change: an X11 box whose counter cannot reach 480s must
+# stop being told its 480s deadline is measurable.
+case "$_a" in
+  *" ceiling=300 "*) ;;
+  *) fail "cannot check the consumer's view: '$_a'" ;;
+esac
+
+# THE AGE IS RE-ANCHORED BY A GAP AND THE CEILING IS NOT, and the asymmetry is
+# deliberate. `age` is how long WE watched, which a suspend interrupts because
+# the supervision timer does not fire in S3. The ceiling is the SERVER'S own
+# count of time since input, so a large value read after a gap really was
+# reported and really does demonstrate the counter's reach. That is where this
+# differs from input-counters, whose ceiling is a wall-time inference between
+# samples and was measured inflated to 241310s on a counter moving every 25s.
+printf '300 %s %s\n' "$(( $(date +%s) - 9000 ))" "$(( $(date +%s) - 9000 ))" \
+  > "$_SD/.observed"
+_a=$(_idle 9000 "" "$_SD")
+case "$_a" in
+  "9 ceiling=300 age="*) ;;
+  *) fail "a gap dropped the observed ceiling ('$_a'). The server's own
+reading is a real demonstration of the counter's reach however long ago we
+last looked" ;;
+esac
+_ag=$(printf '%s' "$_a" | sed -n 's/.*age=\([0-9]*\).*/\1/p')
+[ "${_ag:-99999}" -lt 300 ] || fail "after a 9000s gap the watched age was
+reported as ${_ag}s. The timer does not fire in S3, so crediting that claims a
+watch nobody kept, and report's too-young exemption then never applies"
+
+# ...AND NO xset IS NEEDED AT ALL ANY MORE, which is a dependency removed
+# rather than merely unused: the structural cap has no field to carry it, so
+# reading it could only ever feed the defect above.
+# CODE, NOT PROSE: the comment above this hook explains at length why the xset
+# read was removed, so a scan for the WORD would flag its own explanation. That
+# is the mistake hermetic.t's own scanner made on its first run.
+grep -v '^ *#' "$IDLE" | grep -q 'xset' && fail "x11-idle still reaches for
+xset. The only use it had was emitting the configured timeout as an
+observation"
 printf 'Screen Saver:\n  timeout:  0    cycle:  0\n' > "$XSET_Q"
-_a=$(env DISPLAY=:0 XPI_MS=5000 PATH="$PATH" sh "$IDLE")
-[ "$_a" = 5 ] || fail "with the screensaver disabled the source still qualified
-its answer ('$_a'). A cap that does not exist must not be reported, or every
-long deadline reads as unmeasurable on a correctly configured box"
-
-# ...and an xset it cannot run leaves the cap UNKNOWN, which is no opinion
-# rather than unbounded: the same direction every other doubt here takes.
-mv "$T/bin/xset" "$T/bin/xset.off"
-_a=$(env -i PATH="$_minpath:$T/bin" DISPLAY=:0 HOME="$T" XPI_MS=5000 \
-     sh "$IDLE" 2>/dev/null || echo "rc=$?")
-mv "$T/bin/xset.off" "$T/bin/xset"
-[ "$_a" = 5 ] || fail "with xset unavailable the source answered '$_a';
-it should still report the idle time it DOES know, unqualified"
 
 pass "x11-dpms and x11-idle, against a stubbed server"
