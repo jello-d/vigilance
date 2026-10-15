@@ -524,14 +524,24 @@ Stated plainly rather than implied:
   ceiling is a wall-time inference between samples and was measured inflated to
   241310s on a counter moving every 25s.
 
-  STILL OPEN, and deliberately not guessed at: WHETHER A READER RESETS THE
-  COUNTER. The two measurements on record disagree (this entry's, against the
-  306s-then-2s screensaver reset the hook's own header records), and the
-  development box cannot settle it because its Xwayland does not advertise
-  MIT-SCREEN-SAVER at all, so `xprintidle` there would fail and the hook
-  correctly declines. **The fix above does not depend on the answer**, which is
-  the property that made it safe to build: whatever caps the counter is what
-  shows up in a high-water mark. Settling it needs the guest, or an X11 box.
+  THE READER-RESET IS REPRODUCED, and the two measurements turn out not to
+  conflict: both resets are real. The guest run of 2026-10-15 reports
+  `x11-idle 0s -> 2s` across a three-second sleep, on a server whose display
+  has NO INPUT DEVICES. A counter measuring time since input would read hours
+  there; it reads the interval since the previous READER. The hook's
+  306s-then-2s figure is the screensaver reset, measured in a different
+  context, and nothing says only one mechanism may cap a counter.
+
+  NOT A CONTROLLED EXPERIMENT, so it is recorded as what it is: two readings
+  consistent with a reader-reset and inconsistent with time-since-input, rather
+  than a varied-spacing trial. A decisive version would vary the gap between
+  reads in one run and check the reading tracks the gap.
+
+  **AND THE FIX NEVER DEPENDED ON THE ANSWER**, which is the property that made
+  it safe to build while this was open: whatever caps the counter is what shows
+  up in a high-water mark. On that server the ceiling settles near the poll
+  interval and `report` correctly declines to call a 480s deadline measurable,
+  which is the outcome either mechanism produces.
 
   ALSO STILL OPEN: a STRUCTURAL cap has no field to carry it, so a deadline
   longer than the screensaver timeout is now learned by watching rather than
