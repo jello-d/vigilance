@@ -30,12 +30,19 @@ between is crossed. `go suspend` from `lock` therefore fires the `sleep` hooks
 as well, which is why suspending actually powers the monitor down instead of
 leaving it lit.
 
-Because it is declarative, `go` travels in **either** direction, which is right
-for a resume (`go lock` from `sleep` is how a woken box gets its screen back)
-and wrong for a lock request. `go <state> atleast` is the second kind: it
-deepens toward the state and **never raises** toward it, so a machine already at
-`sleep` stays dark. Anything asking for the session to be *secured* wants that
-form. Answering a lid-close with the plain verb lit the panel and left it lit.
+Because it is declarative, `go` travels in **either** direction. That is right
+when you genuinely mean "wherever we are, end up at `lock`", and wrong whenever
+the request itself has a direction in it, which most do. So both one-way intents
+have a name:
+
+    go <state> atleast   deepen toward it, never raise    secure this session
+    go <state> atmost    raise toward it, never descend   restore the display
+
+Each of those exists because the plain verb went the other way on a live box.
+Answering a lid-close with it lit the panel and left it lit for thirty minutes.
+Answering a *resume* with it re-locked a session 1.5 seconds after the user had
+unlocked it, because a resume can arrive once the ladder is already back at
+`open`, and from there the plain verb descends.
 
 **Edges** are the transitions, and hooks are keyed by them. A descent edge
 shares its name with the state it enters; only the ascent needs words of its
