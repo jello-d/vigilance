@@ -1355,3 +1355,15 @@ f libexec/hooks/x11-idle
 t x11
 - if [ "$_secs" -gt "$_max" ]; then _max=$_secs; fi
 + _max=$_secs
+
+= resume-arm-can-descend-and-relock
+f bin/swayidle-mgr
+t idle-suspend
+-       "env VIGILANCE_SOURCE=input $VIGILANT_CMD go lock atmost"
++       "env VIGILANCE_SOURCE=input $VIGILANT_CMD go lock"
+
+= resume-unit-can-descend-and-relock
+f systemd/vigilance-resume.service
+t intent
+- ExecStart=@VIGILANT@ go lock atmost
++ ExecStart=@VIGILANT@ go lock

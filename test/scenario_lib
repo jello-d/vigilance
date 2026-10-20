@@ -151,9 +151,14 @@ EOF
 # go <state> / force <state>: the action under test. Records the runner's own
 # exit status so a scenario can assert a LOUD failure rather than a silent one,
 # and so the 1-vs-3 contract (degraded vs refused) is actually exercised.
-go() {   # <state>
+# THE MODE IS PASSED THROUGH, because dropping it fails in the reassuring
+# direction: `go lock atmost` with a "$1" helper silently runs a plain `go`, so
+# the case passes while asserting nothing about the qualifier it names. No
+# existing caller passed one when this changed (measured: zero), so nothing was
+# vacuous; the trap was waiting for the first test to try.
+go() {   # <state> [atleast|atmost|only]
   CROSS_RC=0
-  "$VIGILANT" go "$1" 2>>"$T/stderr" || CROSS_RC=$?
+  "$VIGILANT" go "$@" 2>>"$T/stderr" || CROSS_RC=$?
 }
 force() {   # <state>
   CROSS_RC=0

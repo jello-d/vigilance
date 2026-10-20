@@ -142,6 +142,24 @@ echo "$out" | grep -Eq '(^| )(after-resume|before-sleep) ' \
 logind and a held idle inhibitor is read by nothing. An app in a call cannot
 defer the idle lock. argv was: $out"
 
+# THE RESUME ARM MUST NOT BE ABLE TO DESCEND, and the argv is where that is
+# visible: the verb is the whole of it. A resume is an ASCENT, and a plain
+# declarative `go lock` cannot say so, so when this arm meets a ladder already
+# at `open` it travels DOWN and locks a screen in use. It happened on manifold
+# on 2026-10-20: the box resumed from S3, the S3 unit ascended, a fingerprint
+# unlock finished 1.5s later, and this arm arrived third and re-locked the
+# session. Two callers answer one resume and the crossing lock serialises them,
+# so a fast unlock lands between them.
+#
+# ASSERTED ON THE QUALIFIER rather than on the absence of anything, because
+# that is the half a revert removes: the eleven healthy `wake: sleep -> lock`
+# crossings in that log look identical under either verb, so no assertion about
+# an ascent can tell them apart. Only the words can.
+echo "$out" | grep -q 'resume env VIGILANCE_SOURCE=input [^ ]* go lock atmost' \
+  || fail "the resume arm does not carry \`atmost\`. A resume is an ascent, and
+a plain \`go lock\` from 'open' DESCENDS: this arm then locks the screen of a
+user who has already unlocked. argv was: $out"
+
 # IT MUST NOT LAUNCH. The comparison runs on every apply, and a query that
 # starts a second idle timer would be worse than the drift it detects.
 #

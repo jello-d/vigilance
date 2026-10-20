@@ -47,7 +47,15 @@ User=@USER@
 Environment=VIGILANCE_SOURCE=resume
 Environment=XDG_RUNTIME_DIR=/run/user/@UID@
 Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/@UID@/bus
-ExecStart=@VIGILANT@ go lock
+# `atmost` SO IT CANNOT DESCEND. Everything above is about the DESTINATION and
+# all of it still holds; what was missing is the DIRECTION. A plain `go lock`
+# from `open` travels DOWN and locks, and this unit races the user's own unlock
+# on every single resume: it starts about 0.3s after wake and so generally wins,
+# which is luck rather than a guarantee. swayidle's resume arm, the other caller
+# on this path, lost that race on manifold on 2026-10-20 and re-locked a session
+# 1.5s after a fingerprint unlock. From `suspend` or `sleep` the traversal is
+# unchanged, so the `resume` then `wake` ordering described above still holds.
+ExecStart=@VIGILANT@ go lock atmost
 TimeoutStartSec=25
 
 [Install]

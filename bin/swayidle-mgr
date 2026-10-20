@@ -99,10 +99,15 @@ _need_vigilant() {
 # sleep and crossed the lock edge on its way past. Two minutes late, by
 # accident, via the wrong timer.
 # `atleast`, because the IDLE LOCK is a security descent and can never
-# legitimately want to raise the machine. The `resume` arm further down keeps
-# plain `go lock`: that one is the ascent, and it is the only way a woken box
-# gets its screen back. Two arms of the same daemon, opposite intents, and the
-# verb used to be identical for both.
+# legitimately want to raise the machine. The `resume` arm further down takes
+# `atmost`, its mirror: that one is the ascent, and it is the only way a woken
+# box gets its screen back. Two arms of the same daemon, opposite intents, and
+# the verb used to be identical for both.
+#
+# THIS COMMENT USED TO SAY the resume arm "keeps plain `go lock`", which was
+# true about the INTENT and wrong about the verb, and a correct claim resting
+# on a justification that does not support it survives every reading. The plain
+# verb cannot express "ascend": see the resume arm for what that cost.
 # Overridable, so a test never locks a real screen.
 LOCK_CMD=${LOCK_CMD:-$VIGILANT_CMD go lock atleast}
 # The peripherals now ride VIGILANT, not swaylock. The patched swaylock used
@@ -264,10 +269,27 @@ _run() {
   # THE `env` FORM is the spelling the fleet's own keybind uses, and it
   # survives however swayidle runs the string; an assignment prefix would need
   # the command to go through a shell.
+  #
+  # `atmost` ON THE RESUME, because a resume is an ASCENT and a plain `go lock`
+  # cannot say so: `go` travels whichever way reaches its target, so from
+  # `open` it DESCENDS and locks a screen somebody is using. MEASURED on
+  # manifold 2026-10-20: the box resumed from S3 at 16:45:23 and the S3 path
+  # ascended (src=resume), a FINGERPRINT unlock finished 1.5s later, and this
+  # arm arrived third at 16:45:26 and re-locked the session on a user who had
+  # just authenticated. TWO CALLERS ANSWER ONE RESUME (this arm and
+  # vigilance-resume.service) and the crossing lock serialises them, so a fast
+  # unlock lands between the two and the loser descends.
+  #
+  # NOTHING IS LOST, which is what makes the mirror safe: the eleven earlier
+  # src=input crossings in that log are all `wake: sleep -> lock`, this arm
+  # doing its job, and `atmost` keeps every one of them. Only the twelfth, the
+  # descent, becomes a logged no-op. At a lit rung the screen is already on, so
+  # there is nothing a resume could want.
   if [ -x "$VIGILANT_CMD" ]; then
     set -- "$@" timeout "$((LOCK_TIMEOUT + BLANK_DELAY))" \
       "env VIGILANCE_SOURCE=blank $VIGILANT_CMD go sleep"
-    set -- "$@" resume "env VIGILANCE_SOURCE=input $VIGILANT_CMD go lock"
+    set -- "$@" resume \
+      "env VIGILANCE_SOURCE=input $VIGILANT_CMD go lock atmost"
   fi
   # Optional idle-suspend, supplied by the integrator (OFF by default). Its CMD
   # gates the actual suspend (e.g. battery-only) and asks systemd. Measured from

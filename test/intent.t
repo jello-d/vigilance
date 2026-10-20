@@ -115,18 +115,35 @@ esac
 # fires it only after one of ITS OWN timeouts. Reaching `sleep` via the unit
 # means swayidle does not know the machine is dark, so input produces nothing.
 #
+# AND IT MUST NOT DESCEND, which is the other half and is about the DIRECTION
+# rather than the destination. Two callers answer one resume (this unit and
+# swayidle's resume arm) and the crossing lock serialises them, so a user who
+# authenticates quickly unlocks BETWEEN the two and whichever runs second meets
+# a ladder already at 'open'. A plain declarative verb then travels DOWN and
+# locks a session somebody just unlocked: measured on manifold 2026-10-20,
+# 1.5s after a fingerprint unlock, by the swayidle arm losing that race.
+#
 # Asserted on the SHIPPED unit, because this is the file that decides it.
 _ru=$HERE/systemd/vigilance-resume.service
 _rx=$(awk -F= '/^ExecStart=/{print $2; exit}' "$_ru")
 case "$_rx" in
-  *"go lock") ;;
-  *"go sleep") fail "the resume unit still does \`go sleep\`: it will darken the
+  *"go lock atmost") ;;
+  *"go sleep") fail "the resume unit still does 'go sleep': it will darken the
 screen on a user who just woke the machine, with no armed way back" ;;
+  *"go lock") fail "the resume unit runs a PLAIN 'go lock'. A resume is an
+ASCENT, and the plain verb cannot say so: reaching this unit with the ladder
+already at 'open' locks the screen instead of doing nothing. It wants 'atmost'
+for the same reason the idle lock wants 'atleast'" ;;
   *) fail "unexpected resume ExecStart: $_rx" ;;
 esac
 
 # And the traversal it implies must re-assert DARK before lighting up: `resume`
 # fixes a stale QMK/USB state from config, THEN `wake` brings it back.
+#
+# DRIVEN WITH THE UNIT'S OWN VERB, so this asserts the traversal something
+# really performs. `atmost` from a rung DEEPER than the target clears itself and
+# travels normally, so the ordering below is the same one the unit produces; a
+# plain verb here would be testing a traversal nothing is wired to do.
 for _e in resume wake; do
   mkdir -p "$VIGILANCE_HOOK_ROOT/$_e.d"
   cat > "$VIGILANCE_HOOK_ROOT/$_e.d/10-order" <<EOF
@@ -137,7 +154,7 @@ EOF
 done
 : > "$T/order"
 printf 'suspend %s\n' "$(date +%s)" > "$VIGILANCE_RUN_DIR/depth"
-go lock
+go lock atmost
 _got=$(cat "$T/order")
 [ "$_got" = "resume=dark
 wake=lit" ] || { printf 'got: %s\n' "$_got" >&2
