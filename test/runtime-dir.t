@@ -146,9 +146,12 @@ esac
 # operator reads most. CLAMPING TO ZERO WOULD BE WORSE: "0s ago" claims the rung
 # was entered just now, and something downstream would believe it.
 #
-# This lives in the STUB tier because the scenario that steps a REAL clock hangs
-# the guest (test/fault-clock.t.wip), and a behaviour change with no assertion
-# anywhere is how a fix silently stops working.
+# This lives in the STUB tier because it is cheap to assert here, and a
+# behaviour change with no assertion anywhere is how a fix silently stops
+# working. test/fault-clock.t steps a REAL clock in the guest and covers the
+# same guards against a real systemd; it was `.wip` while it appeared to hang,
+# which turned out to be the harness suspending the guest rather than anything
+# about the clock.
 mkdir -p "$T/future"
 printf 'lock %s\n' "$(( $(date +%s) + 3600 ))" > "$T/future/depth"
 _fut=$(env VIGILANCE_RUN_DIR="$T/future" VIGILANCE_LOG="$T/rt.log" \
