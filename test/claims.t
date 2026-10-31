@@ -33,21 +33,35 @@ M=$HERE/man/man1/vigilance.1
 V=$HERE/bin/vigilant
 
 # --- the HOOK KIND COUNT, which drifted for an entire refactor --------------
-# Five per-edge kinds in KINDS, plus the two CROSS-CUTTING tiers (audit.d and
-# alert.d) that are deliberately not in it. Derived, not restated, so adding a
-# kind fails this until the prose is updated.
+# Per-edge kinds from KINDS, cross-cutting ones from CROSS_KINDS. BOTH HALVES
+# ARE DERIVED, and that is the whole point: this check used to compute
+# `_per_edge + 2` with a comment claiming it was derived, having hardcoded
+# "audit.d and alert.d" as the only cross-cutting tiers. Four more arrived
+# (concur, cursor, idle, watchdog) over the following month, so the code went
+# from seven kinds to ELEVEN while this agreed with three documents that all
+# still said seven. A check with a hardcoded subject cannot see the thing
+# nobody thought to list, which is the exact lesson that motivated it.
 _per_edge=$(grep -m1 '^KINDS=' "$V" | cut -d= -f2- | tr -d '"' | wc -w)
-_total=$((_per_edge + 2))
+_cross=$(grep -m1 '^CROSS_KINDS=' "$V" | cut -d= -f2- | tr -d "'" | wc -w)
+_total=$((_per_edge + _cross))
 case "$_total" in
   5) _word=Five ;; 6) _word=Six ;; 7) _word=Seven ;; 8) _word=Eight ;;
+  9) _word=Nine ;; 10) _word=Ten ;; 11) _word=Eleven ;; 12) _word=Twelve ;;
   *) fail "unexpected hook-kind total $_total; teach this test the word" ;;
 esac
 grep -q "^## $_word hook kinds" "$R" \
   || fail "README says '$(grep -oE '^## [A-Z][a-z]+ hook kinds' "$R")' but the
-code has $_per_edge per-edge kinds plus audit.d and alert.d = $_total. That
+code has $_per_edge per-edge kinds plus $_cross cross-cutting = $_total. That
 exact drift sat in the README for a whole refactor after audit.d landed"
 grep -q "^$_word kinds" "$M" \
   || fail "the man page disagrees with the code on the kind count ($_total)"
+# AND THE RUNNER'S OWN HEADER, which is where the stale claim actually lived:
+# it is the file a reader meets first and nothing was checking it, so it said
+# SEVEN for a month while declaring eleven forty lines further down.
+grep -qi "^# $_word HOOK KINDS" "$V" \
+  || fail "bin/vigilant's own header disagrees with its own declarations:
+$(grep -oiE '^# [A-Z]+ HOOK KINDS' "$V") against $_per_edge per-edge plus
+$_cross cross-cutting = $_total"
 
 # --- the LADDER: every rung in the code is documented -----------------------
 # The rungs ARE the vocabulary. A rung the docs do not mention is one a reader
@@ -79,6 +93,15 @@ for _v in $_verbs; do
     || fail "dispatch has the verb '$_v' and the man page never mentions it"
   grep -q "vigilant $_v\b" "$R" \
     || fail "dispatch has the verb '$_v' and the README's command list omits it"
+  # AND THE RUNNER'S OWN HEADER TABLE, which was checked by nothing and so was
+  # missing `timer` for three weeks: the one table a reader of the source meets
+  # first. `ack` is exempt for the same reason as `check`, since it refuses and
+  # points at `timer reset` rather than being a verb anyone should type.
+  case "$_v" in ack) continue ;; esac
+  grep -q "^#   vigilant $_v\b" "$V" \
+    || fail "dispatch has the verb '$_v' and bin/vigilant's own header table
+omits it. That table is the first thing a reader of the source sees, and it is
+the one that drifted"
 done
 grep -q 'vigilant check' "$M" \
   && fail "the man page presents 'check' as a verb; it is deliberately NOT one

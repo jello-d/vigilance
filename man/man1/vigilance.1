@@ -311,7 +311,13 @@ the button IS the instrument; recovering first would burn the only evidence.
 It actuates nothing itself. Anything it should drive belongs in a hook, where it
 is one implementation instead of two.
 .SH HOOKS
-Seven kinds, in TWO SCOPES:
+Eleven kinds, five of them keyed per EDGE
+.RI ( <edge>.d ", " .verify.d ", " .report.d ", " .due.d ", " .block.d )
+and six CROSS\-CUTTING, which sit at the top of a scope because each asks about
+the seat or the machine rather than a transition
+.RI ( audit.d ", " alert.d ", " idle.d ", " watchdog.d ", " concur.d ", "
+.IR cursor.d ).
+They live in TWO SCOPES:
 .TP
 .I /etc/vigilance/hooks
 MACHINE scope, root-owned, runs for every session including a greeter's.

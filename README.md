@@ -114,20 +114,32 @@ intermittent and the button is the only instrument that will be running. It
 actuates nothing itself: recovery is `force open`, which crosses every ascent
 edge through the hooks, so anything it drives exists once instead of twice.
 
-## Seven hook kinds
+## Eleven hook kinds
+
+Five are **per-edge**, keyed by the edge being crossed:
 
     <edge>.d          DO it      actuators; drive the hardware
     <edge>.verify.d   CHECK it   did the edge actually take effect?
     <edge>.report.d   TELL       announce it outward (logind's SetLockedHint)
     <edge>.due.d      WHEN       when SHOULD this edge have fired?
     <edge>.block.d    WHY NOT    is something legitimately preventing it?
-    audit.d           DID IT     did a PAST event produce its edge?
-    alert.d           SHOUT      tell the HUMAN; raised by vigilant itself
 
-The last two are **cross-cutting**: they sit at the top of a scope rather than
-under an edge. An audit hook names the edge in its own output, because one event
-source (a journal) reports events for several edges, and an alert is not about a
-single edge at all.
+Six are **cross-cutting**: they sit at the top of a scope rather than under an
+edge, because each asks about the seat or the machine rather than a transition.
+
+    audit.d           DID IT       did a PAST event produce its edge?
+    alert.d           SHOUT        tell the HUMAN; raised by vigilant itself
+    idle.d            HOW LONG     seconds since the last seat input
+    watchdog.d        STILL FIRING is the mechanism alive AND emitting?
+    concur.d          AGREED       does a deadline's owner agree the seat
+                                   was quiet? One it never saw pass is
+                                   DEFERRED, not missed.
+    cursor.d          HIDDEN       does something auto-hide the pointer?
+
+An audit hook names the edge in its own output, because one event source (a
+journal) reports events for several edges. An `idle.d` answer is a number and
+the **minimum** wins, so the source that saw input most recently is the one that
+stops a stale clock manufacturing a false overdue.
 
 ### The three questions
 

@@ -11,6 +11,7 @@
 #
 #   vigilant go <state>       traverse to state, respecting the ladder
 #   vigilant go <state> atleast   deepen to state; NEVER raise toward it
+#   vigilant go <state> atmost    raise toward state; NEVER descend to it
 #   vigilant force <state>    assert state, ignoring the recorded depth
 #   vigilant only <state>     cross ONE edge into state, no traversal
 #   vigilant status           where we are, and where hooks live
@@ -20,19 +21,26 @@
 #   vigilant report           does reality match what we believe?
 #   vigilant rescue           record everything, then recover
 #   vigilant due [edge]       when SHOULD this edge have fired?
+#   vigilant timer [reset]    the deferral clocks; `reset` acknowledges a hold
 #   vigilant enforce          the supervision loop, for a timer
 #   vigilant audit            did past events produce the edges they should?
 #
-# THERE IS NO `vigilant check`, deliberately. The wiring audit is `setup.sh
-# check`, which is the only thing that knows PREFIX, the dependency list and
-# the plugin tree it installed; a second implementation here would be the same
-# fact in two places, which is the failure mode this project keeps finding.
+# BOTH QUALIFIERS EXIST BECAUSE THE PLAIN VERB WENT THE WRONG WAY ON A LIVE
+# BOX. `go` is declarative and travels in EITHER direction, which is right for
+# "wherever we are, end up at X" and wrong whenever the request itself has a
+# direction in it. A lid-close answered with it LIT a panel and left it lit for
+# thirty minutes; a resume answered with it RE-LOCKED a session 1.5s after a
+# fingerprint unlock. So a security gesture takes `atleast` and a restore
+# gesture takes `atmost`, and neither can travel the wrong way.
 #
-# It used to exist as a stub aliased to `status` with a "stage 4 replaces this"
-# comment, while three documents described it as a wiring audit. A command that
-# silently answers a DIFFERENT question than its documentation is worse than a
-# missing one: the missing one fails loudly. It now fails loudly, and says where
-# the real audit lives.
+# THERE IS NO `vigilant check`, deliberately. The wiring audit is `setup.sh
+# check`, the only thing that knows PREFIX, the dependency list and the plugin
+# tree it installed; a second implementation here would be the same fact in two
+# places. It once existed as a stub aliased to `status` while three documents
+# called it a wiring audit, so it REFUSES now and names where the real audit
+# lives: a command that silently answers a DIFFERENT question than its
+# documentation is worse than a missing one, because the missing one fails
+# loudly. `ack` refuses the same way, pointing at `timer reset`.
 #
 # THE LADDER, one dimension: how far the machine has WITHDRAWN. Present tense
 # throughout, so a state names a condition the machine is IN, never something
@@ -48,9 +56,11 @@
 # why suspending now actually powers the monitor down instead of leaving it
 # lit. There is no minimum-rung special case; you simply cannot skip a rung.
 #
-# SEVEN HOOK KINDS, and vigilant hardcodes NO mechanism in any of them. It
+# ELEVEN HOOK KINDS, and vigilant hardcodes NO mechanism in any of them. It
 # knows nothing of logind, swayidle, swaylock or systemd; each is a hook that
-# binds vigilance to one environment. That is the whole point of the split:
+# binds vigilance to one environment. That is the whole point of the split.
+#
+# FIVE ARE PER-EDGE (`KINDS`), keyed by the edge being crossed:
 #
 #   <edge>.d          DO it        actuators (drive the hardware)
 #   <edge>.verify.d   CHECK it     did the edge actually take effect
@@ -62,23 +72,32 @@
 #   <edge>.block.d    WHY NOT      is something legitimately preventing it
 #                                  (an idle inhibitor, a spurious re-fire)?
 #                                  Runs BEFORE the depth is committed, so a
-#                                  blocked edge changes NOTHING (exit 3).
-#                                  Exit 10 = BLOCK, anything else = allow.
-#                                  FAIL OPEN by design: a broken block hook
-#                                  must never be able to suppress a LOCK, so
-#                                  only an explicit 10 blocks. Suppressing a
-#                                  lock is a security failure; allowing a
-#                                  redundant one is merely noise.
+#                                  blocked edge changes NOTHING (exit 3). Only
+#                                  an explicit 10 blocks, so it FAILS OPEN: a
+#                                  broken block hook must never suppress a
+#                                  LOCK, because suppressing one is a security
+#                                  failure and a redundant one is just noise.
+#
+# SIX ARE CROSS-CUTTING (`CROSS_KINDS`), sitting at the top of a scope rather
+# than under an edge, because each asks about the SEAT or the machine:
+#
 #   audit.d           DID IT       read an external event source and report
 #                                  events that SHOULD have produced an edge.
 #                                  Forensic, not live: the only kind that can
 #                                  see an event which produced no edge at all.
-#                                  NOT per-edge, like alert: the hook NAMES the
-#                                  edge in its output, because one source (a
-#                                  journal) reports events for several edges.
-#   alert.d           SHOUT        tell the HUMAN something needed attention.
-#                                  NOT per-edge: it is cross-cutting, raised
-#                                  by vigilant itself
+#                                  NAMES the edge in its own output, since one
+#                                  source (a journal) covers several.
+#   alert.d           SHOUT        tell the HUMAN something needed attention,
+#                                  raised by vigilant itself
+#   idle.d            HOW LONG     seconds since the last seat input. Several
+#                                  deadlines read one clock, so the MINIMUM of
+#                                  the answers wins.
+#   watchdog.d        STILL FIRING is the mechanism that drives edges alive
+#                                  AND emitting, rather than merely running?
+#   concur.d          AGREED       does a deadline's OWNER agree the seat has
+#                                  been quiet? One it never saw pass is
+#                                  DEFERRED, not missed.
+#   cursor.d          HIDDEN       does something auto-hide the pointer here?
 #
 # THE THREE QUESTIONS, which is why verify/due/audit are separate kinds and not
 # one cleverer kind. They differ in TENSE, and none can answer another:
