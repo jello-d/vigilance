@@ -42,11 +42,19 @@
 # the independent observer this suite leans on everywhere else. Resolution is
 # therefore about a minute, which is ample against a 480s deadline.
 #
-# WHAT IT CANNOT DO, said plainly: anything that talks to an input device
-# increments its counter, so a tool that writes to a keyboard (qmk-ripple, via
-# the kbd-rgb hook) reads as input. That errs toward ACTIVE, which suppresses a
-# would-be finding rather than inventing one: the safe direction, and the
-# only one acceptable for a clock that gates an alert.
+# ANYTHING THAT TALKS TO AN INPUT DEVICE INCREMENTS ITS COUNTER, so a tool that
+# writes to a keyboard (qmk-ripple, through the kbd-rgb hook) reads as input,
+# and vigilance's own verify tier does exactly that. THAT IS WHY THERE IS A
+# SETTLE PHASE: the supervision pass reads BEFORE running any hook, then tells
+# the sources to re-baseline afterwards, so the window each source judges is the
+# one in which vigilance did nothing. See the two notes further down for how the
+# clock and the ATTRIBUTION split that, since fixing only the clock left the
+# attribution naming the very keyboard we had queried.
+#
+# WHAT REMAINS, said plainly: the pass itself is unattributed, about three
+# seconds in sixty, and real input inside it is missed. That errs toward ACTIVE,
+# suppressing a would-be finding rather than inventing one, which is the safe
+# direction and the only one acceptable for a clock that gates an alert.
 set -eu
 
 STATE=${VIGILANCE_STATE_DIR:-/tmp}/input-counters

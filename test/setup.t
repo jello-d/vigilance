@@ -203,10 +203,15 @@ rm -f "$CFG/systemd/user/default.target.wants/smart-trigger.service" \
 # ASSERTED AS "the same variable the copy used", not as "not the old path": a
 # chown of a SEPARATELY WRITTEN path is the defect, whatever that path says
 # today, and one variable for cp, chown and chmod cannot drift from itself.
-# Anchored on the comment unique to this block, not on the INSTALL_COPY test:
-# that test appears four times (here, _place, uninstall, check) and a range from
-# the first one lands in _place.
-_cpblk=$(sed -n '/THE .cp -a. TRAP _place DOCUMENTS/,/^      done$/p' \
+# ANCHORED ON CODE, NOT ON PROSE. The INSTALL_COPY test appears four times
+# (here, _place, uninstall, check) so a range from the first lands in _place,
+# and this used to anchor on the comment that was unique to this block instead.
+# A comment sweep then reworded that comment and this test went red with
+# "cannot extract", about an install it had no opinion on: a test that pins
+# PROSE breaks on every reword and says nothing about the code either way.
+# The staging `cp` is unique (measured: one occurrence), is the line the next
+# assertion already requires, and sits above the chown/chmod this checks.
+_cpblk=$(sed -n '/cp -a "\$_root\/\$_cd" "\$_cnew"/,/^      done$/p' \
          "$HERE/setup.sh")
 [ -n "$_cpblk" ] || fail "premise: cannot extract the copy-mode install block"
 printf '%s' "$_cpblk" | grep -q 'cp -a "$_root/$_cd" "$_cnew"' \

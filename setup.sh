@@ -284,47 +284,39 @@ do_install() {
       # rm first: cp -a of a directory ONTO an existing one nests it rather
       # than replacing it, which would leave a stale tree one level down.
       rm -rf "$_lib/$PKG"
-      # THE `cp -a` TRAP _place DOCUMENTS, and which _place fixed only for the
-      # BINARIES. --preserve=all carries the SOURCE's ownership AND mode across
-      # even when the copy runs as root, and the clone lives in a user's home
-      # with a user's umask. So a root install produced a /opt/vigilance tree
-      # owned jello:jello and group-WRITABLE.
+      # THE `cp -a` TRAP, which _place fixed for the BINARIES only.
+      # --preserve=all carries the SOURCE's ownership AND mode even when the
+      # copy runs as root, and the clone lives in a user's home under a user's
+      # umask, so a root install produced a /opt/vigilance tree owned
+      # jello:jello and group-WRITABLE. Measured after the migration: 19
+      # entries, including every hook and hook_lib itself.
       #
-      # That is not untidiness once the tree is shared: the machine-scope hook
-      # wiring symlinks into it, and a GREETER executes those hooks. A file the
-      # unprivileged account can rewrite, executed by another security context,
-      # is the thing "Install placement" bans outright: anything root reads or
-      # runs must be root-owned and not user-writable.
+      # That is a PRIVILEGE BOUNDARY rather than untidiness once the tree is
+      # shared: the machine-scope wiring symlinks into it and a GREETER executes
+      # those hooks, so a file the unprivileged account can rewrite runs in
+      # another security context.
       #
-      # Found on a real box after the migration: 19 entries under /opt/vigilance
-      # were jello:jello, including every hook and hook_lib itself.
+      # IN THE LOOP, AGAINST THE SAME VARIABLE THAT WAS COPIED. It used to chown
+      # a SEPARATELY WRITTEN path, so when the tree flattened the copy moved and
+      # the chown did not, naming a directory that no longer existed: the
+      # install died on `chown: cannot access` and took tackup's lock phase with
+      # it. One variable for rm, cp, chown and chmod cannot drift from itself.
+      # STAGED, THEN SWAPPED, so a failure never destroys a working tree. The
+      # old form was `rm -rf` then `cp`, so a chown dying mid-install left the
+      # live /opt tree ALREADY replaced by a half-written one, with the rendered
+      # units still naming the previous layout: worse than before the install
+      # ran. The payload install has staged through `.new` since its conversion
+      # and the privileged one never did, and the privileged one is the half a
+      # greeter executes.
       #
-      # IN THE LOOP, AGAINST THE SAME VARIABLE THAT WAS COPIED, which is the
-      # whole point rather than a tidy-up: it used to chown a SEPARATELY WRITTEN
-      # path, and when the tree flattened the copy moved and the chown did not,
-      # so it named a directory that no longer existed. The install then died on
-      # `chown: cannot access`, which took tackup's lock phase down with it. One
-      # variable for rm, cp, chown and chmod cannot drift from itself.
-      # STAGED, THEN SWAPPED, so a failure never destroys a working tree.
-      #
-      # THIS IS THE LESSON FROM 2026-10-03 PAID FORWARD. The old form was
-      # `rm -rf` then `cp`, so when the chown below died mid-install the live
-      # /opt tree had ALREADY been replaced by a half-written one: the box was
-      # left worse than before the install ran, with the rendered units still
-      # naming the previous layout. The payload install has staged through
-      # `.new` since its conversion; the privileged one never did, and the
-      # privileged one is the half a greeter executes.
-      #
-      # THE WINDOW SHRINKS, IT DOES NOT CLOSE, and saying so matters: the swap
-      # is two renames, so the path is absent for microseconds rather than for
-      # the length of a whole recursive copy. A truly atomic replace needs a
-      # symlink flip, which would put an extra level under every wired hook
-      # path for a gap this narrow.
+      # THE WINDOW SHRINKS, IT DOES NOT CLOSE: the swap is two renames, so the
+      # path is absent for microseconds rather than for a whole recursive copy.
+      # A truly atomic replace needs a symlink flip, which would add a level
+      # under every wired hook path for a gap this narrow.
       #
       # NO GENERATION IS KEPT. Rolling back is a re-install from the clone at
-      # the last proven ref (tackup's install engine owns that), so a retained
-      # `.old` here would be a SECOND answer to "what was good", free to
-      # disagree with the first.
+      # the last proven ref, which tackup's install engine owns, so a retained
+      # `.old` would be a SECOND answer to "what was good".
       for _cd in lib libexec; do
         _cdst=$PREFIX/$_cd
         case $_cdst in
@@ -654,15 +646,15 @@ _check_access() {
 # from under a unit already on disk, and that is the one failure neither this
 # check nor `vigilant report` could see.
 #
-# MEASURED 2026-10-04, and it is why this exists: a copy-mode install placed the
-# flattened libexec and then DIED before re-rendering, leaving
-# vigilance-logind.service pointing at a triggers/ path one directory level that
-# no longer had. systemd read `active (running)` for 23 hours, because the
-# process had been started while the file still existed and the kernel holds the
-# inode of a deleted one. So the Session.Lock listener worked and could never
-# RESTART: the next logout, reboot or crash would have left AC lid-close and
-# `loginctl lock-session` silently not locking. For the one unit that crosses
-# the lock edge, that is the dangerous direction.
+# MEASURED, and it is why this exists: a copy-mode install placed the flattened
+# libexec and then DIED before re-rendering, leaving vigilance-logind.service
+# pointing at a triggers/ path one directory level that no longer had. systemd
+# read `active (running)` for 23 hours, because the process was started while
+# the file still existed and the kernel holds a deleted inode. So the
+# Session.Lock listener worked and could never RESTART: the next logout, reboot
+# or crash would have left lid-close and `loginctl lock-session` silently not
+# locking, which for the one unit that crosses the lock edge is the dangerous
+# direction.
 # THE SYSTEM --user UNIT DIR IS A SEAM, for the reason VIGILANCE_CHECK_PATH is
 # one: without it a SANDBOXED check falls back to the host's /etc/systemd/user
 # and renders a verdict about the developer's box rather than about the install

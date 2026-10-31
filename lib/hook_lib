@@ -570,40 +570,35 @@ hook_verify_level() {
 # about, and that fail in OPPOSITE directions:
 #
 # comm IS TRUNCATED TO 15 BYTES by the kernel, so an exact match on a longer
-# name can NEVER succeed. `VIGILANCE_LOCKER` is a shipped knob and the
-# plausible long values are ordinary rather than exotic: xfce4-screensaver
-# (17), gnome-screensaver (17), xscreensaver-command (20). Measured: a process
-# started from a script named xfce4-screensaver carries comm
-# `xfce4-screensav`, and `pgrep -x xfce4-screensaver` never matches it. That
-# direction cries wolf: a correctly locked box reports no locker.
+# name can NEVER succeed, and `VIGILANCE_LOCKER` is a shipped knob whose
+# plausible long values are ordinary: xfce4-screensaver (17), gnome-screensaver
+# (17), xscreensaver-command (20). Measured, that one carries comm
+# `xfce4-screensav` and `pgrep -x` never matches it, so a correctly locked box
+# reports no locker.
 #
-# AND THE pgrep PATTERN IS AN ERE, NOT A LITERAL. Measured: `pgrep -x
-# lock.safe` matches a process named `lockXsafe`, and `pgrep -x '.*'` matches
-# EVERY process on the box. That direction is a FALSE GREEN on "is the session
-# secured", which is the one answer in this package that must never be wrong.
+# AND THE pgrep PATTERN IS AN ERE, NOT A LITERAL: measured, `pgrep -x lock.safe`
+# matches `lockXsafe` and `pgrep -x '.*'` matches EVERY process on the box. That
+# direction is a FALSE GREEN on "is the session secured", the one answer in this
+# package that must never be wrong.
 #
-# So the name is compared LITERALLY against what the kernel actually stores,
-# truncated the way the kernel truncates it. Two names agreeing in their first
-# 15 bytes are indistinguishable to ANY reader of comm, so that is a limit of
-# comm rather than of this code, and it is strictly better than never matching.
+# So the name is compared LITERALLY against what the kernel stores, truncated
+# the way the kernel truncates it. Two names agreeing in their first 15 bytes
+# are indistinguishable to ANY reader of comm, so that is a limit of comm rather
+# than of this code, and strictly better than never matching.
 #
-# AND IT EXECS NO EXTERNAL PROGRAM, which is load-bearing because lock-blank
-# calls this on the LOCK edge: a program per hook on the security path is a
-# regression this project has already measured and paid for once, and perf.t
-# counts exactly that. The one `$(printf ...)` runs a shell builtin.
+# AND IT EXECS NO EXTERNAL PROGRAM, load-bearing because lock-blank calls this
+# on the LOCK edge: a program per hook on the security path is a regression this
+# project has measured and paid for once, and perf.t counts exactly that.
 #
-# TWO IMPLEMENTATIONS EXIST, here and in `bin/vigilant`, because the runner
-# must not source the hook author's API. test/proc-identity.t drives BOTH
-# through one case table for that reason, the same way level-rules.t drives the
-# three level adapters, and a tree-wide ratchet there refuses a new site that
-# hands a name to `pgrep`/`pkill`.
+# TWO IMPLEMENTATIONS EXIST, here and in `bin/vigilant`, because the runner must
+# not source the hook author's API. test/proc-identity.t drives BOTH through one
+# case table for that reason, as level-rules.t does the level adapters, and a
+# tree-wide ratchet there refuses a new site handing a name to `pgrep`/`pkill`.
 #
-# ONE ENUMERATOR, and the others are thin over it. The alternative was an
-# early-returning loop for the boolean and a second full loop for the signal,
-# which is three near-copies of the same comparison inside one file: the
-# duplicated-rules shape this package paid to delete once. The cost of not
-# returning early is the rest of /proc, measured in the single-digit
-# milliseconds and execing nothing, against a 10s per-hook bound.
+# ONE ENUMERATOR, with the others thin over it, rather than an early-returning
+# loop for the boolean plus a second full loop for the signal: that is three
+# near-copies of one comparison in a single file. Not returning early costs the
+# rest of /proc, single-digit milliseconds execing nothing, against a 10s bound.
 hook_proc_pids() {   # <name> -> prints every matching pid, one per line
   [ -n "${1:-}" ] || return 1
   _hpn=$(printf '%.15s' "$1")

@@ -57,27 +57,22 @@ esac
 #   HP E243     D6: 01 02 03 04 05
 #   Dell AW2725Q D6: 01 04 05          <-- no 02
 #
-# The hardcoded 02 was WORSE than a no-op on the QD-OLED. Observed live: the
-# panel went dark at the `sleep` edge, stopped answering DDC entirely, and could
-# not be brought back: `setvcp d6 01` returns "DDC communication failed", so
-# there is no wake channel left. It needed a power cycle at the monitor.
-#
 # ONLY 02, AND THAT IS THE WHOLE SAFETY RULE.
 #
 # D6 is not a scale of "more off", it is a set of states with different WAKE
 # CHANNELS. 02 is DPMS STANDBY: shallow, the scaler stays listening, and 01
-# brings it back. 03/04/05 are suspend, full off, and "turn off display", none
-# of them promises the monitor is still listening to I2C afterwards, and if it
-# is not there is NO WAY BACK over DDC.
+# brings it back. 03/04/05 are suspend, full off and "turn off display", none of
+# which promises the monitor still listens to I2C afterwards, and if it does not
+# there is NO WAY BACK over DDC.
 #
-# That is not theoretical. The Dell AW2725Q advertises 01/04/05 with NO 02 at
-# all, and when it was driven into an off state it stopped answering DDC
-# entirely: `setvcp d6 01` returned "DDC communication failed" and it needed a
-# power cycle at the monitor.
+# OBSERVED LIVE on the Dell, which advertises no 02: the hardcoded 02 was WORSE
+# than a no-op there, because the panel went dark at the `sleep` edge, stopped
+# answering DDC entirely, and could not be brought back (`setvcp d6 01` returns
+# "DDC communication failed"). It needed a power cycle at the monitor.
 #
-# So a panel that offers no shallow standby is a panel with no DDC-recoverable
-# off state, and the absence of 02 is itself the signal. Leave it alone and let
-# the compositor-side true-black cover it: on an OLED, black genuinely is off.
+# So a panel offering no shallow standby has no DDC-recoverable off state, and
+# the absence of 02 is itself the signal: leave it alone and let compositor-side
+# true black cover it, since on an OLED black genuinely is off.
 #
 # This is the ladder's own invariant applied to a peripheral: nothing may be put
 # into a dark state unless its way back is armed. A deeper code is available
