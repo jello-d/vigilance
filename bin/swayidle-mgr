@@ -93,30 +93,25 @@ _need_vigilant() {
 # the depth, and lets the block hooks have a say. Pointing this at a locker
 # would lock the screen with the record never knowing.
 #
-# It said $BIN/smart-lock until now, which smart-lock's retirement deleted. The
-# 480s idle lock has therefore been silently failing: the screen still locked,
-# but only at 600s when the blank timer's `go sleep` traversed open -> lock ->
-# sleep and crossed the lock edge on its way past. Two minutes late, by
-# accident, via the wrong timer.
-# `atleast`, because the IDLE LOCK is a security descent and can never
-# legitimately want to raise the machine. The `resume` arm further down takes
-# `atmost`, its mirror: that one is the ascent, and it is the only way a woken
-# box gets its screen back. Two arms of the same daemon, opposite intents, and
-# the verb used to be identical for both.
+# It once pointed at the retired smart-lock, and the 480s lock then failed
+# silently: the screen still locked, but at 600s, when the blank timer's
+# `go sleep` crossed the lock edge on its way past. Late, by accident, via the
+# wrong timer.
 #
-# THIS COMMENT USED TO SAY the resume arm "keeps plain `go lock`", which was
-# true about the INTENT and wrong about the verb, and a correct claim resting
-# on a justification that does not support it survives every reading. The plain
-# verb cannot express "ascend": see the resume arm for what that cost.
+# `atleast`, because an IDLE LOCK is a security descent that can never
+# legitimately raise the machine. The `resume` arm below takes `atmost`, its
+# mirror, because that one is the ascent. Two arms, opposite intents, and the
+# verb used to be identical for both: this comment justified the plain verb as
+# "that one is the ascent", which was true of the INTENT and wrong about the
+# verb, since the plain verb cannot express direction at all. See the resume
+# arm for what that cost.
 # Overridable, so a test never locks a real screen.
 LOCK_CMD=${LOCK_CMD:-$VIGILANT_CMD go lock atleast}
-# The peripherals now ride VIGILANT, not swaylock. The patched swaylock used
-# to fork $HOME/bin/panel-power on its own blank-after timer; that path went
-# stale when vigilance extracted panel-power to ~/.local/bin, the execl failed,
-# and `_exit(127)` swallowed it: dead on two machines for weeks. The patch is
-# retired (docs/framework-refactor.md 10.1) and the blank edge is an ordinary
-# swayidle timer again, which the event log shows handled blank AND restore
-# while locked for months before the patch existed.
+# The peripherals ride VIGILANT, not swaylock. The patched swaylock forked
+# $HOME/bin/panel-power on its own timer; that path went stale when panel-power
+# moved to ~/.local/bin, the execl failed, and `_exit(127)` swallowed it: dead
+# on two machines for weeks. The patch is retired and the blank edge is an
+# ordinary swayidle timer again.
 
 # --- paths ------------------------------------------------------------------
 RUNDIR=${XDG_RUNTIME_DIR:-/tmp}/swayidle-mgr
@@ -142,11 +137,19 @@ need_session() {
 }
 
 # --- what swayidle calls when the idle-lock timer fires ---------------------
-# Only idle-lock. The screen BLANK is NOT here: it lives inside swaylock (its
-# blank-after option, presence-aware and idle-inhibit-proof), which fires
-# panel-power via its peripherals hook AFTER the lock. Blanking an unlocked
-# screen would be a security hole, so the blank is deliberately gated behind
-# the lock, never an independent swayidle timer.
+# Only idle-lock. THE BLANK IS ITS OWN swayidle TIMER, armed in _run at
+# LOCK_TIMEOUT+BLANK_DELAY; see the note there for why the two are separate
+# rather than chained. It stays effectively behind the lock by ARITHMETIC
+# rather than by gating: both are measured from last input and the lock timer
+# is the shorter, so a blank can never precede it.
+#
+# THIS COMMENT USED TO SAY the blank "lives inside swaylock (its blank-after
+# option) ... never an independent swayidle timer". That was retired with the
+# swaylock patch: `strings` on the shipped v1.8.5 finds blank-after ZERO times,
+# and the arm sat 140 lines below this claim. Left as a correction rather than
+# deleted, because a reader who believed it would go looking for a locker
+# option that does not exist, and the dead config key of that exact name once
+# made the lock provider fail on every single lock.
 cmd_event() {
   kind=${1:?event kind required}
   now=$(date +%s)
