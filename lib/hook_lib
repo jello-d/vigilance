@@ -24,48 +24,36 @@
 # rather than restore" case, and it is why hooks branch on the EDGE, not on
 # whether the ladder is moving up or down.
 #
-# `lock` and `unlock` are the edges whose intent DIFFERS BY KIND, and the
-# asymmetry is the point. Both ENTER a lit rung, so that is what verify must
-# assert. But neither may ACT on brightness: descending to `lock` leaves the
-# screen on by definition, `wake` already re-lit the hardware on the way up,
-# and an edge that re-asserted a level here would overwrite one the user had
-# set by hand.
+# `lock` and `unlock` DIFFER BY KIND, and the asymmetry is the point. Both
+# ENTER a lit rung, so that is what VERIFY asserts; neither may ACT on
+# brightness, because descending to `lock` leaves the screen on by definition,
+# `wake` already re-lit the hardware on the way up, and re-asserting a level
+# here would overwrite one the user set by hand.
 #
-# Wiring them for verify is what closes the everyday hole. `vigilant verify`
-# checks the CURRENT rung, and the current rung is `open` almost all the time,
-# so with no verifier there the normal state of the machine was the one state
-# nothing checked. It is also the most valuable assertion in the suite:
-# "vigilance says this machine is open; is the screen actually on?" is exactly
-# the black-screen-no-recovery condition that twice needed a hard reboot.
-# TWO QUESTIONS, deliberately not merged. The runner exports VIGILANCE_INTENT,
-# the darkness the rung implies: a fact about the LADDER. This adds the ACT
-# policy on top: whether a hook should drive the hardware toward it. They differ
-# only at lock/unlock, and merging them would put back the bug where unlocking
-# re-asserted a brightness the user had set by hand.
+# Wiring them for verify closes the everyday hole: `vigilant verify` checks the
+# CURRENT rung, which is `open` almost all the time, so with no verifier there
+# the normal state of the machine was the one state nothing checked. It is also
+# the suite's most valuable assertion, being exactly the
+# black-screen-no-recovery condition that twice needed a hard reboot.
 #
-# The runner's value WINS when present, so the ladder's table is stated once.
-# The local copy is the standalone fallback (a hook run by hand, or by a test),
-# and test/intent.t asserts the two agree, because a fallback that can drift
-# silently is worse than no fallback.
+# TWO QUESTIONS, deliberately not merged. VIGILANCE_INTENT is the darkness the
+# rung implies, a fact about the LADDER; this adds the ACT policy on top.
+# Merging them restores the bug where unlocking re-asserted a hand-set
+# brightness. The runner's value WINS when present so the table is stated once,
+# the local copy being the standalone fallback for a hook run by hand or by a
+# test, and test/intent.t asserts the two agree.
 # hook_throttle <seconds>: true when this check may be SKIPPED as not due.
 #
-# WHY A CADENCE AT ALL. The standing recheck runs the whole verify tier every
-# minute, and that was measured on a live box at 2.0s a pass: 48 minutes of
-# work a day on an idle machine, of which ONE SECOND is a ddcutil probe. Against
-# that: in the entire log history, the peripheral verifiers have reported drift
-# exactly never. Every drift the recheck ever caught came from a bug of ours,
-# since fixed.
+# CADENCE FOLLOWS CONSEQUENCE, not uniformity. The standing recheck ran the
+# whole verify tier every minute, measured at 2.0s a pass (48 minutes a day on
+# an idle box, one second of it a ddcutil probe), and in the entire log history
+# the peripheral verifiers have reported drift exactly never. "Is the session
+# secured" earns a minute; "is the keyboard's RGB still off" does not.
 #
-# SO CADENCE FOLLOWS CONSEQUENCE, not uniformity. A check that answers "is the
-# session secured" earns a minute. A check that answers "is the keyboard's RGB
-# still off" does not, and an hour is generous for something that has never once
-# had anything to say.
-#
-# THE EVENT IS THE TRANSITION, and it is what makes a slow cadence safe: the
-# recheck forces a FULL verify on the first pass after the rung changes, which
-# is when drift is actually introduced: the keyboard-backlight drift appeared
-# 14 seconds after a crossing. The hourly pass is a backstop for the case nobody
-# thought of, not the primary mechanism.
+# THE EVENT IS THE TRANSITION, which is what makes a slow cadence safe: the
+# recheck forces a FULL verify on the first pass after the rung changes, and
+# that is when drift is introduced (the keyboard-backlight drift appeared 14
+# seconds after a crossing). The hourly pass is a backstop, not the mechanism.
 #
 # ONLY THE STANDING RECHECK MAY THROTTLE. VIGILANCE_RECHECK is set only there,
 # so an explicit `vigilant verify` (including the one lock-on-sleep runs
@@ -87,10 +75,9 @@ hook_throttle() {   # seconds
   _ht_at=$(cat "$_ht_f" 2>/dev/null || true)
   case "${_ht_at:-}" in ''|*[!0-9]*) _ht_at= ;; esac
   # A CHECK THAT RUNS RESETS THE CLOCK, whatever made it run: a transition, an
-  # explicit `vigilant verify`, or the hour elapsing. The first cut returned
-  # early when throttling was not on offer and so stamped nothing, which meant
-  # the pass after every transition ran the check a second time for no reason.
-  # Its own test caught that.
+  # explicit `vigilant verify`, or the hour elapsing. Stamping only when
+  # throttling was on offer made the pass after every transition run the check
+  # a second time for no reason.
   if [ -z "${VIGILANCE_RECHECK:-}" ]; then
     printf '%s\n' "$_ht_now" > "$_ht_f" 2>/dev/null || true
     return 1
@@ -132,20 +119,16 @@ hook_intent() {   # edge -> dark | lit | none
 # --- brightnessctl-backed save/restore --------------------------------------
 # Every LED and backlight here is written through brightnessctl, never raw
 # sysfs. Access comes from udev/99-vigilance.rules, which grants the `vigilant`
-# GROUP write on exactly the nodes these hooks drive.
+# GROUP write on exactly the nodes these hooks drive. Why a dedicated group and
+# not `input`, `video`, `i2c` or uaccess: that rule's header carries the prior
+# art and the measurements, and is the single place they live.
 #
-# THIS USED TO SAY "just put the login user in `input`", brightnessctl's own
-# requirement, and it was wrong to ask for. `input` is overloaded: the same
-# group guards /dev/input/event* (root:input crw-rw----, i.e. READ EVERY
-# KEYSTROKE) and the LED brightness attributes. Joining it to dim a keyboard
-# backlight buys a keylogging capability, and every consumer of this framework
-# would have paid that price.
-#
-# It was also never CHECKED, only documented, so on a box where the user held
-# none of those groups, brightnessctl was denied on every call while hook_dark
-# and hook_lit swallowed the failure (`|| true`) and vigilant logged clean
-# crossings over hardware that never moved. `vigilant report` now probes the
-# nodes for writability, because a requirement nothing verifies is a comment.
+# WHAT MATTERS HERE is that the requirement was once documented and CHECKED BY
+# NOTHING, so on a box whose user held no such group brightnessctl was denied
+# on every call while hook_dark and hook_lit swallowed it (`|| true`) and
+# vigilant logged clean crossings over hardware that never moved. `vigilant
+# report` probes the nodes for writability now, because a requirement nothing
+# verifies is a comment.
 #
 # SAVE ONCE is load-bearing. A hook wired into BOTH sleep.d and suspend.d runs
 # twice on a lock -> sleep -> suspend descent, and `resume` re-asserts dark a
@@ -159,28 +142,24 @@ hook_have_brightnessctl() {
 
 # WHAT THE SCREEN IS ACTUALLY EMITTING, independent of every mechanism.
 #
-# This is the only OUTCOME measurement in the suite. Every other verifier asks
-# about its own device: "did my I2C bus take the command", "is my sysfs
-# backlight at 0", and when no device is applicable they all decline and the
-# rung's actual claim goes unexamined. That is how a lit screen survived four
-# separate green verdicts: an unimplemented D6 code, a monitor that vanished
-# from its own map, a user session with no darkening mechanism, and a greeter
-# with none either. Each hook was individually satisfied or n/a every time.
+# The only OUTCOME measurement in the suite. Every other verifier asks about its
+# own device ("did my I2C bus take the command", "is my sysfs backlight at 0")
+# and declines when no device applies, leaving the rung's actual claim
+# unexamined. That is how a lit screen survived FOUR green verdicts in a row:
+# an unimplemented D6 code, a monitor vanished from its own map, a user session
+# with no darkening mechanism, and a greeter with none either, each hook
+# individually satisfied or n/a every time. A grab asks the RUNG's question, so
+# it holds however the darkening was meant to happen, or was never wired.
 #
-# A grab answers the question the RUNG is about rather than the question a
-# device is about, so it holds however the darkening was supposed to happen,
-# or was not wired at all.
-#
-# ALPHA OFF, and it is not optional: %[fx:mean] averages ALL channels, and a
-# screengrab always carries alpha, so an opaque black frame reads 0.25 rather
-# than 0. That measurement once called a pitch-black screen "not black" and
-# contradicted a human looking straight at it.
+# ALPHA OFF, not optional: %[fx:mean] averages ALL channels and a screengrab
+# always carries alpha, so an opaque black frame reads 0.25 rather than 0. That
+# once called a pitch-black screen "not black" against a human looking at it.
 #
 # THE WHOLE SURFACE, not a crop: a 160x160 corner reads near zero on a dark
 # wallpaper, so a corner-sampling check passes on a lit screen.
 #
-# OVERRIDABLE, or a test of any caller measures the DEVELOPER'S own screen,
-# the mistake behind seven past defects here.
+# OVERRIDABLE, or a test of any caller measures the DEVELOPER'S own screen, the
+# mistake behind seven past defects here.
 # -> "<mean> peak=<peak>", or empty if unmeasurable.
 #
 # TWO STATISTICS FROM ONE GRAB, because the grab is the expensive part (measured
@@ -188,12 +167,11 @@ hook_have_brightnessctl() {
 # surface emitting" and the peak is "is ANYTHING emitting". Only the second can
 # see a cursor on a black OLED; see hook_luma_peak_is_dark for the table.
 #
-# FIELD 1 IS STILL THE MEAN, and hook_luma_is_dark TAKES field 1 so that is a
-# real promise and not a hopeful one: a caller handing over the whole answer
-# gets the mean compared, which is what it did before this field existed. Same
-# append-after-field-1 shape the idle clock used for its ceiling. The first cut
-# of this comment claimed compatibility without the split, and a pitch-black
-# frame promptly read as LIT.
+# FIELD 1 IS STILL THE MEAN, and hook_luma_is_dark TAKES field 1, which is what
+# makes that a real promise rather than a hopeful one: a caller handing over the
+# whole answer gets the mean compared, as before this field existed. The same
+# append-after-field-1 shape the idle clock uses for its ceiling. Claiming the
+# compatibility WITHOUT taking field 1 made a pitch-black frame read as LIT.
 hook_screen_luma() {
   # THE PEAK HAS ITS OWN OVERRIDE, and an answer with only a mean leaves the
   # peak UNKNOWN on purpose. Supplying a mean and silently implying a peak of 0
@@ -207,32 +185,26 @@ hook_screen_luma() {
     return 0
   fi
   command -v magick >/dev/null 2>&1 || return 0
-  # THE GRABBER IS THE PLATFORM, and the measurement is not. `grim` is Wayland's
-  # and `import` is X11's; both hand a frame to the same ImageMagick pipeline,
-  # so the threshold, the alpha handling and the whole-surface rule are shared
-  # rather than reimplemented per platform. That is the point of measuring the
-  # OUTCOME: a mechanism-blind check has no business knowing which compositor
-  # produced the pixels.
+  # THE GRABBER IS THE PLATFORM; THE MEASUREMENT IS NOT. `grim` is Wayland's
+  # and `import` is X11's, and both hand a frame to the same ImageMagick
+  # pipeline, so the threshold, the alpha handling and the whole-surface rule
+  # are shared rather than reimplemented per platform.
   #
   # ORDER: Wayland first, because a Wayland session running Xwayland has BOTH
-  # tools and `import` there would capture Xwayland's root window, a window
-  # with none of the session's real content in it, which would read as black and
-  # certify a blank that never happened. The Wayland grabber is the one that
-  # sees the actual output, so it wins wherever it can run.
+  # tools and `import` there captures Xwayland's root window, which holds none
+  # of the session's content, reads as black, and would certify a blank that
+  # never happened.
   #
-  # WAYLAND_DISPLAY BREAKS A TIE; IT IS NOT A REQUIREMENT. `grim` with the
-  # variable unset still connects to `wayland-0`, so demanding it would switch
-  # off the capture on any box whose socket happens to be that: a decline
-  # dressed as a measurement, which is the failure this whole hook exists to
-  # prevent. So grim is used whenever it is the only plausible grabber, and the
-  # variable only decides WHICH when a DISPLAY is also present.
+  # WAYLAND_DISPLAY BREAKS A TIE; IT IS NOT A REQUIREMENT. `grim` with it unset
+  # still connects to `wayland-0`, so demanding it would switch off the capture
+  # on any box whose socket is that: a decline dressed as a measurement, the
+  # failure this hook exists to prevent. The variable only decides WHICH grabber
+  # when a DISPLAY is also present.
   #
-  # AND THE GRABBER IS NAMEABLE, because those two are not the only ones. A KDE
-  # Plasma session has neither grim nor import and reaches for spectacle; GNOME
-  # goes through a portal. Without this knob such a box could only override the
-  # WHOLE ANSWER (VIGILANCE_SCREEN_LUMA), which replaces the measurement along
-  # with the capture and turns the tier into a fixture, or patch hook_lib, which
-  # an integrator should never have to do to supply a tool.
+  # AND THE GRABBER IS NAMEABLE, since those two are not the only ones: KDE
+  # reaches for spectacle, GNOME goes through a portal. Without the knob such a
+  # box could only override the WHOLE ANSWER, which replaces the measurement
+  # along with the capture and turns the tier into a fixture, or patch hook_lib.
   #
   # IT MUST WRITE AN IMAGE TO STDOUT and nothing else. The ImageMagick stage
   # below is untouched, so the statistic, the alpha handling and the
