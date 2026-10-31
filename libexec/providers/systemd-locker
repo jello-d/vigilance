@@ -2,33 +2,24 @@
 # systemd-locker - LOCK PROVIDER, wired as a lock.d hook.
 #
 # NAMED FOR THE MECHANISM, NOT FOR ONE LOCKER: it brings up whatever
-# VIGILANCE_LOCKER names as a transient --user unit, with the unit as the span
-# of the lock. It was called `swaylock` until 2026-10-05, which was false: only
-# the DEFAULTS here are swaylock's, and a real i3lock has been driven through
-# this file end to end. Nothing dispatches on the filename either, because
-# `report` identifies a provider by its `providers/` DIRECTORY.
+# VIGILANCE_LOCKER names as a transient --user unit, and THE UNIT IS THE SPAN
+# OF THE LOCK. Only the defaults here are swaylock's. Nothing dispatches on
+# the filename; `report` identifies a provider by its `providers/` DIRECTORY.
 #
-# Replaces bin/smart-lock. Everything that script hand-rolled to own the
-# lock's LIFETIME is now systemd's, verified against a real swaylock in
-# test/lock-span.t:
+# THE UNIT OWNS THE LIFETIME, which is what this file buys: the unit name is
+# the singleton, `systemctl start` blocks until commit, systemd tracks the
+# span, and ExecStopPost is the unlock detector (it also fires on a CRASH).
+# Verified against a real swaylock in test/lock-span.t.
 #
-#   flock + pgrep idempotence  -> the unit name is the singleton
-#   marker file for "committed" -> `systemctl start` BLOCKS until commit
-#   `while pgrep; sleep 0.25`   -> systemd tracks the span
-#   unlock detection            -> ExecStopPost, which also fires on a CRASH
-#   a foreground process to hold the cgroup -> the unit IS the span
+# GuessMainPID=no IS LOAD-BEARING: swaylock forks a password-backend child, so
+# the cgroup holds two processes and systemd cannot guess which is main
+# (MainPID=0). Cgroup emptiness is the honest liveness signal for a process
+# that forks helpers; letting systemd guess makes it track the wrong one.
 #
-# GuessMainPID=no is load-bearing, and was found the hard way: swaylock forks
-# a password-backend child, so the cgroup holds two processes and systemd
-# cannot guess which is main (MainPID=0). Cgroup emptiness is the honest
-# liveness signal for a process that forks helpers; letting systemd guess
-# would have it track the wrong one.
-#
-# RETURNS AT COMMIT, not at unlock. That matters twice over: it is exactly the
-# semantics `Before=sleep.target` needs (the box cannot sleep until the lock is
-# up), and it releases the caller. smart-lock blocked until unlock, which
-# pinned swayidle for hours at a time (observed: 18:31 to 20:37 on one lock)
-# and stopped it firing any other timer.
+# RETURNS AT COMMIT, not at unlock, which is both the semantics
+# `Before=sleep.target` needs (the box cannot sleep until the lock is up) and
+# what releases the caller. Blocking until unlock pinned swayidle for hours at
+# a time and stopped it firing any other timer.
 set -eu
 
 _self=$(readlink -f "$0")
@@ -53,42 +44,31 @@ _vigilant=$(readlink -f "$_vigilant")
 
 UNIT=${VIGILANCE_LOCK_UNIT:-screen-lock.service}
 LOCKER=${VIGILANCE_LOCKER:-swaylock}
-# THE LOCKER'S ARGV AND UNIT TYPE ARE ITS OWN, and before this they were
-# swaylock's while the NAME was a knob: a half promise, and the kind that
-# fails on the security path. `VIGILANCE_LOCKER=i3lock` resolved, passed the
-# `command -v` check, and was then handed `-f`, which i3lock does not have: the
-# unit fails and the screen does not lock. `Type=forking` is the same
-# assumption one layer down, because it says the locker DETACHES; a locker that
-# stays in the foreground (xsecurelock, `i3lock -n`) leaves systemd-run waiting
-# for a fork that never comes, so the provider reports failure about a screen
-# that is locked.
+# THE LOCKER'S ARGV AND UNIT TYPE ARE ITS OWN. With only the NAME as a knob
+# this was a half promise of the kind that fails on the security path:
+# `VIGILANCE_LOCKER=i3lock` resolved, passed `command -v`, and was handed `-f`,
+# which i3lock does not have, so the unit failed and the screen did not lock.
+# `Type=forking` is the same assumption one layer down, asserting the locker
+# DETACHES: a foreground locker (xsecurelock, `i3lock -n`) leaves systemd-run
+# waiting for a fork that never comes.
 #
-# Defaults are swaylock's, so nothing changes for the shipped configuration.
-# An X11 box is two knobs: VIGILANCE_LOCKER=i3lock VIGILANCE_LOCKER_ARGV=-n
-# with VIGILANCE_LOCKER_TYPE=simple.
+# Defaults are swaylock's, so the shipped configuration is unchanged. An X11
+# box is two knobs: VIGILANCE_LOCKER=i3lock VIGILANCE_LOCKER_ARGV=-n plus
+# VIGILANCE_LOCKER_TYPE=simple.
 LOCKER_ARGV=${VIGILANCE_LOCKER_ARGV:--f}
 LOCKER_TYPE=${VIGILANCE_LOCKER_TYPE:-forking}
 
-# NAMES TO REMOVE FROM THE UNIT'S ENVIRONMENT, and the asymmetry is the whole
-# reason this exists. A --user unit inherits the user MANAGER's environment, so
-# SETTING something for the locker is already possible and already documented:
-# import it into the manager, which is exactly the advice this file gives for
-# WAYLAND_DISPLAY on the failure path below. There is no way to UN-import one
-# variable for one unit, so that direction had no mechanism at all.
+# NAMES TO REMOVE FROM THE UNIT'S ENVIRONMENT, and THE ASYMMETRY IS THE WHOLE
+# REASON IT EXISTS. A --user unit inherits the user MANAGER's environment, so
+# SETTING a variable for the locker is already possible (import it into the
+# manager, the advice this file gives for WAYLAND_DISPLAY below) while
+# UN-importing one for one unit had no mechanism at all.
 #
-# MEASURED, in the guest, with the documented X11 configuration:
+# Measured in the guest: i3lock checks WAYLAND_DISPLAY and refuses REGARDLESS
+# of DISPLAY, so on any box whose manager carries it, which is any box told to
+# import it for swaylock, the documented X11 example could not start at all.
 #
-#   Started screen-lock.service - [systemd-run] /usr/bin/i3lock -n
-#   i3lock: i3lock is a program for X11 and does not work on Wayland
-#
-# i3lock checks WAYLAND_DISPLAY and refuses REGARDLESS of DISPLAY. So on any box
-# whose manager carries that variable, and a box running a Wayland session is
-# told to put it there, an X11 locker cannot start through this provider no
-# matter how the other knobs are set. The documented example could not work.
-#
-# NOT a second knob for setting. Building one would be speculative surface for a
-# case the manager already covers, and this package has shipped enough knobs
-# that nothing uses.
+# No matching knob for SETTING: the manager already covers that direction.
 LOCKER_UNSETENV=${VIGILANCE_LOCKER_UNSETENV:-}
 
 command -v "$LOCKER" >/dev/null 2>&1 || {
@@ -96,26 +76,20 @@ command -v "$LOCKER" >/dev/null 2>&1 || {
 
 # IS OUR UNIT UP? Deliberately narrower than locker-up's probe, which asks
 # whether the SESSION is secured by anything at all. This asks only about the
-# unit this hook owns, which is the right question both for "already done" and
-# for "did the other racer win".
+# unit this hook owns, the right question both for "already done" and for "did
+# the other racer win".
 #
-# THE STATE, NOT A BOOLEAN, and that distinction is the whole of a bug this
-# already shipped once. `systemctl is-active` is FALSE while a unit is
-# ACTIVATING, so the first version of the race branch below asked the question
-# a few milliseconds too early and reported failure about a lock that was
-# coming up. The journal shows it exactly:
+# THE STATE, NOT A BOOLEAN, which is a bug this already shipped once:
+# `systemctl is-active` is FALSE while a unit is ACTIVATING, so the race branch
+# below asked a few milliseconds too early and reported failure about a lock
+# that was coming up.
 #
-#   14:42:00  Starting screen-lock.service     <- the winner, still activating
-#   14:42:00  HOOK FAILED (rc=1): lock 10-swaylock   <- the loser asked here
-#   14:42:00  Started screen-lock.service      <- active only now
-#
-# OVERRIDABLE BY A PATH whose CONTENT is the state (absent means inactive).
-# Without it this is untestable in BOTH substrates: the stub tier must not
-# create transient units on the developer's systemd, and the VM has no user bus
-# at all ("Failed to connect to bus: No medium found"). A file also lets a
-# fixture model the state CHANGING mid-run, which is the whole nature of a
-# race, and a boolean could not express `activating` at all, which is why the
-# fixture agreed with the broken code.
+# OVERRIDABLE BY A PATH whose CONTENT is the state (absent means inactive),
+# because otherwise this is untestable in BOTH substrates: the stub tier must
+# not create transient units on the developer's systemd, and the VM has no user
+# bus at all. A file also lets a fixture model the state CHANGING mid-run,
+# which is the nature of a race, where a boolean could not express `activating`
+# and so agreed with the broken code.
 _unit_state() {   # -> systemd ActiveState
   if [ -n "${VIGILANCE_LOCK_ACTIVE_FILE:-}" ]; then
     _us=$(cat "$VIGILANCE_LOCK_ACTIVE_FILE" 2>/dev/null || true)
@@ -137,52 +111,40 @@ SETTLE=${VIGILANCE_LOCK_SETTLE:-5}
 case "$(_unit_state)" in active|activating|reloading) exit 0 ;; esac
 systemctl --user reset-failed "$UNIT" >/dev/null 2>&1 || true
 
-# The argv is computed by a separate helper so THIS file knows nothing about
-# panel counts, wallpapers or indicator sizing. That knowledge is HWDP's and
-# leaves with it; an absent helper simply yields a plain lock.
+# The argv comes from a separate helper so THIS file knows nothing about panel
+# counts, wallpapers or indicator sizing. That knowledge is HWDP's and leaves
+# with it; an absent helper simply yields a plain lock.
 #
-# IT IS ASKED ABOUT THE LOCKER IN USE, and that argument is the other half of
-# making the locker substitutable. The helper's output is inherently
-# locker-specific: the shipped one emits swaylock's `-C <conf>`, and the
-# provider used to hand it to whatever locker it was given, so substituting the
-# locker produced `i3lock -C .../swaylock.conf`. Caught by a test asserting the
-# argv for the first time, which is what a second platform buys before any of
-# its code exists.
-#
-# Backward compatible: a helper that ignores its argument behaves exactly as
-# before, which is every helper that exists today.
+# IT IS ASKED ABOUT THE LOCKER IN USE, which is the other half of making the
+# locker substitutable: the helper's output is inherently locker-specific (the
+# shipped one emits swaylock's `-C <conf>`), so handing it to whatever locker
+# was configured produced `i3lock -C .../swaylock.conf`. Backward compatible,
+# since a helper that ignores the argument behaves as before, which is every
+# helper that exists today.
 _args=
 if command -v vigilance-lock-argv >/dev/null 2>&1; then
   _args=$(vigilance-lock-argv "$LOCKER" 2>/dev/null || true)
 fi
 
-# LOSING THE RACE IS NOT FAILING. Two lock requests can arrive together, a
-# double hotkey press, or a keybind and a logind Session.Lock landing in the
-# same second, and then BOTH pass the is-active check above before either
-# starts the unit. systemd arbitrates correctly and refuses the second with
-# "unit already exists"; treating that refusal as an error is the bug, because
-# the postcondition this hook exists for is satisfied either way.
-#
-# Measured on manifold, four times over three days, each one an alert on the
-# most security-critical edge there is about a lock that came up fine:
-#
-#   12:58:55  cross lock: open -> lock          (twice, same second)
-#   12:58:56  Started screen-lock.service        <- the winner
-#   12:58:56  HOOK FAILED (rc=1): lock 10-swaylock   <- the loser
+# LOSING THE RACE IS NOT FAILING. Two requests can arrive together (a double
+# hotkey press, or a keybind and a logind Session.Lock in the same second) and
+# both pass the is-active check above before either starts the unit. systemd
+# arbitrates correctly and refuses the second with "unit already exists";
+# treating that refusal as an error is the bug, because the postcondition this
+# hook exists for is satisfied either way. It cost four alerts over three days
+# on the most security-critical edge there is, about locks that came up fine.
 #
 # So the failure path asks the question again rather than assuming. A hook that
 # cannot survive being run twice at once is not idempotent, which this package
 # requires of anything that mutates state.
-# THE UNLOCK IS ATTRIBUTED, because this is the ONLY route to it. Nothing
-# detects an unlock by watching; the unit IS the span of the lock and
-# ExecStopPost is how its end is noticed, so every `cross unlock` on a healthy
-# box comes from here. Unattributed, the log could not tell that from a
-# deliberate `go open`, and a crash of the locker looks the same as a human
-# unlocking: `locker-exit` says the locker stopped, whichever way it stopped.
+# THE UNLOCK IS ATTRIBUTED, because this is the ONLY route to it: nothing
+# detects an unlock by watching, so every `cross unlock` on a healthy box comes
+# from here and would otherwise be indistinguishable from a deliberate
+# `go open`. `locker-exit` says the locker stopped, whichever way it stopped,
+# so a crash and a human unlocking read alike and that is honest.
 #
-# `--setenv` reaches ExecStopPost because it sets the unit's Environment, which
-# every Exec line of the unit inherits. It reaches the LOCKER too, harmlessly:
-# a locker that read VIGILANCE_SOURCE would be reading a label about itself.
+# `--setenv` reaches ExecStopPost by setting the unit's Environment, which
+# every Exec line inherits. It reaches the LOCKER too, harmlessly.
 # shellcheck disable=SC2086
 _unsetprop=
 [ -z "$LOCKER_UNSETENV" ] \
@@ -194,73 +156,51 @@ if systemd-run --user --collect --unit="$UNIT" \
      --setenv=VIGILANCE_SOURCE=locker-exit \
      $_unsetprop \
      -- "$LOCKER" $LOCKER_ARGV $_args >/dev/null 2>&1; then
-  # STARTED IS NOT RUNNING, and this is where that bit. Measured in the guest:
+  # STARTED IS NOT RUNNING. Measured in the guest: the unit genuinely started,
+  # i3lock refused on Wayland and died in milliseconds, and `go lock` returned
+  # rc=0 with no locker anywhere. A false green on the security edge, produced
+  # by the provider rather than caught by it, and silent until the next
+  # supervision pass because `_cross_one` does not run the verify tier.
   #
-  #   go lock -> rc=0, and no locker anywhere
-  #   journal: Started screen-lock.service - [systemd-run] /usr/bin/i3lock -n
-  #            i3lock: ... does not work on Wayland
+  # `Type=forking` ESTABLISHES NOTHING ON ITS OWN, contrary to the obvious
+  # reading that systemd-run blocks until the locker forks. Measured:
   #
-  # The unit genuinely started and the locker died in milliseconds, and the
-  # crossing reported SUCCESS. That is the false green on the security edge that
-  # `locker-up`'s own header is about, produced by the provider rather than
-  # caught by it, and nothing says so until the next supervision pass because
-  # `_cross_one` does not run the verify tier.
+  #   forks a child and exits 0   rc=0, state immediately `active`
+  #   just exits 0, no fork       rc=0, state immediately INACTIVE
   #
-  # I CLAIMED `Type=forking` ESTABLISHED SOMETHING AND IT DOES NOT. The claim
-  # was that systemd-run blocks until the locker forks, so a successful return
-  # proves it got that far. MEASURED, and it is false:
+  # systemd does not fail the start for the second, so a locker that asks a
+  # daemon to lock and exits read as a successful lock under the DEFAULT type,
+  # which every shipped box uses. The two cases differ IMMEDIATELY, so one
+  # sample the instant systemd-run returns covers every type for the cost of a
+  # `systemctl show`.
   #
-  #   a script that forks a child and exits 0  rc=0, state immediately `active`
-  #   a script that just exits 0, no fork      rc=0, state immediately INACTIVE
+  # ONLY A NON-FORKING LOCKER IS WATCHED, which is where waiting belongs: under
+  # `simple` the unit is `active` at t=0 and the locker can die a moment later,
+  # whereas a forked locker alive at t=0 is systemd's to track, and if it dies
+  # ExecStopPost crosses `unlock` and locker-up catches it.
   #
-  # systemd does not fail the start for the second one. So a locker that asks a
-  # daemon to lock and exits was reported as a successful lock under the DEFAULT
-  # type, which is the configuration every shipped box uses.
-  #
-  # THE MEASUREMENT ALSO GAVE A BETTER DESIGN THAN THE ONE IT BROKE. The two
-  # cases differ IMMEDIATELY, with no waiting at all, so every type gets one
-  # sample the instant systemd-run returns: one `systemctl show`, a few
-  # milliseconds, nothing on the lock path worth counting.
-  #
-  # ONLY A NON-FORKING LOCKER IS THEN WATCHED, and that is where the waiting
-  # belongs. Under `simple` the unit is `active` at t=0 and the locker can die a
-  # moment later, which is what i3lock refusing on a Wayland box actually did; a
-  # forked locker that was alive at t=0 is systemd's to track from then on, and
-  # if it dies ExecStopPost crosses `unlock` and locker-up catches it.
-  #
-  # IT REQUIRES A GOOD STATE RATHER THAN LISTING THE BAD ONES, and the first
-  # version of this did the opposite and missed. It matched `inactive|failed`,
-  # and a unit whose process has exited sits in DEACTIVATING for as long as its
-  # ExecStopPost takes, which here is `vigilant go open` crossing an edge:
-  #
-  #   t=0s  active          <- the first sample
-  #   t=1s  deactivating    <- matched neither name, so the loop kept going
-  #   t=3s  inactive        <- after the loop had already returned success
-  #
-  # A deny-list cannot see the state nobody thought to name, which is the rule
-  # this suite applies to every other check with a hardcoded subject, and both
-  # halves of this confirm were wrong in that one way.
+  # IT REQUIRES A GOOD STATE RATHER THAN LISTING THE BAD ONES. Matching
+  # `inactive|failed` missed DEACTIVATING, where a unit sits for as long as its
+  # ExecStopPost takes (here, `vigilant go open` crossing an edge), so the loop
+  # ran past the failure and returned success. A deny-list cannot see the state
+  # nobody thought to name.
   _c=0
   while :; do
     case "$(_unit_state)" in
       active|activating|reloading) ;;   # alive; decide whether to keep watching
       *)
         # SAY WHAT IS KNOWN AND NAME THE REQUIREMENT, not what the screen is
-        # doing. The first version of this said "so the screen is NOT locked",
-        # which this code cannot know and which is FALSE for a whole class of
-        # locker: one that asks a running daemon to lock and exits (an
-        # `xfce4-screensaver-command --lock` shape) leaves the screen locked and
-        # its unit dead. A wrong diagnosis is worse than none because it is
-        # confidently actionable, which is the lesson the WAYLAND_DISPLAY
-        # message already carries three screens down.
+        # doing. Saying "the screen is NOT locked" is something this code cannot
+        # know and is FALSE for a delegating locker (an
+        # `xfce4-screensaver-command --lock` shape), which leaves the screen
+        # locked and its unit dead. A wrong diagnosis is worse than none,
+        # because it is confidently actionable.
         #
-        # AND REFUSING IS STILL RIGHT, for a reason that is about tracking
-        # rather than about the screen. This provider's whole design is that the
-        # UNIT IS THE SPAN of the lock and ExecStopPost is the unlock detector,
-        # so a locker that does not outlive its own lock makes the ladder record
-        # `open` while the screen is covered: the record behind the world, which
-        # every tier that trusts the record then agrees with. Reporting failure
-        # is the lesser of the two wrongs, and it is the loud one.
+        # REFUSING IS STILL RIGHT, for a reason about TRACKING rather than
+        # about the screen: the unit is the span and ExecStopPost is the unlock
+        # detector, so a locker that does not outlive its own lock makes the
+        # ladder record `open` while the screen is covered, and every tier that
+        # trusts the record then agrees. Failing is the loud wrong.
         echo "swaylock provider: $UNIT started and its process is gone"\
 " EITHER the locker failed on startup and the screen is NOT locked, OR it"\
 " locked and exited, which this provider cannot support: the unit IS the span"\
@@ -296,30 +236,18 @@ while [ "$_w" -le "$SETTLE" ]; do
 done
 # NAME THE LIKELIEST CAUSE RATHER THAN JUST THE SYMPTOM. A --user unit inherits
 # the user MANAGER's environment, not its caller's, so the locker cannot reach
-# the compositor unless the session imported WAYLAND_DISPLAY into it. On a
-# desktop the compositor's startup does that and it is invisible; where it has
-# not happened, every lock fails with nothing but "could not start", which is
-# how this cost a debugging round the first time the session tier ran.
+# the compositor unless the session imported WAYLAND_DISPLAY into it. A desktop
+# does that invisibly at startup; where it has not happened, every lock fails
+# with nothing but "could not start".
 #
-# Checked only on the FAILURE path: it is a diagnosis, not a precondition, and
-# a locker that started needs no explaining.
+# Checked only on the FAILURE path: a diagnosis, not a precondition.
 echo "swaylock provider: could not start $UNIT" >&2
-# TWO CAUSES, AND THEY NEED DIFFERENT REMEDIES. The first version of this piped
-# `show-environment` into grep, so THE PIPELINE'S STATUS WAS GREP'S: a
-# `systemctl --user` that failed outright was indistinguishable from one that
-# succeeded without the variable, and both printed the WAYLAND_DISPLAY advice.
-#
-# Measured with the user manager stopped, which is the one way the
-# transient-unit design fails outright:
-#
-#   swaylock provider: could not start screen-lock.service
-#   swaylock provider: the user manager has no WAYLAND_DISPLAY, ...
-#     A session normally imports it (systemctl --user import-environment ...).
-#
-# That sends the reader to import a variable INTO A MANAGER THAT DOES NOT
-# EXIST, on the most security-critical edge there is, while the real cause is
-# one status check away. A wrong diagnosis is worse than none: it is
-# confidently actionable.
+# TWO CAUSES NEEDING DIFFERENT REMEDIES, and the status is the thing that tells
+# them apart. Piping `show-environment` into grep made THE PIPELINE'S STATUS
+# GREP'S, so a `systemctl --user` that failed outright was indistinguishable
+# from one that succeeded without the variable, and both printed the
+# WAYLAND_DISPLAY advice: that sends a reader to import a variable INTO A
+# MANAGER THAT DOES NOT EXIST, while the real cause is one status check away.
 if _env=$(systemctl --user show-environment 2>/dev/null); then
   if ! printf '%s\n' "$_env" | grep -q '^WAYLAND_DISPLAY='; then
     echo "swaylock provider: the user manager has no WAYLAND_DISPLAY, so the" \
