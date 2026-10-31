@@ -1,10 +1,9 @@
 # Keep the idle timer ALIVE, so idle policy survives its wrapper dying.
 #
-# swayidle-mgr was autostarted by the compositor and supervised by nothing. If
-# it died, EVERY idle timer died with it: lock, blank, and (since the
-# integrator's idle-suspend seam) suspend too. The box silently went back to
-# never locking and never suspending, which is the exact failure this suite
-# exists to remove: one wedge-prone daemon must not BE the guarantee.
+# swayidle-mgr was autostarted by the compositor and supervised by nothing, so
+# if it died EVERY idle timer died with it (lock, blank, and suspend too once
+# the integrator wires the idle-suspend seam) and the box silently went back to
+# never locking: one wedge-prone daemon must not BE the guarantee.
 #
 # WHAT THIS COVERS AND WHAT IT DOES NOT, because the distinction is the whole
 # reason the other tiers exist:
@@ -12,28 +11,28 @@
 #   DEATH   this unit. swayidle exits, systemd restarts it. Covered.
 #   WEDGE   NOT this unit. A swayidle alive and silently not firing looks
 #           perfectly healthy to systemd, and that is the failure that cost
-#           this box two days of a dark monitor. `vigilant audit` catches it
-#           by asking whether the timers that fired produced their edges.
+#           this box two days of a dark monitor. `watchdog.d` catches it from
+#           the heartbeat, and `audit` by asking whether the timers that fired
+#           produced their edges.
 #
-# A liveness check is also NOT a `due` hook: `due` answers "when should this
-# edge have fired", and "is the process up" is not a deadline. `vigilant report`
-# already reports swayidle's liveness, which is where that belongs.
+# Liveness is `report`'s job rather than a `due` hook's: "is the process up" is
+# not a deadline.
 #
-# NOT [Install]ed into a target, deliberately. The compositor STARTS it, because
-# two things must be true first and only the compositor knows when they are:
+# NOT [Install]ed into a target, deliberately: the compositor STARTS it, because
+# two things must be true first and only the compositor knows when they are.
 # WAYLAND_DISPLAY must be in the user manager's environment (wayfire's
 # `0_environment` autostart does that via dbus-update-activation-environment,
-# and sorts first so it wins the race), and a compositor must be there to
-# connect to. graphical-session.target would be the textbook anchor but is
-# INACTIVE on this session, and default.target (usable by vigilance-logind,
-# since gdbus needs no display) is active with no compositor at all, so
-# anchoring here would start swayidle into a void and spin.
+# sorting first so it wins the race), and a compositor must be there to connect
+# to. graphical-session.target is the textbook anchor and is INACTIVE on this
+# session, while default.target (fine for vigilance-logind, since gdbus needs no
+# display) is active with no compositor at all, so anchoring there would start
+# swayidle into a void and spin.
 #
-# The start limit makes that safe regardless. The imported WAYLAND_DISPLAY
-# OUTLIVES the compositor in the user manager's environment, so after a logout
-# need_session still passes and swayidle fails to connect instead. Bounded
-# restarts mean a genuine crash recovers within seconds while a dead session
-# gives up quietly, and the next login's autostart starts it again.
+# THE START LIMIT MAKES THAT SAFE REGARDLESS, and is needed because the imported
+# WAYLAND_DISPLAY OUTLIVES the compositor in the manager's environment: after a
+# logout need_session still passes and swayidle fails to CONNECT instead.
+# Bounded restarts recover a genuine crash in seconds and give up quietly on a
+# dead session, which the next login's autostart undoes.
 [Unit]
 Description=vigilance: keep the idle timer alive
 StartLimitIntervalSec=60
@@ -44,15 +43,12 @@ Type=simple
 # -f: run swayidle in the FOREGROUND and exec it, so systemd tracks the real
 # process. The default `start` detaches, which would leave the unit supervising
 # a launcher that exited immediately.
-# %h IS CORRECT HERE, and is the ONE unit that keeps it. swayidle-mgr is a
-# USER-ONLY command by classification: only a logged-in session has an idle
-# timer, so each user runs their own copy, and %h in a --user unit resolves to
-# THAT user's home. That is the opposite of the %h bug: the failure was %h in a
-# SYSTEM unit, where it resolves to ROOT's home regardless of User= and the unit
-# 203/EXEC'd on every sleep for a refactor.
-#
-# The other units run `vigilant`, which is a SHARED command living in one
-# root-owned tree, so they carry a substituted placeholder instead and
+# %h IS CORRECT HERE, and this is the ONE unit that keeps it: swayidle-mgr is
+# USER-ONLY by classification (only a logged-in session has an idle timer), so
+# each user runs their own copy and %h in a --user unit resolves to THAT user's
+# home. The opposite of the %h bug, which was %h in a SYSTEM unit resolving to
+# ROOT's home regardless of User=. The other units run `vigilant`, a SHARED
+# command in one root-owned tree, so they carry a substituted placeholder and
 # reference no home at all.
 ExecStart=%h/.local/bin/swayidle-mgr start -f
 Restart=always

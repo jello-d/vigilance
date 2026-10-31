@@ -20,30 +20,23 @@
 # Different, not unbounded: see the ceiling below, which is the correction the
 # real server forced.
 #
-# IT REPORTS A CEILING, AND THE FIRST VERSION DID NOT. That version said the X
-# server's counter "can witness any duration" because nothing resets it but real
-# input. MEASURED AGAINST A REAL SERVER, that is false:
+# IT REPORTS A CEILING, because the counter is NOT unbounded. The first version
+# claimed it could witness any duration, since nothing but real input resets it.
+# Measured against a real server, that is false:
 #
 #     x11-idle -> 306s     ... 3 seconds later ...     x11-idle -> 2s
 #
-# THE SERVER'S OWN SCREENSAVER RESETS IT. XScreenSaverQueryInfo reports idle
-# time WITHIN the current screensaver state, so when the saver activates at its
-# timeout the counter starts again, and a seat that has been quiet for an hour
-# reports seconds. That is the safe direction for an alert (it suppresses a
-# finding rather than inventing one) and it is fatal to the question report
-# asks: a deadline longer than the screensaver timeout can never be
-# witnessed here.
+# XScreenSaverQueryInfo reports idle time WITHIN the current screensaver state,
+# so the counter restarts when the saver activates, and a seat quiet for an hour
+# reports seconds. Safe for an alert (it suppresses a finding rather than
+# inventing one) and fatal to the question `report` asks, since a deadline
+# longer than the cap can never be witnessed.
 #
-# Which is EXACTLY what `ceiling=` exists for. The counter clock carries it
-# because a chattering keyboard caps what it can observe; this one carries it
-# because the screensaver does. The cap is STRUCTURAL rather than accumulated (
-# known from the server's own configuration at the first call, not learned), so
-# `age` is reported equal to it: report's "the clock is too young to have seen
-# that yet" exemption must not apply to a hard limit.
-#
-# A timeout of 0 means the screensaver is disabled, and then the answer really
-# does stand on its own: no ceiling is emitted, which the runner reads as "no
-# opinion" and report reads as measurable.
+# So `ceiling=` carries WHAT THIS CLOCK HAS BEEN SEEN TO REACH, a high-water
+# mark exactly as input-counters keeps one, and NOT the server's configured
+# timeout. The note at the state file below is the authoritative one: it records
+# why emitting a CONFIGURED limit through that field laundered a config value
+# into evidence, which is why no `xset` read remains.
 #
 # CONTENT: none. The reply is a duration; no scancode, no button, no coordinate.
 # That is the same property that makes the counter sources admissible: the

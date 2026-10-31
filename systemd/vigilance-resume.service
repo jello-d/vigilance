@@ -8,21 +8,17 @@
 # brief dark-then-lit is the point: the peripherals are put in a known state
 # before being brought back.
 #
-# IT USED TO SAY `go sleep`, AND THAT WAS WRONG. The premise ("after S3 you
-# are at rung `sleep` until input") assumes nobody is there. When a human
-# woke the machine, or when the suspend was spurious, it darkened the screen on
-# an ACTIVE user. Observed: a 2-second s2idle entry/exit, after which this unit
-# re-asserted dark and the screen stayed off for 32 seconds.
+# IT USED TO SAY `go sleep`, AND THAT WAS WRONG, because the premise ("after S3
+# you are at rung `sleep` until input") assumes nobody is there: a human waking
+# the machine, or a spurious suspend, got the screen darkened on an ACTIVE user.
+# Observed as a 2-second s2idle entry/exit followed by 32 seconds of dark.
 #
-# The second half is what made it bad rather than merely odd: NOTHING WAS ARMED
-# TO ASCEND. The only trigger that crosses `wake` is swayidle's `resume` action,
-# and swayidle fires that only after one of ITS OWN timeouts. Reaching `sleep`
-# by this unit instead means swayidle does not know the machine is dark, so
-# input produces nothing and recovery needs a keybind.
-#
-# `lock` is safe in both directions: woken deliberately, you get your screen;
-# woken spuriously with nobody there, the idle timer dims it again. There is no
-# use case for resuming from suspend into `sleep`.
+# NOTHING WAS ARMED TO ASCEND, which is what made it bad rather than odd. The
+# only trigger that crosses `wake` is swayidle's `resume` action, which fires
+# only after one of ITS OWN timeouts, so reaching `sleep` this way left swayidle
+# unaware the machine was dark: input produced nothing and recovery needed a
+# keybind. `lock` is safe both ways instead, since waking deliberately gets you
+# your screen and a spurious wake is dimmed again by the idle timer.
 #
 # After=suspend.target, so it runs on the way UP.
 [Unit]
@@ -31,30 +27,28 @@ After=suspend.target hibernate.target hybrid-sleep.target
 
 [Service]
 Type=oneshot
-# NO HOME PATH AT ALL, which is the end of a long story. This once used %h, and
-# in a SYSTEM unit %h resolves to ROOT's home regardless of User=, so
-# `%h/.local/bin/vigilant` became /root/.local/bin/vigilant and died 203/EXEC on
-# every single sleep. It failed SILENTLY, because a failed Before=sleep.target
-# oneshot does not block the transition: systemd logged it, reached
-# sleep.target, and slept anyway. The suspend-lock guarantee was fiction.
+# NO HOME PATH AT ALL. This once used %h, which in a SYSTEM unit resolves to
+# ROOT's home regardless of User=, so `%h/.local/bin/vigilant` became
+# /root/.local/bin/vigilant and died 203/EXEC on every single sleep. It failed
+# SILENTLY, because a failed Before=sleep.target oneshot does not block the
+# transition: systemd logged it, reached sleep.target and slept anyway, so the
+# suspend-lock guarantee was fiction.
 #
-# Templating the user's home fixed the symptom. Pointing at a SHARED command
-# fixes the class: `vigilant` lives in one root-owned tree with a single
-# published path, so this unit references no home, needs no per-user rendering
-# of the binary path, and cannot follow a user's install into an encrypted home
-# that root cannot read anyway. The placeholder is substituted at install.
+# Templating the home fixed the symptom; pointing at a SHARED command fixes the
+# class. `vigilant` lives in one root-owned tree with a single published path,
+# so this references no home, needs no per-user rendering, and cannot follow an
+# install into an encrypted home root cannot read. Substituted at install.
 User=@USER@
 Environment=VIGILANCE_SOURCE=resume
 Environment=XDG_RUNTIME_DIR=/run/user/@UID@
 Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/@UID@/bus
 # `atmost` SO IT CANNOT DESCEND. Everything above is about the DESTINATION and
-# all of it still holds; what was missing is the DIRECTION. A plain `go lock`
-# from `open` travels DOWN and locks, and this unit races the user's own unlock
-# on every single resume: it starts about 0.3s after wake and so generally wins,
-# which is luck rather than a guarantee. swayidle's resume arm, the other caller
-# on this path, lost that race on manifold on 2026-10-20 and re-locked a session
-# 1.5s after a fingerprint unlock. From `suspend` or `sleep` the traversal is
-# unchanged, so the `resume` then `wake` ordering described above still holds.
+# still holds; what was missing is the DIRECTION. A plain `go lock` from `open`
+# travels DOWN and locks, and this races the user's own unlock on every resume:
+# it starts ~0.3s after wake and so generally wins, which is luck rather than a
+# guarantee. The other caller on this path, swayidle's resume arm, lost that
+# race and re-locked a session 1.5s after a fingerprint unlock. From `suspend`
+# or `sleep` the traversal is unchanged.
 ExecStart=@VIGILANT@ go lock atmost
 TimeoutStartSec=25
 

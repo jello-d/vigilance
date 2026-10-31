@@ -2,28 +2,16 @@
 # swayidle-idle-audit - did every idle-LOCK timer firing produce a lock edge?
 #
 # THE EDGE NOTHING WAS WATCHING. The idle -> lock path is the most common way
-# this machine secures itself and it was the least supervised of all:
+# this machine secures itself and was the least supervised:
 #
 #   verify  cannot see it. It asks whether the hardware matches the rung NOW,
-#           and a machine that never locked is sitting correctly at `open`.
-#   due     cannot enforce it. The deadline is anchored to the last INPUT and
-#           vigilant has no idle clock (logind reports IdleHint=no on this
-#           stack), so "overdue" would just mean "this rung has been held a
-#           while", which on a machine in use is normal. It cried wolf that way
-#           once: `lock` 1616s overdue while the box was being typed on.
+#           and a machine that never locked sits correctly at `open`.
+#   due     needs an IDLE clock, since the deadline is anchored to the last
+#           INPUT. There is one now (`idle.d`), and before it the rung clock
+#           cried wolf: `lock` read 1616s overdue on a box being typed on.
 #
-# That left the forensic tier, which is the right home for it, and which had
-# no source for these events, so due/enforce said "audit covers it" while
-# nothing did. This is that source.
-#
-# IT COST SOMETHING REAL BEFORE IT EXISTED. On 2026-09-12 a sweep removed a
-# stale /usr/local/bin/swayidle-mgr that a RUNNING swayidle held in its argv.
-# The 480s idle-lock timeout invoked a path that no longer existed, from then
-# on, and the machine stopped auto-locking. There was no trace anywhere: not in
-# vigilant's log (no edge was attempted), not in the journal, not in `verify`.
-# The 600s `go sleep` timer still worked, so the screen still went dark on idle
-# and everything LOOKED normal. Discovered only by reading swayidle's argv by
-# hand, hours later.
+# That left the forensic tier, which is the right home and had no source for
+# these events, so due/enforce said "audit covers it" while nothing did.
 #
 # THE SOURCE IS swayidle-mgr's OWN EVENT LOG, which records the timer firing
 # independently of whether the lock that should follow ever happened. That
@@ -33,14 +21,13 @@
 # CONTRACT: print "<epoch> <edge> [note]" per event; vigilant reconciles against
 # its own log. See cmd_audit in bin/vigilant.
 #
-# WHAT THIS CANNOT SEE, stated plainly so nobody reads a clean audit as proof of
-# more than it is: if swayidle cannot EXEC the command at all, this log is never
-# written either, and there is no event to reconcile. That is precisely the 2026
-# failure above. The live guard for it is the armed-command check in `vigilant
-# report`, which reads swayidle's argv and asserts each command is executable,
-# the same "enabled is not working" lesson the system units already learned.
-# Forensics answers "did a fired timer produce its edge"; only the live check
-# answers "can the timer fire at all".
+# WHAT THIS CANNOT SEE, so nobody reads a clean audit as more than it is: if
+# swayidle cannot EXEC the command at all, this log is never written either and
+# there is no event to reconcile. That is the 2026-09-12 outage, where a sweep
+# removed a binary a running swayidle held in its argv. The live guard is
+# `report`'s armed-command check, which reads that argv and asserts each command
+# is executable. Forensics answers "did a fired timer produce its edge"; only
+# the live check answers "can the timer fire at all".
 set -eu
 
 SINCE=${VIGILANCE_AUDIT_SINCE:--1 day}
