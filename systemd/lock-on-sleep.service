@@ -20,18 +20,17 @@ Before=sleep.target
 
 [Service]
 Type=oneshot
-# NO HOME PATH AT ALL, which is the end of a long story. This once used %h, and
-# in a SYSTEM unit %h resolves to ROOT's home regardless of User=, so
-# `%h/.local/bin/vigilant` became /root/.local/bin/vigilant and died 203/EXEC on
-# every single sleep. It failed SILENTLY, because a failed Before=sleep.target
-# oneshot does not block the transition: systemd logged it, reached
-# sleep.target, and slept anyway. The suspend-lock guarantee was fiction.
+# NO HOME PATH AT ALL. This once used %h, which in a SYSTEM unit resolves to
+# ROOT's home regardless of User=, so `%h/.local/bin/vigilant` became
+# /root/.local/bin/vigilant and died 203/EXEC on every single sleep. It failed
+# SILENTLY, because a failed Before=sleep.target oneshot does not block the
+# transition: systemd logged it, reached sleep.target and slept anyway, so the
+# suspend-lock guarantee was fiction.
 #
-# Templating the user's home fixed the symptom. Pointing at a SHARED command
-# fixes the class: `vigilant` lives in one root-owned tree with a single
-# published path, so this unit references no home, needs no per-user rendering
-# of the binary path, and cannot follow a user's install into an encrypted home
-# that root cannot read anyway. The placeholder is substituted at install.
+# Templating the home fixed the symptom; pointing at a SHARED command fixes the
+# class. `vigilant` lives in one root-owned tree with a single published path,
+# so this references no home, needs no per-user rendering, and cannot follow an
+# install into an encrypted home root cannot read. Substituted at install.
 User=@USER@
 Environment=VIGILANCE_SOURCE=suspend
 Environment=XDG_RUNTIME_DIR=/run/user/@UID@
@@ -41,26 +40,24 @@ Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/@UID@/bus
 # plain `go lock` there would ascend and light the panel in the last moment
 # before S3. Deeper already implies locked, so there is nothing to do.
 ExecStart=@VIGILANT@ go lock atleast
-# PROVE IT LOCKED, do not assume it. `go lock` succeeding means the hooks
-# returned 0; it does not mean a locker is up. systemd waits for this unit
-# before reaching sleep.target, so the check costs nothing anyone notices, and
-# it turns "the unit succeeded" into a claim about the SESSION rather than
-# about the hooks. Requires a lock.verify.d that actually asks: the shipped
-# `locker-up` hook is the one that does; peripheral verifiers only assert the
-# screen is lit.
+# PROVE IT LOCKED, do not assume it: `go lock` succeeding means the hooks
+# returned 0, not that a locker is up. systemd waits for this unit before
+# reaching sleep.target, so the check costs nothing anyone notices and turns
+# "the unit succeeded" into a claim about the SESSION. It needs a lock.verify.d
+# that actually asks, which is the shipped `locker-up`; peripheral verifiers
+# only assert the screen is lit.
 #
-# It CANNOT stop the sleep. A failed unit ordered Before=sleep.target does not
-# abort the transition, and nothing supported does. What it buys is that
-# sleeping unlocked is recorded and alerted instead of reported as success, and
-# the audit tier reconciles it afterwards.
+# It CANNOT stop the sleep, and nothing supported can: a failed unit ordered
+# Before=sleep.target does not abort the transition. What it buys is that
+# sleeping unlocked is RECORDED and alerted rather than reported as success,
+# with the audit tier reconciling it afterwards.
 #
-# NO EDGE NAMED, which matters now that ExecStart may decline to raise. Pinned
-# to `lock`, this asked the `lock` rung's question about a machine sitting at
-# `sleep`, where the peripheral verifiers assert the screen is LIT, so a
-# correctly dark box would have failed this unit and alerted, moments before
-# suspending. Bare `verify` asks about the rung the machine is ACTUALLY at.
-# The lock claim survives the change because `locker-up` belongs in every
-# verify tier at or below `lock`, which is what the line above depends on.
+# NO EDGE NAMED, which matters because ExecStart may decline to raise. Pinned
+# to `lock` this asked the LOCK rung's question of a machine sitting at `sleep`,
+# where the peripheral verifiers assert the screen is LIT, so a correctly dark
+# box failed this unit and alerted moments before suspending. Bare `verify`
+# asks about the rung the machine is ACTUALLY at, and the lock claim survives
+# because `locker-up` belongs in every verify tier at or below `lock`.
 ExecStartPost=@VIGILANT@ verify
 # Cap the unit so a missing or slow session can never wedge the suspend
 # transition. A box that will not sleep is worse than one that sleeps late.

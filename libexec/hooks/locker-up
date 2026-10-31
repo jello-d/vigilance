@@ -17,17 +17,13 @@
 # before it committed its session lock. That window is narrow and it is exactly
 # the kind this project keeps getting caught by, so it gets a verifier.
 #
-# NEITHER MECHANISM CAN VETO A SLEEP, and it is worth being blunt about that. A
-# Before=sleep.target oneshot delays the transition while it runs (25s here) and
-# a delay inhibitor delays it too (InhibitDelayMaxSec, 30s here), but when
-# either one fails or times out, logind proceeds. There is no supported way to
-# refuse a suspend outright, and a suite that could would be a suite that can
-# strand a laptop on a critical battery. So the goal is not prevention, it is
-# that a failure becomes LOUD and RECORDED instead of a green light.
+# NOTHING CAN VETO A SLEEP, which is why the goal here is a LOUD and RECORDED
+# failure rather than prevention. The man page's "what cannot be guaranteed"
+# carries that argument; it is not restated here.
 #
 # VERIFY-ONLY, deliberately: it never acts. Wired into `lock.d` it would do
-# nothing at all, by design: bringing a locker up is the provider's job and
-# this must not become a second implementation of it.
+# nothing at all, by design, because bringing a locker up is the provider's job
+# and this must not become a second implementation of it.
 #
 # WIRE IT IN THE USER SCOPE, NEVER THE MACHINE SCOPE. A GREETER IS THE LOCKED
 # STATE: it starts at the `lock` rung with no user session to protect and no
@@ -35,18 +31,16 @@
 # edge and teach its human to ignore the alert. Machine scope is for the
 # peripherals, which behave the same with nobody logged in; a locker does not.
 #
-# IT SOURCES hook_lib NOW, REVERSING A DELIBERATE DECISION, and the reversal is
-# worth stating because the old reasoning was sound and stopped being true. It
-# said this hook "needs nothing from hook_lib: no intent table, no dark/lit
-# actuation, because it only ever READS", so an unused dependency that can only
-# fail was not worth the consistency, and keeping it standalone meant a COPIED
-# hook still worked where a sourcing one would not.
+# IT SOURCES hook_lib NOW, REVERSING A DELIBERATE DECISION whose reasoning was
+# sound and stopped being true. It used to need nothing from hook_lib, since it
+# only ever READS, so an unused dependency that can only fail was not worth the
+# consistency and a COPIED hook still worked.
 #
-# WHAT CHANGED is that it does need one thing: how you ask whether a process is
-# running. `pgrep -x` gets that WRONG in both directions for a name handed to it
-# by a knob (comm is truncated to 15 bytes; the pattern is an ERE, so `.*`
-# matches every process and reports the session secured). The rule is in
-# hook_proc_running with its measurements, and a third copy of it is exactly the
+# WHAT CHANGED is that it needs one thing: how to ask whether a process is
+# running. `pgrep -x` gets that wrong in BOTH directions for a name handed over
+# by a knob, since comm truncates to 15 bytes and the pattern is an ERE, so
+# `.*` matches every process and reports the session secured. That rule lives in
+# hook_proc_running with its measurements, and a third copy of it is the
 # duplicated-rules shape this package paid to delete once.
 #
 # AND THE OLD OBJECTIONS COST LESS THAN THEY LOOK. hook_lib has no top-level

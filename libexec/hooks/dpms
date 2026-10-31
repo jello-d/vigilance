@@ -1,35 +1,31 @@
 #!/bin/sh
 # dpms - re-assert the compositor's outputs ON, and NEVER turn them off.
 #
-# ASYMMETRIC BY HARDWARE NECESSITY, and the asymmetry IS the safety rule. On
-# this Wayfire/wlroots build, turning an output off is a connector change that
-# re-modesets and can DESTROY VIEWS. `wlopm --on` is the safe half. panel-power
-# never called wlopm at all for exactly this reason, naming it only as the thing
-# to avoid; that knowledge would have died with it, so it lives here now.
+# ASYMMETRIC BY HARDWARE NECESSITY, and the asymmetry IS the safety rule:
 #
 #   lit   -> wlopm --on '*'
 #   dark  -> NOTHING. Darkness belongs to the backlight and DDC hooks, which
 #            reach it without a modeset.
 #
-# WHY WIRE IT AT ALL when nothing here ever turns an output off: precisely
-# because nothing does. If an output IS off, something outside vigilance did it
-# (the compositor's own idle, a kernel DPMS, a wedge), and this is the cheap
-# idempotent re-assert that brings it back. One no-op call on a healthy ascent;
-# the recovery that matters on a broken one.
+# WHY WIRE IT AT ALL when nothing here turns an output off: precisely because
+# nothing does. If an output IS off, something outside vigilance did it (the
+# compositor's own idle, a kernel DPMS, a wedge), and this is the cheap
+# idempotent re-assert that brings it back. A no-op on a healthy ascent, the
+# recovery that matters on a broken one.
 #
-# DO NOT "FIX" THIS TO TURN OUTPUTS OFF. The asymmetry is deliberate and is the
-# whole safety property; a future reader seeing a half-implemented hook and
-# completing it would reintroduce a session-killing crash.
-#
-# Two reasons, and the second may now be stale, so check before acting on it:
+# DO NOT "FIX" THIS TO TURN OUTPUTS OFF. A reader seeing a half-implemented
+# hook and completing it would reintroduce a session-killing crash. Two reasons:
 #   1. wlopm is wlroots-only, so an off here would be silently inert elsewhere.
 #   2. on the wlroots build this was written against, powering an output off
-#      re-modesets and was observed to destroy views. That observation
-#      PREDATES the scale-clamp patch this platform now carries, which fixes
-#      a SIGABRT on a re-enabled output taking scale 0 from an unapplied
-#      output-management head, plausibly the same crash. If DPMS-off proves
-#      safe now, the right move is to BLANK via DPMS (the input stack then
-#      restores it for free), not to make this hook turn things off.
+#      re-modesets and was observed to DESTROY VIEWS. panel-power never called
+#      wlopm at all for that reason, naming it only as the thing to avoid.
+#
+# THE SECOND REASON MAY BE STALE, so check before acting on it: that observation
+# PREDATES the scale-clamp patch this platform now carries, which fixes a
+# SIGABRT on a re-enabled output taking scale 0 from an unapplied
+# output-management head, plausibly the same crash. If DPMS-off proves safe now,
+# the right move is to BLANK via DPMS, where the input stack restores it for
+# free, rather than making this hook turn things off.
 set -eu
 
 _self=$(readlink -f "$0")
