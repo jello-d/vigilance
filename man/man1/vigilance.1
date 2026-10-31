@@ -1382,28 +1382,101 @@ group write on exactly the nodes the peripheral hooks drive. Needs root.
 .TP
 .I ~/.local/state/vigilance.log
 vigilant's own record of every crossing, block and alert.
+.SH PRIVILEGE
+Vigilance never escalates. There is no
+.BR sudo ,
+.BR pkexec ,
+setuid, setcap or polkit policy anywhere in the package. It runs with the
+privilege it is given; where it needs more it DECLARES the gap, CHECKS whether a
+host closed it, and REPORTS what the gap costs, leaving the action to a root
+host. Five facts need root, and
+.B "setup.sh check"
+verifies each and names its remedy:
+.IR lock\-on\-sleep.service " and " vigilance\-resume.service
+under
+.IR /etc/systemd/system ,
+because a SYSTEM unit cannot expand
+.BR %h ;
+.I 99\-vigilance.rules
+under
+.IR /etc/udev/rules.d ;
+the
+.B vigilant
+group and its members; and, under
+.BR VIGILANCE_INSTALL_COPY ,
+a root\-owned prefix stripped of group write, which is a privilege BOUNDARY
+rather than tidiness, since a greeter executes hooks out of that tree.
+.PP
+Hooks themselves stay user\-owned under
+.IR ~/.config ,
+deliberately: they fire inside the user's own session. The idle clock reads
+kernel COUNTERS only, never
+.IR /dev/input/event* ,
+so it is incapable of observing content rather than merely unwilling.
 .SH THE vigilant GROUP
 The peripheral hooks drive backlights and LEDs through
 .BR brightnessctl ,
-and those nodes are root-owned. Without
+and those nodes are root\-owned. Without
 .I udev/99-vigilance.rules
 and a
 .B vigilant
 group containing every user that runs vigilance (the greeter user included, if
-greeter coverage is on), those writes are DENIED and the hooks no-op SILENTLY:
+greeter coverage is on), those writes are DENIED and the hooks no\-op SILENTLY:
 .B hook_dark
 and
 .B hook_lit
 swallow the failure by design, so vigilant logs clean crossings while the
 hardware never moves.
 .PP
-Deliberately not the
+THE PATTERN IS THE DISTRIBUTION'S OWN. Debian's
+.I base\-passwd
+describes
+.B audio
+and
+.B video
+as a group giving a set of users access to a device, and a set of users is
+exactly the case: the desktop user and the greeter both run these hooks. Each
+technique is lifted from a rule already installed, namely i2c\-tools'
+.BR GROUP= / MODE= ,
+brightness\-udev's
+.B chgrp
+on a sysfs attribute, and ddcutil's
+.B ATTRS{class}=="0x03*"
+narrowing.
+.PP
+THE ONE DEVIATION IS THE GROUP NAME, for the same reason three times: the
+standard group is wider than the capability. Writing an LED under
 .B input
-group, which also grants raw read on
+also grants raw read on
 .IR /dev/input/event* ,
-i.e. every keystroke.
-.B "setup.sh check"
-verifies the group and the membership.
+i.e. every keystroke;
+.B video
+also guards
+.IR /dev/dri/card0 ;
+and
+.B i2c
+covers every bus rather than just displays. The grant is narrowed by NODE rather
+than by class, so
+.I input3::capslock
+and the non\-display buses keep their distro groups.
+.PP
+The modern seat mechanisms are ruled out by measurement. A
+.B uaccess
+ACL is seat\-bound, so before a graphical login it names the greeter and not the
+desktop user that the SYSTEM units run as; logind's
+.B SetBrightness
+refuses a seatless caller outright and accepts only
+.B backlight
+or
+.BR leds ,
+so it cannot cover DDC at any privilege level. A group grant is
+seat\-independent and ADDITIVE, leaving the
+.B uaccess
+path intact. For sysfs there is no choice at all:
+.B setfacl
+returns EOPNOTSUPP there where a devtmpfs node returns EPERM, so
+.B chgrp
+is the only available mechanism.
 .SH WHAT CANNOT BE GUARANTEED
 NOTHING CAN VETO A SUSPEND. A unit ordered
 .B Before=sleep.target

@@ -532,35 +532,92 @@ Either knob at `0` disables that half.
 greeter must be able to read (a clone under a 0750 home cannot be followed by
 another user).
 
-Three things need **root**, so a host places them:
+## Privilege: declare it, check it, never take it
 
-    systemd/lock-on-sleep.service      Before=sleep.target (@USER@-templated)
-    systemd/vigilance-resume.service   After=suspend.target
-    udev/99-vigilance.rules            device access; see below
+**Vigilance never escalates.** There is no `sudo`, `pkexec`, `setuid`, `setcap`
+or polkit policy anywhere in the package, and that is a property you can check
+rather than a promise. It runs with the privilege it is given; where it needs
+more, it **declares** the gap, **checks** whether a host closed it, and
+**reports** what the gap costs. The action is always someone else's.
 
-## Device access: the `vigilant` group
+That leaves exactly five privileged facts, and one mechanism for all five:
 
-The peripheral hooks write LED and backlight brightness through `brightnessctl`,
-whose own udev rule grants the `input` group. Do **not** use that group.
-`input` is overloaded, guarding two unrelated capabilities under one name:
+    systemd/lock-on-sleep.service  -> /etc/systemd/system  a SYSTEM sleep unit
+    systemd/vigilance-resume.service                       cannot expand %h
+    udev/99-vigilance.rules        -> /etc/udev/rules.d    device access, below
+    the `vigilant` group + members -> groupadd, usermod     device access, below
+    VIGILANCE_INSTALL_COPY=1       -> a root-owned prefix, chowned root:root
+                                      and stripped of group write
 
-    /dev/input/event*             root:input crw-rw----   raw event READ
-    /sys/class/leds/*/brightness  root:input -rw-rw-r--   LED write
+`setup.sh check` verifies all five and names the remedy for each. The last one
+is a privilege **boundary**, not tidiness: a greeter executes hooks out of that
+tree, so a file the unprivileged account can rewrite would run in another
+security context. `cp -a` preserves the source's ownership even under root, so
+the install chowns explicitly and `check` asserts it stayed that way.
 
-Joining it to dim a keyboard backlight also grants the ability to read every
-keystroke on the machine. `udev/99-vigilance.rules` grants a dedicated
-`vigilant` group instead, **narrowed by node rather than by class**: only the
-specific LEDs these hooks touch are re-grouped, so `input3::capslock` and
-friends keep `input` and nobody gains input-event access.
+Two things are deliberately **not** privileged. Hooks stay user-owned under
+`~/.config`, because the ones that matter fire inside the user's own session and
+the integrator should be able to edit them. And the idle clock reads only
+kernel **counters**, never `/dev/input/event*`: a count carries no scancode, so
+the mechanism is incapable of observing content rather than merely unwilling.
 
-It also group-grants the DDC i2c devices, which `uaccess` cannot cover. The
-system sleep units run as the desktop user, but before a graphical login the
-seat belongs to the greeter, so a `uaccess` ACL reads `user:_greetd:rw-` with no
-entry for that user and a suspend from the greeter could not sleep the monitor.
-A group grant is seat-independent, and additive: `uaccess` still applies for the
-logged-in case.
+### Device access: the `vigilant` group
 
-Every user that runs vigilance must be in the group, including the greeter user
+**Nothing here is a new mechanism.** The pattern is Debian's own:
+`base-passwd`'s `users-and-groups` describes `audio` and `video` as "a group
+... to give a set of users access to a device", and the box already carries
+some forty groups doing exactly that (`scanner`, `lpadmin`, `render`, `kvm`,
+`i2c`, `tcpdump`).
+A set of users is precisely the case here: the desktop user **and** the greeter
+both run these hooks. Each technique is lifted from a rule already installed:
+
+    GROUP=/MODE= on a device node       i2c-tools' 60-i2c-tools.rules
+    chgrp + chmod g+w on a sysfs attr   brightness-udev's 90-brightnessctl.rules
+    ATTRS{class}=="0x03*" narrowing     ddcutil's 60-ddcutil-i2c.rules
+
+**The one deviation is the group name**, and it is the same reason three times:
+each standard group is *wider* than the capability being granted, so joining it
+to move a brightness attribute buys an unrelated privilege.
+
+    nodes                         distro group  what else that group guards
+    /sys/class/leds/*/brightness  input         /dev/input/event*, i.e. raw
+                                                READ of every keystroke
+    /sys/class/backlight/*        video         /dev/dri/card0
+    /dev/i2c-*                    i2c           EVERY bus, SMBus and SPD
+                                                included, not just displays
+
+The LED row is the decisive one. `input` guards two unrelated capabilities under
+one name, so dimming a keyboard backlight would cost keystroke read, and that
+price would fall on every consumer of this framework. Measured on both boxes:
+the `input` group has **no members**, so nobody ever took that escalation.
+
+The grant is **narrowed by node, not by class**, which is what keeps it smaller
+than membership: only the attributes the shipped hooks touch are re-grouped, so
+`input3::capslock` and the non-display i2c buses keep their distro groups
+untouched. Writing a brightness attribute confers no ability to read events.
+
+#### Why not the modern seat mechanisms
+
+Both are the answer a reader should reach for first, and both are ruled out by
+measurement rather than by argument:
+
+* A **`uaccess` ACL** is seat-bound. Before a graphical login the seat belongs
+  to the greeter, so the ACL reads `user:_greetd:rw-` with no entry for the
+  desktop user, and the two SYSTEM units above are `User=<desktop user>` with no
+  session at all.
+* **logind's `SetBrightness`** refuses a seatless caller in as many words
+  (`Your session has no seat, refusing`), which is those same units; and it
+  accepts only `backlight` or `leds`, so it cannot cover DDC at any privilege
+  level. Using it would mean two mechanisms where the group gives one.
+
+A group grant is **seat-independent**, which is what a system unit needs, and it
+is **additive**: the `uaccess` ACL still applies for the logged-in case, so the
+ordinary desktop path loses nothing. And for sysfs there is no choice at all,
+because it cannot carry a POSIX ACL: `setfacl` on a sysfs attribute returns
+`EOPNOTSUPP` where the same call on a devtmpfs node returns `EPERM`. That is why
+`brightness-udev` reaches for `chgrp` too.
+
+Every user that runs vigilance must be in the group, the greeter user included
 if greeter coverage is on. Without it the hooks are denied and **silently
 no-op**, because `brightnessctl` failure is swallowed by design; `vigilant
 report` probes the nodes for writability, since a requirement nothing verifies

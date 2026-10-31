@@ -41,10 +41,10 @@
 # udev/99-vigilance.rules is the same shape: root-only, so a host places it,
 # and it grants the `vigilant` group write on exactly the nodes the peripheral
 # hooks drive. WITHOUT IT those hooks silently no-op, because brightnessctl is
-# denied and hook_dark/hook_lit swallow the failure by design. The group must
-# exist and the users that run vigilance must be in it, including the greeter
-# user, if greeter coverage is on. Deliberately NOT `input`: that group also
-# grants raw read on /dev/input/event*, i.e. every keystroke.
+# denied and hook_dark/hook_lit swallow the failure by design. Every user that
+# runs vigilance must be in the group, the greeter included. Why a DEDICATED
+# group rather than `input`, `video`, `i2c` or uaccess: the rule's own header
+# carries the prior art and the measurements, so it is not restated here.
 set -eu
 
 PKG=vigilance

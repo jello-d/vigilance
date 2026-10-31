@@ -1,34 +1,63 @@
 # 99-vigilance.rules - device access for vigilance's peripheral hooks.
 #
-# Grants the `vigilant` group write on EXACTLY the nodes vigilance drives, so
-# no vigilance user ever needs to join `input`.
+# Grants the `vigilant` group write on EXACTLY the nodes vigilance drives.
 #
-# WHY NOT JUST USE `input`. brightnessctl ships:
+# NOTHING HERE IS A NEW MECHANISM. Every technique is lifted from a rule that
+# already ships on the box, and the standard pattern is Debian's own: see
+# base-passwd's users-and-groups, which describes `audio` and `video` as "a
+# group ... to give a set of users access to a device". A set of users is
+# exactly the case: the desktop user AND the greeter both run these hooks.
 #
-#   ACTION=="add", SUBSYSTEM=="leds", RUN+="bright-helper input g+w \
-#     /sys/class/leds/%k/brightness"
+#   GROUP=/MODE= on a device node      i2c-tools' 60-i2c-tools.rules
+#   chgrp + chmod g+w on a sysfs attr  brightness-udev's 90-brightnessctl.rules
+#   ATTRS{class}=="0x03*" narrowing     ddcutil's 60-ddcutil-i2c.rules
 #
-# so writing any LED means joining `input`. But that group is OVERLOADED: it
-# guards two unrelated capabilities on the same name:
+# THE ONE DEVIATION IS THE GROUP NAME, and it is the same reason three times:
+# each standard group is WIDER than the capability being granted, so joining it
+# to move a brightness attribute buys an unrelated privilege.
 #
-#   /dev/input/event*             root:input crw-rw----   raw event READ
-#   /sys/class/leds/*/brightness  root:input -rw-rw-r--   LED write
+#   nodes                         distro group  what else that group guards
+#   /sys/class/leds/*/brightness  input         /dev/input/event*, i.e. raw
+#                                               READ of every keystroke
+#   /sys/class/backlight/*        video         /dev/dri/card0
+#   /dev/i2c-*                    i2c           EVERY bus, SMBus and SPD
+#                                               included, not just displays
 #
-# Joining it to dim a keyboard backlight therefore also grants the ability to
-# read every keystroke on the machine. That is an unacceptable price for an
-# LED, and it is a price every consumer of this framework would have to pay.
+# The LED row is the decisive one: `input` guards two unrelated capabilities
+# under one name (event* is crw-rw---- root:input, the brightness attrs are
+# root:input g+w), so dimming a keyboard backlight would cost keystroke read.
+# Measured on both boxes: the `input` group has NO members, so that escalation
+# was never taken by anyone.
 #
-# NARROW BY NODE, NOT BY CLASS. Only the specific LEDs the shipped hooks touch
-# are re-grouped; `input3::capslock` and friends keep group `input` and are left
-# entirely alone. Writing a brightness attribute confers no ability to read
-# input events, so this grant is strictly smaller than `input` membership.
+# NARROW BY NODE, NOT BY CLASS, which is what keeps the grant smaller than
+# membership would be. Only the attrs the shipped hooks touch are re-grouped:
+# `input3::capslock` and friends keep `input`, and the non-display i2c buses
+# keep `i2c`. Writing a brightness attribute confers no ability to read events.
 #
-# sysfs cannot carry a POSIX ACL, so chgrp is the only mechanism available,
-# the same one brightnessctl uses. Ordered 99 so it lands after the distro
-# rules it is deliberately overriding for these few nodes.
+# WHY NOT THE MODERN SEAT MECHANISMS, both measured rather than reasoned about,
+# because they are the answer a reader should reach for first:
+#
+#   uaccess ACL     seat-bound. Before a graphical login the seat is the
+#                   greeter's, so the ACL reads `user:_greetd:rw-` with no entry
+#                   for the desktop user. Our two SYSTEM units are
+#                   User=<desktop user> with no session at all.
+#   logind's
+#   SetBrightness   refuses a seatless caller in as many words ("Your session
+#                   has no seat, refusing"), which is those same units; and it
+#                   accepts only `backlight` or `leds`, so it cannot cover DDC
+#                   at any privilege level.
+#
+# A GROUP GRANT IS SEAT-INDEPENDENT, which is precisely what a system unit
+# needs, and it is ADDITIVE: the uaccess ACL still applies for the logged-in
+# case, so nothing is taken away from the ordinary desktop path.
+#
+# AND FOR sysfs THERE IS NO CHOICE: it cannot carry a POSIX ACL. `setfacl` on a
+# sysfs attribute returns EOPNOTSUPP where the same call on a devtmpfs node
+# returns EPERM, so chgrp is the only mechanism, which is why brightness-udev
+# uses it too. Ordered 99 to land after the distro rules it overrides for these
+# few nodes.
 
-# The panel backlight (panel-backlight). Distro default is group `video`, which
-# also guards /dev/dri; `vigilant` keeps the grant to just this.
+# The panel backlight (panel-backlight).
 ACTION=="add", SUBSYSTEM=="backlight", \
   RUN+="/bin/chgrp vigilant /sys/class/backlight/%k/brightness", \
   RUN+="/bin/chmod g+w /sys/class/backlight/%k/brightness"
@@ -48,18 +77,10 @@ ACTION=="add", SUBSYSTEM=="leds", KERNEL=="platform::micmute", \
   RUN+="/bin/chgrp vigilant /sys/class/leds/%k/brightness", \
   RUN+="/bin/chmod g+w /sys/class/leds/%k/brightness"
 
-# DDC/CI over I2C (ddc-monitor).
-#
-# ddcutil's own rule tags these TAG+="uaccess", which grants the ACTIVE SEAT's
-# user, and that is not who runs them. lock-on-sleep.service and
-# vigilance-resume.service are User=<desktop user>, but before a graphical login
-# the seat belongs to the greeter, so the ACL reads `user:_greetd:rw-` with no
-# entry for the desktop user, and a suspend from the greeter could not put the
-# monitor to sleep. Measured on a real box, on all 8 buses.
-#
-# A GROUP grant is SEAT-INDEPENDENT, which is exactly what a system unit needs.
-# It is additive: the uaccess ACL still applies for the logged-in case.
-# ATTRS{class}=="0x03*" restricts this to display controllers, so SMBus and
-# sensor buses keep their default permissions.
+# DDC/CI over I2C (ddc-monitor). The class match is ddcutil's own, kept so
+# SMBus and sensor buses stay at their `i2c` default; measured on manifold,
+# i2c-12 and i2c-13 are untouched while the display buses carry both this grant
+# and uaccess's ACL at once. The seat argument in the header is why the group is
+# here at all: a suspend from the greeter could not otherwise sleep the monitor.
 SUBSYSTEM=="i2c-dev", KERNEL=="i2c-[0-9]*", ATTRS{class}=="0x03*", \
   GROUP="vigilant", MODE="0660"
