@@ -488,36 +488,29 @@ runcmd:
       # NEVER RAN.
       #
       # Everything downstream failed quietly from that: no Class=user session,
-      # so "wayfire did NOT come up" (it was never launched, and the poll below
-      # waited on a socket nothing was going to create), so the wayfire
-      # scenarios skipped, and so a real lid close had no lockable session to
-      # reach. Measured: launched by hand as vig, wayfire comes up in UNDER A
-      # SECOND with only benign Xwayland noise.
+      # so "wayfire did NOT come up" (never launched, with the poll below
+      # waiting on a socket nothing would create), so the wayfire scenarios
+      # skipped and a real lid close had no lockable session to reach. Measured:
+      # launched by hand as vig, wayfire comes up in UNDER A SECOND.
       #
-      # THE PRESERVED IMAGE'S OWN STATE IS THE TRAP, which is the staleness this
-      # split is supposed to prevent for vigilance's code and did not for a
-      # package's unit. Anything the per-run phase configures must be RESTARTED,
-      # not merely enabled.
-      # AND IT IS A STOP, A SETTLE, AND A START, not a restart. MEASURED across
-      # consecutive runs of an identical tree, which is how the problem showed
-      # at all: one run claimed the wayfire capability and the next did not, so
-      # a scenario requiring it SKIPPED at random. An intermittently absent
-      # capability is the same defect as a falsely claimed one, because both
-      # make a line of output mean something it does not.
-      #
-      # THE CAUSE IS THE VT, and the evidence is what changed the order here.
-      # greetd is configured for `vt = 1` and is ALREADY RUNNING the package's
-      # own default config out of the preserved image, so a restart takes VT1
-      # from a greeter killed a moment earlier. Measured:
+      # THE PRESERVED IMAGE'S OWN STATE IS THE TRAP, the staleness this split
+      # prevents for vigilance's code and did not for a package's unit. Anything
+      # the per-run phase configures must be RESTARTED, not merely enabled.
+      # AND IT IS A STOP, A SETTLE, AND A START, not a restart, because greetd
+      # is configured for `vt = 1`, so a restart takes VT1 from a greeter killed
+      # a moment earlier. Found because consecutive runs of an IDENTICAL tree
+      # disagreed, one claiming the wayfire capability and the next not, so a
+      # scenario requiring it skipped at random: an intermittently absent
+      # capability is the same defect as a falsely claimed one, since both make
+      # a line of output mean something it does not. Measured:
       #
       #   restart              2 runs: one came up UNSEATED, one not at all
       #   stop, settle, start  3 runs: every one up, every one WITH seat0
       #
-      # So the stop is not merely more reliable, it produces a strictly better
-      # session: the seated one the lock path needs. One of those three was
-      # obtained by neutering the first attempt deliberately, since a retry
-      # nothing exercises is a guard nobody has tested, and the other two came
-      # up on attempt 1 in half a second.
+      # So the stop is not merely more reliable, it produces a strictly BETTER
+      # session: the seated one the lock path needs. One of those three came
+      # from neutering the first attempt deliberately, since a retry nothing
+      # exercises is a guard nobody has tested.
       #
       # ONE RETRY REMAINS, for genuine slowness rather than for the VT, and the
       # attempt number is REPORTED so a future intermittency is visible in the
@@ -1066,39 +1059,28 @@ runcmd:
       # VM_TIMEOUT (from qemu launch), or the host gives up first and the log is
       # lost anyway, which is the exact failure being fixed here.
       #
-      # RAISED 2026-10-01 FROM 420s, AND THE OLD VALUE HAD 2s OF MARGIN LEFT. It
-      # was chosen against a measured 302s run and the suite had since grown to
-      # 418s with nothing saying so, because the bound only ever spoke when it
-      # FIRED: a passing run printed no duration, so there was no way to see it
-      # closing. It then fired on a CORRECT lean run that happened to share the
-      # host with a concurrent flavour, and the message named the test that was
-      # merely running at the time, which cost an investigation into a hang that
-      # did not exist.
+      # IT REPORTS THE ELAPSED TIME WHETHER OR NOT IT FIRES, which is the real
+      # mechanism here and the bound is only its consequence. A bound alone
+      # cannot tell "a test hung" from "the suite grew past it", and those want
+      # opposite responses: it fired twice on runs where nothing had failed and
+      # the suite was merely slower, and "TIMED OUT after 420s" said nothing
+      # about whether 430 would have done. What an operator needs is how close a
+      # PASSING run came, which is only visible if the passing run prints it.
       #
-      # SO THE ELAPSED LINE IS THE REAL FIX AND THE NUMBER IS THE CONSEQUENCE,
-      # and it has now paid for itself twice. The bound fired again 2026-10-10
-      # at 606s of 600, naming watchdog.t, which was merely the last test to
-      # START: no test had failed and the suite had simply grown, which is the
-      # one distinction the elapsed line exists to make. The trajectory is the
-      # whole argument for printing it: 302s when the bound was 420, then 418,
+      # THE TRAJECTORY IS THE ARGUMENT: 302s when the bound was 420 (so 2s of
+      # margin, invisible because a passing run printed no duration), then 418,
       # 481, 502, 557, 606. So 900 now, against a measured 606.
       #
       # THE HOST BOUND MOVES WITH IT: provisioning costs about 30s from the
-      # preserved image, so the suite bound + 30 must stay clear of
-      # VM_TIMEOUT. A hang now costs 600s of waiting
-      # instead of 420, which is the right trade: a false failure on a correct
-      # run is more expensive than a slow true one, and this already proved it.
-      # AND IT REPORTS THE ELAPSED TIME WHETHER OR NOT IT FIRES, because the
-      # bound alone cannot tell "a test hung" from "the suite grew past it", and
-      # those want opposite responses. It fired once with the suite merely
-      # SLOWER, and "TIMED OUT after 420s" said nothing about whether 430 would
-      # have done: the measurement the operator needs is how close a passing run
-      # came, which is only visible when the passing run prints it too.
+      # preserved image, so the suite bound + 30 must stay clear of VM_TIMEOUT.
+      # A hang therefore costs more waiting, which is the right trade, because a
+      # false failure on a correct run is more expensive than a slow true one.
       #
       # THE BREADCRUMB NAMES WHAT WAS RUNNING, NOT WHAT HUNG, and the wording
-      # now says so. On a suite-wide bound the last test to START is the one
-      # holding the clock at that instant, which is a hang only if the elapsed
-      # time is nowhere near the bound.
+      # says so: on a suite-wide bound the last test to START holds the clock
+      # at that instant, which is a hang only if the elapsed time is near the
+      # bound. Reading it the other way cost an investigation into a hang that
+      # did not exist.
       VIGILANCE_RUNNING_FILE=/root/running; export VIGILANCE_RUNNING_FILE
       _src=0
       _st=$(date +%s)
