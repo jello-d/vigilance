@@ -666,8 +666,24 @@ runcmd:
           echo "  dep install FAILED:"
           tail -8 /home/vig/pkg-install.log | sed 's/^/    /'
         fi
+        # VERB FIRST, AND FORCED. Since the drydock cutover `lock` is a MODULE
+        # rather than a verb, and the old `./tackup lock` now exits 2 with
+        #
+        #   'lock' is a module, not a verb: `tackup converge lock` (only if
+        #   drifted), `tackup converge --force lock` (regardless), ...
+        #
+        # `--force` rather than the plain converge, deliberately: this guest
+        # exists to exercise the WIRING, and a converge that decides nothing has
+        # drifted would do nothing at all and leave every scenario needing the
+        # shared install to fail downstream with no explanation. Forcing cannot
+        # pass vacuously.
+        #
+        # NO FALLBACK TO THE OLD SPELLING. A command that tries two grammars is
+        # the tolerance that rots into one, and tackup's own refusal already
+        # names the replacement, so a future grammar change fails loudly here
+        # with the fix in the message.
         _lrc=0
-        _lk="cd /home/vig/tackup && ./tackup lock"
+        _lk="cd /home/vig/tackup && ./tackup converge --force lock"
         $_asvig sh -c "$_lk" > /home/vig/tackup-lock.log 2>&1 || _lrc=$?
         echo "  tackup lock rc=$_lrc"
         # The tail, not the whole log: this reports how far the integrator
