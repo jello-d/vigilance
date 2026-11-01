@@ -206,12 +206,40 @@ xorriso -as mkisofs -R -J -V VIGILANCE -quiet \
 #
 # OPTIONAL. Someone with this repo and not that one must still be able to run
 # the VM; without it the tackup scenarios skip, visibly.
+# THE INTEGRATOR IS TWO TREES NOW, and that is not a packaging detail. Since the
+# drydock cutover, `./tackup` is a thin checkout of the drydock FAMILY: it
+# locates the framework as the installed `drydock` on PATH, else a dev checkout
+# at `~/src/drydock`, and REFUSES if it finds neither. The guest has no pin, so
+# without the second tree it prints
+#
+#   tackup: the drydock framework is not installed (pin it) and there is
+#   no dev checkout at ~/src/drydock; cannot run
+#
+# and `tackup lock` fails, so nothing is wired, so /opt is never published, so
+# every scenario needing the SHARED install fails rather than skipping. Measured
+# 2026-10-31: that took out fault-lid and fault-storm, which drive a SECOND
+# account and therefore cannot use the tier user's own prefix.
+#
+# GRAFTED INTO ONE ISO rather than carried on a second drive, because the two
+# are a matched PAIR: a tackup that cannot find its framework is not a usable
+# integrator, so shipping one without the other would only move the failure.
+# Both land under their own top-level name and the guest places each where that
+# resolution expects to find it.
 TACKUP_SRC=${VIGILANCE_VM_TACKUP:-$HOME/src/tackup}
+DRYDOCK_SRC=${VIGILANCE_VM_DRYDOCK:-$HOME/src/drydock}
 _tackup_drive=
 if [ -d "$TACKUP_SRC" ]; then
-  echo "vm: packing the integrator ($TACKUP_SRC)"
-  xorriso -as mkisofs -R -J -V TACKUP -quiet -m .git \
-    -o "$VMF/tackup.iso" "$TACKUP_SRC" 2>/dev/null || _die "tackup.iso failed"
+  _graft="/tackup=$TACKUP_SRC"
+  if [ -d "$DRYDOCK_SRC" ]; then
+    echo "vm: packing the integrator ($TACKUP_SRC + $DRYDOCK_SRC)"
+    _graft="$_graft /drydock=$DRYDOCK_SRC"
+  else
+    echo "vm: packing the integrator ($TACKUP_SRC); NO drydock checkout at"
+    echo "vm:      $DRYDOCK_SRC, so \`tackup lock\` will refuse to run"
+  fi
+  # shellcheck disable=SC2086
+  xorriso -as mkisofs -R -J -V TACKUP -quiet -m .git -graft-points \
+    -o "$VMF/tackup.iso" $_graft 2>/dev/null || _die "tackup.iso failed"
   _tackup_drive="-drive file=$VMF/tackup.iso,if=virtio,media=cdrom"
 else
   echo "vm: no tackup checkout at $TACKUP_SRC; its scenarios will SKIP"
@@ -592,8 +620,20 @@ runcmd:
       # nowhere: the session tier invents its own wiring and says so.
       _tackup=
       if mount -o ro /dev/disk/by-label/TACKUP /mnt/tackup 2>/dev/null; then
-        cp -a /mnt/tackup/. /home/vig/tackup/
+        cp -a /mnt/tackup/tackup/. /home/vig/tackup/
         chown -R vig:vig /home/vig/tackup
+        # THE FRAMEWORK GOES WHERE `./tackup` LOOKS FOR IT, which is
+        # `~/src/drydock` for a dev checkout, since the guest has no pin and
+        # therefore no `drydock` on PATH. Placed rather than linked: the ISO is
+        # a read-only mount and drydock writes state.
+        if [ -d /mnt/tackup/drydock ]; then
+          mkdir -p /home/vig/src
+          cp -a /mnt/tackup/drydock /home/vig/src/drydock
+          chown -R vig:vig /home/vig/src
+          echo "  framework: drydock placed at /home/vig/src/drydock"
+        else
+          echo "  NO drydock on the disk: tackup cannot run, so nothing wires"
+        fi
         # THE PIN POINTS AT THIS REPO, not GitHub. A clone takes COMMITS, so
         # the guest tests what is committed HERE without anything being pushed
         #, which is the whole point, and it is why the repo ISO carries .git.
@@ -1175,7 +1215,37 @@ xorriso -as mkisofs -R -J -V CIDATA -quiet \
 BUILT=$VMF/built.qcow2
 _bkey=$(printf '%s|%s|%s' "$RELEASE" "$FLAVOUR" "$PKGS" | cksum | tr -d ' ')
 _bhave=$(cat "$VMF/built.key" 2>/dev/null || true)
-if [ ! -f "$BUILT" ] || [ "$_bhave" != "$_bkey" ]; then
+
+# AND IT MUST BE SELF-CONTAINED, which the key cannot tell you. The preserved
+# image used to be an OVERLAY on the base cloud image, and the key is only
+# release/flavour/packages, so it said nothing at all about the foundation.
+#
+# MEASURED 2026-10-31, on both boxes: /var/tmp is cleared after 30 days, the
+# base had been fetched on 10-04, and by 10-31 it was GONE. The driver
+# re-downloaded it exactly as designed ("fetching the base image (once)"), and
+# every preserved overlay was then reading a DIFFERENT 819MB underneath itself
+# while its key still matched. The driver reused them, and the symptom is the
+# least informative one available: `guest never reported` with a ZERO-BYTE
+# console, because nothing boots so nothing prints, so the only message you get
+# is about cloud-init, which never ran. It cost two 30-minute runs and an
+# investigation before the base was even suspected.
+#
+# SO A BACKING FILE IS NOW DISQUALIFYING, rather than merely checked. Detecting
+# a broken chain would need the base present to compare against, which is the
+# very thing that goes missing; refusing the dependency removes the class. Any
+# image from before the flatten below has one, so this also retires every stale
+# overlay on its next run instead of leaving it to be deleted by hand.
+_bflat=yes
+if [ -f "$BUILT" ]; then
+  _bback=$(qemu-img info "$BUILT" 2>/dev/null \
+           | sed -n 's/^backing file: //p')
+  [ -z "$_bback" ] || _bflat=no
+fi
+if [ "$_bflat" = no ]; then
+  echo "vm: the preserved image has a BACKING FILE, so it predates the"
+  echo "vm:      flatten and its base may have moved underneath it; rebuilding"
+fi
+if [ ! -f "$BUILT" ] || [ "$_bhave" != "$_bkey" ] || [ "$_bflat" = no ]; then
   echo "vm: building the preserved '$FLAVOUR' image (once per package set)"
   _bseed=$VMF/bseed
   _bcon=$VMF/build-console.log
@@ -1204,7 +1274,7 @@ if [ ! -f "$BUILT" ] || [ "$_bhave" != "$_bkey" ]; then
     -drive file="$VMF/bseed.iso",if=virtio,media=cdrom \
     -netdev user,id=n0 -device virtio-net-pci,netdev=n0 \
     -display none -serial "file:$_bcon" -monitor none \
-    -no-reboot >/dev/null 2>&1 &
+    -no-reboot >/dev/null 2>"$VMF/qemu-build.err" &
   _bpid=$!
   _bw=0
   while [ "$_bw" -lt "${VM_BUILD_TIMEOUT:-600}" ]; do
@@ -1219,11 +1289,32 @@ if [ ! -f "$BUILT" ] || [ "$_bhave" != "$_bkey" ]; then
   if ! grep -q "Reached target.*[Pp]ower" "$_bcon" 2>/dev/null \
      && ! grep -q "reboot: Power down" "$_bcon" 2>/dev/null; then
     rm -f "$BUILT.part"
+    # qemu's stderr, for the same reason the run VM keeps it: a build that never
+    # starts leaves an empty console and `see $_bcon` then points at nothing.
+    if [ -s "$VMF/qemu-build.err" ]; then
+      echo "vm: qemu said:" >&2
+      sed -n '1,10p;s/^/  /' "$VMF/qemu-build.err" >&2
+    fi
     _die "the build guest never powered down; see $_bcon"
   fi
-  mv "$BUILT.part" "$BUILT"
+  # FLATTENED ON PROMOTE, which is what makes the image self-contained: the
+  # build runs in an OVERLAY on the base (cheap, and it is what gets thrown away
+  # when the guest dies early), and the thing we KEEP must not depend on the
+  # base still existing or still being the same bytes. `convert` writes every
+  # referenced block into one file; the whole chain goes away with it.
+  #
+  # The cost is disk rather than time: the overlay already holds most of its own
+  # content (915MB measured, since the build apt-installs a desktop), so this
+  # copies the base blocks actually referenced and takes a few tens of seconds.
+  # Against that, a base that /var/tmp evicts is now harmless: it is needed only
+  # to BUILD, never to boot.
+  qemu-img convert -q -O qcow2 "$BUILT.part" "$BUILT.flat" \
+    || { rm -f "$BUILT.part" "$BUILT.flat"
+         _die "could not flatten the preserved image"; }
+  mv "$BUILT.flat" "$BUILT"
+  rm -f "$BUILT.part"
   printf '%s\n' "$_bkey" > "$VMF/built.key"
-  echo "vm: preserved image built"
+  echo "vm: preserved image built (self-contained)"
 fi
 
 # --- a fresh overlay per run ------------------------------------------------
@@ -1253,7 +1344,7 @@ qemu-system-x86_64 -enable-kvm -machine q35 -m 2048 -smp 2 \
   -drive file="$VMF/repo.iso",if=virtio,media=cdrom \
   -netdev user,id=n0 -device virtio-net-pci,netdev=n0 \
   -display none -serial "file:$CONSOLE" -monitor none -no-reboot \
-  >/dev/null 2>&1 &
+  >/dev/null 2>"$VMF/qemu.err" &
 _qpid=$!
 
 # Poll the log for the guest's completion marker, then stop the VM. Bounded, so
@@ -1293,7 +1384,27 @@ if grep -q 'VIGILANCE_VM_EXIT=0' "$CONSOLE" 2>/dev/null; then
 fi
 # A missing marker is NOT a pass. A guest that never got far enough to print
 # one has failed in a way that matters more than an assertion, not less.
-grep -q 'VIGILANCE_VM_EXIT=' "$CONSOLE" 2>/dev/null \
-  || _die "guest never reported (boot or cloud-init failure); see $CONSOLE"
+#
+# AND QEMU'S OWN STDERR IS PART OF THE ANSWER, which this used to discard with
+# `2>&1` to /dev/null. The failure mode it exists for is precisely the one where
+# the guest prints nothing, so throwing away the only other voice in the room
+# left `see $CONSOLE` pointing at an EMPTY file. A qemu that cannot start (a
+# locked image, a missing device, no KVM) says so there and nowhere else.
+#
+# THE CONSOLE SIZE IS REPORTED for the same reason: zero bytes versus some bytes
+# is the first fork in the diagnosis, since zero means the guest never reached a
+# kernel and anything else means it booted and died later. Reading that off a
+# `ls` was the step that turned a 30-minute dead end into three measurements.
+if ! grep -q 'VIGILANCE_VM_EXIT=' "$CONSOLE" 2>/dev/null; then
+  echo "vm: console is $(wc -c <"$CONSOLE" 2>/dev/null || echo 0) bytes" >&2
+  if [ -s "$VMF/qemu.err" ]; then
+    echo "vm: qemu said:" >&2
+    sed -n '1,10p;s/^/  /' "$VMF/qemu.err" >&2
+  fi
+  _die "guest never reported (boot or cloud-init failure); see $CONSOLE
+If the console is ZERO bytes the guest never reached a kernel, so suspect the
+IMAGE rather than the scenarios: boot \$VMF/built.qcow2 by hand with
+\`-serial stdio\` and compare against the base image."
+fi
 echo "vm: FAIL"
 exit 1
