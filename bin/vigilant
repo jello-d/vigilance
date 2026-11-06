@@ -5285,7 +5285,26 @@ _timer_show() {
     # held, so no deadline is deferred" this line sat directly above a
     # `deferred:` line reporting a hold logind cannot see, and a view that
     # contradicts itself one line later is worse than one that says less.
-    echo "inhibit:  no logind idle inhibitor held"
+    #
+    # AND THE STAMP IS NOT THE WORLD. `_inhibit_track` writes it from the
+    # supervision pass, so between a hold starting and the next pass it is
+    # absent while the hold is REAL. Branching on the stamp alone printed a
+    # categorical present-tense denial of something live logind would have
+    # confirmed, and it misled the author of this view within a minute of
+    # being asked the one question it exists for. The pass age printed above
+    # qualifies a COUNTDOWN; it cannot qualify a DENIAL, because a countdown
+    # reads as a snapshot and a denial reads as the present tense. So the live
+    # reader decides, and its three answers stay three: folding "cannot tell"
+    # into "none held" is the conflation exit 78 exists to break, arriving in
+    # a view rather than in a hook.
+    _ii=0
+    _idle_inhibited || _ii=$?
+    case "$_ii" in
+      0) echo "inhibit:  HELD, not yet tracked by a supervision pass"
+         echo "          (the escalation clock starts at the next one)" ;;
+      1) echo "inhibit:  no logind idle inhibitor held" ;;
+      *) echo "inhibit:  cannot tell; logind did not answer" ;;
+    esac
   else
     _tsp=$(_elapsed "$_ts" 2>/dev/null || true)
     _tsh=$(_trig_holder idle 2>/dev/null || true)

@@ -203,6 +203,62 @@ _l1=$(wc -c < "$VIGILANCE_LOG" 2>/dev/null || echo 0)
 log. A read-only verb that writes there manufactures history for the audit
 tier to reconcile against"
 
+# --- 9. THE STAMP IS NOT THE WORLD -----------------------------------------
+# `_inhibit_track` writes the stamp from the supervision pass, so between a
+# hold starting and the next pass the stamp is absent while the hold is REAL.
+# Branching on the stamp alone printed "no logind idle inhibitor held" over a
+# live `BlockInhibited: s "idle"`, measured with a plain systemd-inhibit, and
+# it misled the author of this view inside a minute of being asked the one
+# question it exists for. Case 4 covers the stamp-absent-and-truly-none path;
+# these two are the ones it could not tell apart from it.
+#
+# THE PASS AGE ABOVE DOES NOT COVER THIS. It qualifies a COUNTDOWN, because a
+# number reads as a snapshot; it cannot qualify a CATEGORICAL DENIAL, which
+# reads as the present tense whatever sits above it.
+rm -f "$VIGILANCE_RUN_DIR/inhibit-since" "$VIGILANCE_RUN_DIR/inhibit-clock"
+VIGILANCE_BLOCK_INHIBITED=idle; export VIGILANCE_BLOCK_INHIBITED
+_o=$(_t)
+case "$_o" in
+  *"HELD, not yet tracked"*) ;;
+  *) printf '%s\n' "$_o" >&2; fail "logind says a what=idle inhibitor is HELD
+and no pass has stamped it yet, and the view denied the hold outright. A view
+that contradicts live logind about the thing it is named for is worse than one
+that says nothing" ;;
+esac
+# AND IT MUST NOT CLAIM A COUNTDOWN IT CANNOT HAVE. The escalation span is
+# computed from the stamp, so with no stamp there is no number to print, and
+# inventing one would make the bounds look as though they were already running.
+case "$_o" in
+  *"report: in"*|*"secure: in"*)
+     printf '%s\n' "$_o" >&2; fail "with no stamp the view printed an
+escalation countdown. There is nothing for it to count from, so the number
+could only be invented" ;;
+esac
+
+# CANNOT TELL IS ITS OWN ANSWER. Folding a logind that did not answer into
+# "none held" is the conflation exit 78 exists to break, and it fails in the
+# reassuring direction: nothing to see, on the one channel an app's deferral
+# travels over. The farm carries every tool the view invokes EXCEPT busctl,
+# because an empty PATH kills the script on `cat` and reads as the branch
+# never firing, which is this suite's third-oldest trap.
+unset VIGILANCE_BLOCK_INHIBITED
+mkdir -p "$T/nobusctl"
+for _nt in cat date awk sed id tr head expr stat readlink dirname basename \
+           grep systemd-inhibit loginctl pgrep ps; do
+  _np=$(command -v "$_nt" 2>/dev/null) && ln -sf "$_np" "$T/nobusctl/$_nt"
+done
+[ -e "$T/nobusctl/busctl" ] && fail "the farm has busctl, so the case cannot
+reach the branch it is written for"
+_o=$(PATH="$T/nobusctl" "$VIGILANT" timer 2>>"$T/stderr")
+case "$_o" in
+  *"cannot tell"*) ;;
+  *) printf '%s\n' "$_o" >&2; fail "with no busctl the view could not read
+logind at all and must say so. Reporting that as 'none held' is a claim it
+has no evidence for, in the reassuring direction" ;;
+esac
+VIGILANCE_BLOCK_INHIBITED=''; export VIGILANCE_BLOCK_INHIBITED
+
 pass "the subcommand contract, ack points here, no stamp is UNKNOWN, a stale\
  pass is FROZEN, both bounds counted and a reset moves only the escalation,\
- disabled says disabled, and the view leaves the ladder alone"
+ disabled says disabled, the view leaves the ladder alone, and an untracked\
+ hold is HELD rather than denied while an unreadable logind says so"

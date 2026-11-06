@@ -1367,3 +1367,15 @@ f systemd/vigilance-resume.service
 t intent
 - ExecStart=@VIGILANT@ go lock atmost
 + ExecStart=@VIGILANT@ go lock
+
+= timer-untracked-hold-is-denied
+f bin/vigilant
+t timer
+-     _idle_inhibited || _ii=$?
++     _ii=1
+
+= timer-cannot-tell-folds-into-none
+f bin/vigilant
+t timer
+-       *) echo "inhibit:  cannot tell; logind did not answer" ;;
++       *) echo "inhibit:  no logind idle inhibitor held" ;;
