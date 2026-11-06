@@ -126,6 +126,7 @@ cat > "$T/ibin/systemd-inhibit" <<'EOF'
 echo "WHO UID USER PID COMM WHAT WHY MODE"
 echo "decoyproc 1000 jello 111 dec sleep handle-lid-switch yes block"
 echo "realholder 1000 jello 222 rea sleep:handle-lid-switch why block"
+echo "Two Words 997 jello-titan 333 chr sleep:handle-lid-switch why block"
 EOF
 chmod +x "$T/ibin/systemd-inhibit"
 # INHERITING case 3's inhibitor string ON PURPOSE, rather than setting one.
@@ -146,6 +147,31 @@ case "$_o" in
   *decoyproc*) fail "a row that merely MENTIONS the handler in its WHY prose was
 reported as holding it. That is the measured swayidle case, and it points the
 operator at the wrong process, which is worse than naming none:
+$_o" ;;
+esac
+
+# THE WHOLE WHO, AND ACROSS A UID BOUNDARY. Two things that only became
+# reachable with a severance enclave holding the inhibitor (tackup reply to
+# request V1, 2026-11-06), and one of which was already live: `systemd-inhibit
+# --list` carries every uid's holders, and printing field 1 alone turned
+# "Google Chrome" into "Google", which sat in this machine's real list during
+# the call that prompted the work. An alert whose entire value is naming what
+# to go and stop must name all of it.
+case "$_o" in
+  *"Two Words"*) ;;
+  *) fail "a holder whose WHO is more than one word was truncated to its
+first. The alert exists to name what to go and stop, and half a name sends the
+operator looking for a process that is not called that:
+$_o" ;;
+esac
+# AND THE UID IS NOT A FILTER. The row above is uid 997, another account, which
+# is what an enclave bridge taking a system-wide inhibitor looks like. Nothing
+# in the naming may reach for a cgroup, a unit or loginctl, because none of
+# those answers for another account from here.
+case "$_o" in
+  *jello-titan*) fail "the USER column leaked into the name. WHO is what the
+holder called itself; the account is a different fact and naming it here would
+read as part of the process name:
 $_o" ;;
 esac
 

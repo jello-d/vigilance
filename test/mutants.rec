@@ -1379,3 +1379,9 @@ f bin/vigilant
 t timer
 -       *) echo "inhibit:  cannot tell; logind did not answer" ;;
 +       *) echo "inhibit:  no logind idle inhibitor held" ;;
+
+= holder-names-only-the-first-word
+f bin/vigilant
+t triggers
+-         for (k = 2; k < u; k++) who = who " " $k
++         ;

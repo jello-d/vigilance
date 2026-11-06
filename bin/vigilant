@@ -2783,14 +2783,27 @@ _trig_holder() {   # <handler> -> "a, b" or nothing
   command -v systemd-inhibit >/dev/null 2>&1 || return 0
   systemd-inhibit --list 2>/dev/null | awk -v h="$1" '
     {
-      w = 0
+      w = 0; u = 0
       for (i = 1; i + 2 <= NF; i++) {
-        if ($i ~ /^[0-9]+$/ && $(i + 2) ~ /^[0-9]+$/) { w = i + 4; break }
+        if ($i ~ /^[0-9]+$/ && $(i + 2) ~ /^[0-9]+$/) {
+          u = i; w = i + 4; break
+        }
       }
       if (w > 0 && w <= NF) {
+        # THE WHOLE WHO, not just its first word. WHO spans field 1 to the
+        # one before UID, and printing $1 alone turned "Google Chrome" into
+        # "Google": incomplete, in an alert whose entire value is naming what
+        # to go and stop. Live-reachable: that very row sat in the inhibitor
+        # list on this machine during the call that prompted the enclave work.
+        # NO APOSTROPHES ANYWHERE IN THIS PROGRAM. It is single-quoted, so a
+        # possessive closes it and the shell then parses awk, which it reports
+        # as "Bad for loop variable" against a line you did not write. Third
+        # time in this tree, and the rule was already recorded twice.
+        who = $1
+        for (k = 2; k < u; k++) who = who " " $k
         n = split($w, p, ":")
         for (j = 1; j <= n; j++) {
-          if (p[j] == h) { if (s != "") s = s ", "; s = s $1 }
+          if (p[j] == h) { if (s != "") s = s ", "; s = s who }
         }
       }
     }
