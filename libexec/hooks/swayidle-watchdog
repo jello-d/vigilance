@@ -199,9 +199,31 @@ if [ "$_silent" -lt "$QUIET" ]; then
 fi
 
 # --- silence, and now the innocent explanations ------------------------------
-# THE RUNG IS THE FIRST ONE, and it is decisive. If the machine is at `lock` or
-# below, the idle timer demonstrably worked: that is how it got there. Only a
-# machine sitting at `open` has a timer that should have fired and did not.
+# THE RUNG IS THE FIRST ONE, and it is decisive. At `lock` or below with nobody
+# present there are no idle-to-active CYCLES to report, and the heartbeat is a
+# cycle detector: it fires at the tick threshold and again on resume. So a
+# HEALTHY timer is legitimately silent there for as long as the machine is left
+# alone, and accusing it would fire on every locked machine every night.
+#
+# MEASURED on manifold, the night of 2026-11-08, with the timer demonstrably
+# healthy (it crossed `sleep src=blank` on time and the backlight sat at 0 for
+# 335 samples): FOUR heartbeat entries, the last at 00:49:11, then over seven
+# hours of silence. Against a 4h QUIET window that is an accusation, and it
+# would have been wrong.
+#
+# AND THE OLD REASON GIVEN HERE WAS FALSE, which matters because it invites
+# exactly the wrong fix. It said "the idle timer demonstrably worked: that is
+# how it got there", and a rung can be reached by a KEYBIND: measured
+# 2026-11-10, `cross lock src=manual` at 01:15 on a box whose timer had been
+# wedged since the previous morning. With `src=` on every crossing that premise
+# is now checkable and FAILS, so a reader reasoning from it would gate this
+# exclusion on arrival mode and start accusing healthy timers nightly. HOW the
+# rung was reached is irrelevant; that nobody is present is the whole point.
+#
+# THE DARK-RUNG FAULT IS A DIFFERENT TIER'S. A timer that is wedged at `lock`
+# fails to cross the next edge DOWN, and that is what the overdue detector
+# measures; it reported the 2026-11-10 wedge all night with correct numbers.
+# Only a machine sitting at `open` has a cycle this hook should have seen.
 _depth=$(${VIGILANT:-vigilant} status 2>/dev/null \
          | sed -n 's/^depth: *//p' | head -1)
 case "${_depth:-}" in

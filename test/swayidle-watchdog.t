@@ -11,8 +11,8 @@
 # and each is asserted here:
 #
 #   the box has not been up long enough to have emitted anything;
-#   the machine is at `lock` or below, which PROVES the timer worked: that is
-#     how it got there;
+#   the machine is at `lock` or below, where a healthy timer is ALSO silent
+#     because nobody is present to produce an idle-to-active cycle;
 #   the subject is not present or not running at all, which is a different
 #     tier's finding and must not be reported twice in different words.
 set -eu
@@ -155,16 +155,32 @@ _age 20000
 _run; [ "$RC" = 1 ] || fail "with the sampler present throughout, 20000s of
 silence must still be the finding; the gap guard has switched the tier off"
 
-# --- 3. AT `lock` OR BELOW, SILENCE PROVES THE OPPOSITE ---------------------
-# The decisive exclusion. If the machine is locked, the idle timer demonstrably
-# worked: that is how it got there, and it is then correctly quiet because
-# nobody is present. Without this the check fires on every locked machine,
-# which is every machine overnight.
+# --- 3. AT `lock` OR BELOW, A HEALTHY TIMER IS SILENT TOO -------------------
+# The decisive exclusion, and the reason is the HEARTBEAT'S NATURE rather than
+# anything about how the rung was reached. It is a cycle detector: it fires at
+# the tick threshold and again on resume. With nobody present there are no
+# cycles, so silence is what health looks like, and without this the check
+# fires on every locked machine, which is every machine overnight.
+#
+# MEASURED, on a night the timer was demonstrably healthy (manifold
+# 2026-11-08: it crossed `sleep src=blank` on time and the backlight sat at 0
+# for 335 samples): four heartbeat entries, the last at 00:49:11, then over
+# SEVEN HOURS of silence. Against the 4h window that is an accusation.
+#
+# THE ARRIVAL MODE IS NOT A LOOSENING, and this case exists to refuse that
+# change specifically. The old reason said getting to `lock` PROVED the timer
+# fired; a keybind gets there too (`cross lock src=manual`, measured
+# 2026-11-10 on a box wedged since the previous morning), and `src=` now makes
+# that checkable. Gating the exclusion on arrival mode therefore looks
+# correct, and would accuse the healthy Nov 8 timer at about 04:49. The
+# dark-rung fault belongs to the overdue detector, which measures the edge
+# that did not get crossed and reported that same wedge all night.
 for _d in lock sleep suspend; do
   FAKE_DEPTH=$_d
   _run; [ "$RC" = 0 ] || fail "silence at the '$_d' rung was reported as a
-wedge. Getting there IS proof the timer fired, so this would go off on every
-machine every night and be gone by the end of the week"
+wedge. A healthy timer is silent there too, because nobody is present to make
+an idle-to-active cycle, so this would go off on every machine every night and
+be gone by the end of the week"
 done
 FAKE_DEPTH=open
 
