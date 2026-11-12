@@ -34,9 +34,18 @@
 #
 # So the backlight is consulted DIRECTLY, which is an observation rather than an
 # assumption: a panel held dark by its backlight emits nothing whatever the
-# framebuffer says. What stays genuinely blind is darkening by DDC, which
-# ddc-monitor's own verify owns, and the two cases cannot overlap because a box
-# with no backlight is exactly the box where lock-blank paints black.
+# framebuffer says.
+#
+# BUT A BACKLIGHT SPEAKS FOR ITS OWN PANEL, NOT FOR THE MACHINE. This hook used
+# to pass outright on a dark backlight, on the premise that a box with one has
+# nothing else to darken. A laptop docked to two monitors breaks that: measured
+# on dragonfly at the `sleep` rung, eDP-1 at backlight 0 while DP-7 and DP-9
+# kept scanning out the lock wallpaper (peaks ~1.0), with `verify sleep: ok`.
+# So the backlight excuses only the connector it belongs to (its sysfs
+# `device` link), and every OTHER active output is still judged, by DRM's own
+# dpms state where that says Off and otherwise by capturing that output alone.
+# An output ddc-monitor put into a DDC power state is excused through its
+# record, because the framebuffer cannot see standby.
 #
 # DEFENSE IN DEPTH, not a replacement. The per-device verifiers say WHICH
 # mechanism failed, which is what you need to fix it. This one says THAT the
@@ -64,8 +73,12 @@ if [ "$_intent" != dark ]; then
   exit 0
 fi
 
-# THE BACKLIGHT FIRST, because it settles the question outright and costs a
+# THE BACKLIGHT FIRST, because it settles its own panel outright and costs a
 # file read, where the capture costs over a second.
+_bl_dark=
+_bl_lit=
+_bl_conns=
+_bl_unknown=
 for _sb in "${VIGILANCE_SYS_BACKLIGHT:-/sys/class/backlight}"/*; do
   [ -r "$_sb/max_brightness" ] || continue
   # `actual_brightness`, WHICH IS WHAT THE HARDWARE REPORTS. This read
@@ -113,9 +126,77 @@ for _sb in "${VIGILANCE_SYS_BACKLIGHT:-/sys/class/backlight}"/*; do
     # helper returns stdout as the exit status: the first version of this line
     # made the test report an rc of the message text.
     [ -z "$_sbw" ] || echo "screen-dark: backlight dark$_sbw" >&2
-    exit 0
+    _bl_dark=1
+    # WHICH PANEL. The backlight's `device` link resolves to its DRM connector
+    # on this fleet (card0-eDP-1, measured on manifold and dragonfly). A driver
+    # that links elsewhere (acpi_video points at the GPU) leaves it unknown,
+    # and then the internal connector types stand in for it.
+    _sbn=$(readlink -f "$_sb/device" 2>/dev/null || true)
+    _sbn=${_sbn##*/}
+    case "$_sbn" in
+      card[0-9]*-*) _bl_conns="$_bl_conns $_sbn" ;;
+      *)            _bl_unknown=1 ;;
+    esac
+  else
+    _bl_lit=1
   fi
 done
+
+# Every OTHER active output, as an output name, minus those already dark by
+# power (DRM dpms Off) or held in DDC standby by ddc-monitor.
+_other_outputs() {
+  _ddc_dark=
+  if [ -n "${VIGILANCE_STATE_DIR:-}" ]; then
+    for _df in "$(dirname "$VIGILANCE_STATE_DIR")"/*/.dark-outputs; do
+      [ -r "$_df" ] || continue
+      _ddc_dark="$_ddc_dark $(tr '\n' ' ' < "$_df")"
+    done
+  fi
+  for _c in "${VIGILANCE_SYS_DRM:-/sys/class/drm}"/card[0-9]*-*; do
+    [ -r "$_c/status" ] || continue
+    [ "$(cat "$_c/status" 2>/dev/null)" = connected ] || continue
+    [ "$(cat "$_c/enabled" 2>/dev/null)" = enabled ] || continue
+    _cn=${_c##*/}
+    case " $_bl_conns " in *" $_cn "*) continue ;; esac
+    if [ -n "$_bl_unknown" ]; then
+      case "$_cn" in *-eDP-*|*-LVDS-*|*-DSI-*) continue ;; esac
+    fi
+    [ "$(cat "$_c/dpms" 2>/dev/null)" != Off ] || continue
+    case " $_ddc_dark " in *" $_cn "*) continue ;; esac
+    printf '%s\n' "${_cn#card*-}"
+  done
+}
+
+if [ -n "$_bl_dark" ] && [ -z "$_bl_lit" ]; then
+  _outs=$(_other_outputs)
+  if [ -z "$_outs" ]; then exit 0; fi
+  _lit_o=
+  _unm_o=
+  for _o in $_outs; do
+    _oa=$(hook_screen_luma "$_o")
+    if [ -z "$_oa" ]; then _unm_o="$_unm_o $_o"; continue; fi
+    _ol=${_oa%% *}
+    _op=$(hook_luma_peak "$_oa")
+    if ! hook_luma_is_dark "$_ol" \
+       || { [ -n "$_op" ] && ! hook_luma_peak_is_dark "$_op"; }; then
+      _lit_o="$_lit_o $_o (mean $_ol${_op:+, peak $_op})"
+    fi
+  done
+  if [ -n "$_lit_o" ]; then
+    echo "screen-dark: at a DARK rung ($edge) the backlit panel is dark but"\
+" other output(s) are still showing a picture:$_lit_o. Nothing powered them"\
+" off: DRM still reports them On, and no DDC power state is recorded for"\
+" them, so they are lit while every per-device verifier can stay green." >&2
+    exit 1
+  fi
+  if [ -n "$_unm_o" ]; then
+    echo "screen-dark: the backlit panel is dark, and output(s)$_unm_o are"\
+" still powered with nothing able to capture them alone (grim -o), so"\
+" whether they are dark was NOT checked" >&2
+    exit 78
+  fi
+  exit 0
+fi
 
 _a=$(hook_screen_luma)
 if [ -z "$_a" ]; then

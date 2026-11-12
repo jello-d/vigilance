@@ -308,7 +308,8 @@ An integrator chooses which run on which edge, because that is policy:
     hooks/sway-dpms        power outputs off/on (SWAY sessions only)
     hooks/x11-dpms         the same, in an X11 session (xset dpms)
     hooks/screen-dark      VERIFY the screen is actually dark (framebuffer
-                           + backlight; blind to DDC, which ddc-monitor owns)
+                           + backlight, per output; DDC standby via
+                           ddc-monitor's record)
     hooks/swayidle-watchdog  is the idle timer FIRING, not merely running?
     hooks/input-counters   idle.d: seconds since input, from kernel counters
     hooks/x11-idle         idle.d: the same, ASKED of an X server (xprintidle)
@@ -447,9 +448,17 @@ explicitly unblank. Hence:
   minute. It had only looked right because `lock-blank` was painting the
   surface black there, and gating that hook to the hardware needing it removed
   the mask. So the backlight is now read directly: an observation, not an
-  assumption. Darkening by **DDC** remains invisible to it; `ddc-monitor`'s
-  verify owns that, and the two cases cannot overlap, because a box with no
-  backlight is exactly the box where `lock-blank` paints black.
+  assumption.
+
+  And a backlight speaks for its own panel, not for the machine. A laptop
+  docked to two monitors reached `sleep` with its backlight at 0 while both
+  externals kept showing the lock wallpaper, and this check passed, because it
+  stopped at the backlight. It now excuses only the connector the backlight
+  belongs to and judges every other active output: DRM's own power state where
+  that says Off, otherwise a capture of that output alone (`grim -o`). DDC
+  standby is invisible to a capture, so an output `ddc-monitor` put into a
+  power state is excused through the record it keeps; a monitor it only dimmed
+  is not, since dim is still emitting.
 
 - **`sway-dpms` is how a GREETER goes dark, and it is safe in machine scope
   because it cannot act outside sway.** A greeter has no locker, so `lock-blank`

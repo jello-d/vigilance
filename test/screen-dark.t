@@ -30,6 +30,10 @@ mkdir -p "$T/bin"
 # laptop at full brightness that happens to give the same answers: a verdict
 # about the substrate rather than the code.
 mkdir -p "$T/nobacklight"
+# AND SO IS THE DRM ROOT, for the same reason: since a dark backlight excuses
+# only its own panel, the hook now reads the connectors to find the OTHER
+# outputs, and an unpinned case would judge the host's monitors.
+mkdir -p "$T/nodrm"
 # PEAK is set by the later cases only, so every case above them keeps supplying
 # a mean alone and keeps asserting exactly what it used to.
 _run() {   # <edge> <luma|-> [kind]   (PEAK= in the environment is optional)
@@ -38,11 +42,15 @@ _run() {   # <edge> <luma|-> [kind]   (PEAK= in the environment is optional)
   if [ "$2" = - ]; then
     VIGILANCE_EDGE="$1" VIGILANCE_KIND="${3:-verify}" \
       VIGILANCE_SYS_BACKLIGHT="${BL_ROOT:-$T/nobacklight}" \
+      VIGILANCE_SYS_DRM="${DRM_ROOT:-$T/nodrm}" \
+      VIGILANCE_STATE_DIR="${STATE_DIR:-}" \
       VIGILANCE_SCREEN_PEAK="${PEAK:-}" \
       sh "$HOOK" "$1" 2>>"$T/last" || _r=$?
   else
     VIGILANCE_EDGE="$1" VIGILANCE_KIND="${3:-verify}" \
       VIGILANCE_SYS_BACKLIGHT="${BL_ROOT:-$T/nobacklight}" \
+      VIGILANCE_SYS_DRM="${DRM_ROOT:-$T/nodrm}" \
+      VIGILANCE_STATE_DIR="${STATE_DIR:-}" \
       VIGILANCE_SCREEN_LUMA="$2" VIGILANCE_SCREEN_PEAK="${PEAK:-}" \
       sh "$HOOK" "$1" 2>>"$T/last" || _r=$?
   fi
@@ -198,6 +206,113 @@ and did not SAY so. The claim then rests on weaker evidence than usual and
 nothing tells the reader:
 $(cat "$T/last")"
 BL_ROOT=
+
+# --- A BACKLIGHT SPEAKS FOR ITS OWN PANEL, NOT FOR THE MACHINE -------------
+# Measured on dragonfly at the sleep rung: eDP-1 at backlight 0 while two
+# docked monitors on DP-7 and DP-9 kept scanning out the lock wallpaper, and
+# `verify sleep` said ok because this hook passed the moment it saw a dark
+# backlight. The backlight now excuses only the connector its `device` link
+# names, and every other active output is still judged.
+_conn() {   # <root> <name> <status> <enabled> <dpms>
+  mkdir -p "$1/$2"
+  printf '%s\n' "$3" > "$1/$2/status"
+  printf '%s\n' "$4" > "$1/$2/enabled"
+  printf '%s\n' "$5" > "$1/$2/dpms"
+}
+_dock() {   # fresh dragonfly-shaped tree: backlit eDP-1 plus two externals
+  rm -rf "$T/dock"
+  mkdir -p "$T/dock/bl/intel_backlight"
+  printf '496\n' > "$T/dock/bl/intel_backlight/max_brightness"
+  printf '0\n'   > "$T/dock/bl/intel_backlight/actual_brightness"
+  _conn "$T/dock/drm" card0-eDP-1 connected enabled On
+  _conn "$T/dock/drm" card0-DP-7 connected enabled On
+  _conn "$T/dock/drm" card0-DP-9 connected enabled On
+  _conn "$T/dock/drm" card0-DP-1 disconnected disabled Off
+  ln -s "$T/dock/drm/card0-eDP-1" "$T/dock/bl/intel_backlight/device"
+  BL_ROOT=$T/dock/bl
+  DRM_ROOT=$T/dock/drm
+}
+
+_dock
+[ "$(_run sleep 0.5)" = 1 ] || fail "with the laptop's backlight at 0 and two
+external outputs still ON and showing a picture, the hook called the screen
+dark. That is dragonfly exactly: two lit monitors certified by a backlight
+that speaks for neither of them"
+grep -q 'DP-7' "$T/last" && grep -q 'DP-9' "$T/last" || fail "the lit external
+outputs were not NAMED, so the reader cannot tell which screen to go and look
+at:
+$(_said)"
+grep -q 'eDP-1' "$T/last" && fail "the backlit panel itself was reported as
+lit. Its backlight is at 0, which settles it whatever the framebuffer says:
+$(_said)"
+
+# The same externals, genuinely black: no false alarm.
+_dock
+[ "$(_run sleep 0)" = 0 ] || fail "two external outputs capturing black, beside
+a dark backlit panel, were reported as lit:
+$(_said)"
+
+# An external DRM reports as powered OFF is dark by power: no capture needed,
+# and a lit capture of it (a framebuffer that is still drawn) is not drift.
+_dock
+_conn "$T/dock/drm" card0-DP-7 connected enabled Off
+_conn "$T/dock/drm" card0-DP-9 connected enabled Off
+[ "$(_run sleep 0.5)" = 0 ] || fail "both externals are DPMS Off per DRM, which
+is a power state, and the hook still judged their framebuffer:
+$(_said)"
+
+# One off, one on: only the one still on is named.
+_conn "$T/dock/drm" card0-DP-9 connected enabled On
+[ "$(_run sleep 0.5)" = 1 ] || fail "DP-9 is still on and lit beside DP-7 off"
+grep -q 'DP-9' "$T/last" || fail "the lit output was not named: $(_said)"
+grep -q 'DP-7 (' "$T/last" && fail "DP-7 is DPMS Off and was still named as
+lit: $(_said)"
+
+# AN OUTPUT ddc-monitor HOLDS IN DDC STANDBY IS EXCUSED. The framebuffer
+# cannot see standby, so without this a monitor doing exactly as told would be
+# reported every minute. The record lives in ddc-monitor's own state dir, a
+# sibling of this hook's.
+_dock
+mkdir -p "$T/dock/state/10-ddc-monitor" "$T/dock/state/01-screen-dark"
+printf 'card0-DP-7\ncard0-DP-9\n' \
+  > "$T/dock/state/10-ddc-monitor/.dark-outputs"
+STATE_DIR=$T/dock/state/01-screen-dark
+[ "$(_run sleep 0.5)" = 0 ] || fail "both externals are recorded by ddc-monitor
+as held in a DDC power state, and the hook reported their framebuffer as lit.
+Standby is invisible to a capture, so the record is the only witness:
+$(_said)"
+printf 'card0-DP-7\n' > "$T/dock/state/10-ddc-monitor/.dark-outputs"
+[ "$(_run sleep 0.5)" = 1 ] || fail "only DP-7 is in DDC standby; DP-9 is lit
+and must still be caught"
+grep -q 'DP-7 (' "$T/last" && fail "DP-7 is in DDC standby and was named as
+lit: $(_said)"
+STATE_DIR=
+
+# AN EXTERNAL NOTHING CAN CAPTURE ALONE is n/a, not a pass. A supplied grabber
+# or `import` cannot be scoped to one output, so the honest answer is that it
+# was not checked, never a whole-surface frame passed off as one output's.
+_dock
+VIGILANCE_SCREEN_GRAB="$T/bin/never-called"; export VIGILANCE_SCREEN_GRAB
+[ "$(_run sleep -)" = 78 ] || fail "with no way to capture the externals
+alone, the hook did not decline. A pass would certify two monitors nothing
+looked at:
+$(_said)"
+grep -q 'NOT checked' "$T/last" || fail "the decline did not say what went
+unchecked: $(_said)"
+unset VIGILANCE_SCREEN_GRAB
+
+# WHERE THE BACKLIGHT'S CONNECTOR IS UNKNOWN (no device link to a DRM
+# connector), the internal connector types stand in for it, so the backlit
+# panel is still not judged by its framebuffer.
+_dock
+rm "$T/dock/bl/intel_backlight/device"
+_conn "$T/dock/drm" card0-DP-7 connected enabled Off
+_conn "$T/dock/drm" card0-DP-9 connected enabled Off
+[ "$(_run sleep 0.5)" = 0 ] || fail "with no device link the backlit eDP panel
+was judged by its framebuffer, which a capture cannot use against a backlight:
+$(_said)"
+BL_ROOT=
+DRM_ROOT=
 
 # --- SCIENTIFIC NOTATION IS A NUMBER --------------------------------------
 # THE BUG THAT FIRED 275 TIMES ON manifestor, on the box where the mechanism
@@ -389,6 +504,37 @@ rather than bypass it, or an integrator on a third stack gets a tier that
 either declines for ever or measures a value it was handed:
 $(cat "$T/grabmeas" 2>/dev/null)"
   rm -f "$T/bin/plasma-grab"
+
+  # AND AN OUTPUT GRAB REALLY IS SCOPED. Every docked-output case above goes
+  # through the override, which answers for every output alike, so none of them
+  # could tell a grab of DP-9 from a grab of the whole surface. This stub hands
+  # back a lit frame for DP-7, a black one for DP-9, and a lit one when no
+  # output is named, so only a hook that really passes `-o` gets it right.
+  cat > "$T/bin/grim" <<EOF
+#!/bin/sh
+_o=
+_p=
+for _a in "\$@"; do [ "\$_p" = -o ] && _o=\$_a; _p=\$_a; done
+case "\$_o" in
+  DP-9) exec cat "$T/no-cursor.png" ;;
+  *)    exec cat "$T/with-cursor.png" ;;
+esac
+EOF
+  chmod +x "$T/bin/grim"
+  _dock
+  _rc=0
+  PATH="$T/bin:$PATH" WAYLAND_DISPLAY=wayland-0 \
+    VIGILANCE_EDGE=sleep VIGILANCE_KIND=verify \
+    VIGILANCE_SYS_BACKLIGHT="$BL_ROOT" VIGILANCE_SYS_DRM="$DRM_ROOT" \
+    sh "$HOOK" sleep 2>"$T/outmeas" || _rc=$?
+  [ "$_rc" = 1 ] && grep -q 'DP-7 (' "$T/outmeas" \
+    && ! grep -q 'DP-9 (' "$T/outmeas" || fail "through the real pipeline,
+DP-7 captures lit and DP-9 captures black, and the hook returned $_rc with:
+$(cat "$T/outmeas")
+A hook that did not pass grim -o measured the whole surface for both"
+  rm -f "$T/bin/grim"
+  BL_ROOT=
+  DRM_ROOT=
 else
   # NAMED, NOT SILENT. Everything above needs magick, so
   # without it those assertions simply do not run while the
@@ -397,5 +543,5 @@ else
   _vskip="$_vskip magick"
 fi
 
-pass "mean and peak, the measured noise floor, the real pipeline, and a\
- supplied grabber${_vskip:+ (not checked:$_vskip)}"
+pass "mean and peak, the measured noise floor, the real pipeline, a\
+ supplied grabber, and docked outputs${_vskip:+ (not checked:$_vskip)}"

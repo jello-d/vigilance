@@ -1005,8 +1005,8 @@ t lock-blank screen-dark
 = luma-capture-omits-the-cursor
 f lib/hook_lib
 t screen-dark
--     _slg="timeout 25 grim -c -s 0.05 -"
-+     _slg="timeout 25 grim -s 0.05 -"
+-     _slg="timeout 25 grim -c${_slo:+ -o $_slo} -s 0.05 -"
++     _slg="timeout 25 grim${_slo:+ -o $_slo} -s 0.05 -"
 
 # AN ABSENCE OF EVIDENCE RENDERED AS CONFIRMATION. With no backlight device the
 # loop body never runs, and this printed "matches dark hardware" having
@@ -1385,3 +1385,27 @@ f bin/vigilant
 t triggers
 -         for (k = 2; k < u; k++) who = who " " $k
 +         ;
+
+= output-grab-is-not-scoped
+f lib/hook_lib
+t screen-dark
+-     _slg="timeout 25 grim -c${_slo:+ -o $_slo} -s 0.05 -"
++     _slg="timeout 25 grim -c -s 0.05 -"
+
+= dark-backlight-passes-the-machine
+f libexec/hooks/screen-dark
+t screen-dark
+-     _bl_dark=1
++     exit 0
+
+= empty-ddc-map-claims-the-work
+f libexec/hooks/ddc-monitor
+t ddc-monitor
+-   if [ "$_rc" != 0 ]; then exit "$_rc"; fi
++   exit 0
+
+= standby-output-not-recorded
+f libexec/hooks/ddc-monitor
+t ddc-monitor
+-       printf '%s\n' "$_cn" >> "$DARK_OUTPUTS" 2>/dev/null || true
++       true

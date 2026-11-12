@@ -42,6 +42,9 @@ case "$*" in
   *detect*)
     for _b in $DDC_BUSES; do
       printf 'Display %s\n   I2C bus:  /dev/i2c-%s\n' "$_b" "$_b"
+      # DDC_CONN_<bus> names the DRM connector, as real ddcutil does.
+      eval "_cn=\${DDC_CONN_$_b:-}"
+      if [ -n "$_cn" ]; then printf '   DRM connector:  %s\n' "$_cn"; fi
     done
     exit 0 ;;
   *capabilities*)
@@ -442,5 +445,54 @@ unset DDC_LUM_7
 _act sleep || fail "the hook errored on a panel with no mechanism at all"
 [ -z "$(_wrote 7)" ] || fail "a panel advertising neither D6 standby nor VCP 10
 was written '$(_wrote 7)' anyway"
+
+# --- 16. NO DDC/CI DISPLAY AT ALL IS n/a, NOT "I DID THE WORK" -------------
+# Measured on dragonfly: two monitors behind a Thunderbolt dock that DDC cannot
+# reach, an empty map, and this hook exited 0, so `verify sleep` counted it as
+# checked while both externals sat lit.
+export DDC_BUSES=""
+rm -f "$T/state/dark-buses" "$T/state/.dark-outputs"
+_rc=0; _act sleep || _rc=$?
+[ "$_rc" = 78 ] || fail "with no DDC/CI display the act tier returned $_rc;
+driving nothing is not the work being done, and 0 says it was"
+_rc=0; _verify sleep || _rc=$?
+[ "$_rc" = 78 ] || fail "with no DDC/CI display the verify tier returned $_rc,
+so the runner counted a monitor nobody checked as confirmed dark"
+
+# --- 17. THE ONLY DDC MONITOR VANISHING IS STILL REPORTED ------------------
+# The empty-map exit used to sit ABOVE the vanished-monitor check, so the case
+# that check was written for, a monitor driven dark that then drops off DDC
+# entirely, went unreported whenever it had been the only one.
+printf '4\n' > "$T/state/dark-buses"
+_rc=0; _act wake || _rc=$?
+[ "$_rc" = 1 ] || fail "bus 4 was driven dark and is now gone from DDC, and the
+ascent returned $_rc. It was the only monitor, so the map is empty, and that
+is exactly when the panel is dark with no way back"
+grep -q 'bus 4 was driven DARK' "$T/stderr" || fail "the vanished monitor was
+not named"
+[ -f "$T/state/dark-buses" ] || fail "the record was dropped while the monitor
+is still missing, so the next ascent says nothing"
+rm -f "$T/state/dark-buses"
+
+# --- 18. A POWER STATE RECORDS ITS OUTPUT FOR screen-dark; A DIM DOES NOT ---
+# Standby is invisible to a capture, so screen-dark excuses what this records.
+# A VCP 10 dim was measured dim, not black, so it must NOT be excused.
+export DDC_BUSES="4 5"
+export DDC_CAPS_4="01 02 03 04 05" DDC_CONN_4=card0-DP-7
+export DDC_CAPS_5="01 04 05" DDC_LUM_5=1 DDC_BRIGHT_5=75 DDC_CONN_5=card0-DP-9
+rm -f "$T/state/bright-5"
+_act sleep || fail "the descent failed against a standby panel and a dim one"
+grep -qx 'card0-DP-7' "$T/state/.dark-outputs" 2>/dev/null || fail "bus 4 went
+into D6 standby and its connector was not recorded, so screen-dark will report
+a monitor doing exactly as told as still emitting:
+$(cat "$T/state/.dark-outputs" 2>/dev/null)"
+grep -q 'DP-9' "$T/state/.dark-outputs" && fail "bus 5 was only DIMMED (VCP
+10), which is not black, and was recorded as dark anyway, so screen-dark would
+excuse a monitor still showing a picture"
+_act wake || fail "the ascent failed"
+[ ! -f "$T/state/.dark-outputs" ] || fail "the record of outputs held dark
+survived a lit ascent"
+unset DDC_CONN_4 DDC_CONN_5
+rm -f "$T/state/bright-5"
 
 pass

@@ -172,7 +172,16 @@ hook_have_brightnessctl() {
 # whole answer gets the mean compared, as before this field existed. The same
 # append-after-field-1 shape the idle clock uses for its ceiling. Claiming the
 # compatibility WITHOUT taking field 1 made a pitch-black frame read as LIT.
-hook_screen_luma() {
+#
+# AN OUTPUT NAME SCOPES THE GRAB to that one output (`grim -o`), which is how a
+# caller asks about an external monitor beside a panel its backlight already
+# settled. Only the built-in grim path can do that: `import` captures the X root
+# and a supplied grabber takes no arguments from us, so for those an output
+# grab is UNMEASURABLE (empty), never a whole-surface frame passed off as one
+# output's. The fixture override still answers, for every output alike.
+hook_screen_luma() {   # [output]
+  _slo=${1:-}
+  case "$_slo" in *[!A-Za-z0-9_.-]*) return 0 ;; esac
   # THE PEAK HAS ITS OWN OVERRIDE, and an answer with only a mean leaves the
   # peak UNKNOWN on purpose. Supplying a mean and silently implying a peak of 0
   # would make every existing fixture assert the new check vacuously, which is
@@ -218,6 +227,7 @@ hook_screen_luma() {
   # is only ever as good as the frame it was handed.
   _slg=
   if [ -n "${VIGILANCE_SCREEN_GRAB:-}" ]; then
+    [ -z "$_slo" ] || return 0
     _slg=$VIGILANCE_SCREEN_GRAB
   elif command -v grim >/dev/null 2>&1 \
      && { [ -n "${WAYLAND_DISPLAY:-}" ] || [ -z "${DISPLAY:-}" ]; }; then
@@ -226,8 +236,9 @@ hook_screen_luma() {
     # a black lock surface was simply absent from the frame being measured. A
     # cursor is a real emitter on the glass, held perfectly still for as long as
     # nobody touches the mouse, which is the worst case for an OLED.
-    _slg="timeout 25 grim -c -s 0.05 -"
+    _slg="timeout 25 grim -c${_slo:+ -o $_slo} -s 0.05 -"
   elif command -v import >/dev/null 2>&1 && [ -n "${DISPLAY:-}" ]; then
+    [ -z "$_slo" ] || return 0
     # -window root is the whole screen, which is the same claim `grim -s 0.05`
     # makes: a blank is about the WHOLE surface, and a corner reads 0.0156 on an
     # ordinary desktop, indistinguishable from black. -resize keeps the

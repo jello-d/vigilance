@@ -240,6 +240,17 @@ hook_throttle "${VIGILANCE_PERIPHERAL_EVERY:-3600}" && exit 75
 # never there, UNLESS we wrote down that we put it to sleep. So we do.
 DARK_RECORD=${VIGILANCE_STATE_DIR:-/tmp}/dark-buses
 
+# AND WHICH OUTPUTS THAT PUT INTO A POWER STATE, for screen-dark. A monitor in
+# DDC standby is dark while the compositor's framebuffer for it is still the
+# lit lock surface, so a capture cannot see that this hook darkened it and
+# would report a monitor doing exactly as told as still emitting. One DRM
+# connector per line, written ONLY for a power state: a VCP 10 dim is measured
+# as dim, not black, so a dimmed output is not excused and is still judged.
+#
+# A DOTFILE ON PURPOSE: report scans `$STATE_ROOT/*/*` for saved levels, and a
+# POSIX glob does not match a leading dot.
+DARK_OUTPUTS=${VIGILANCE_STATE_DIR:-/tmp}/.dark-outputs
+
 # BOOKKEEPING MUST NEVER SUPPRESS THE ACTUATOR. This hook runs under `set -eu`,
 # so a failed redirect aborts it outright, and the record writes sit BEFORE
 # the loop, which meant a state directory that could not be created stopped
@@ -284,13 +295,24 @@ fi
 # heading, because the internal panel is not DDC/CI controllable. Pairing it
 # anyway routed eDP hosts into this branch where setvcp always failed and the
 # screen never blanked, so ONLY displays inside a real "Display N" block
-# count. An eDP-only host yields an empty map and exits 0: nothing to drive.
-_map=$(ddcutil detect --brief 2>/dev/null | awk '
+# count. An EMPTY map is answered below, after the vanished-monitor check.
+_detect=$(ddcutil detect --brief 2>/dev/null || true)
+_map=$(printf '%s\n' "$_detect" | awk '
   /^Invalid display/ { valid = 0 }
   /^Display /        { valid = 1 }
   /I2C bus:/         { if (valid) { b = $NF; sub(".*/i2c-", "", b); print b } }
 ')
-[ -n "$_map" ] || exit 0
+
+# The DRM connector a bus drives, from the same detect output, or empty when
+# ddcutil did not name one. screen-dark needs it: see DARK_OUTPUTS.
+_conn_of() {   # <bus>
+  printf '%s\n' "$_detect" | awk -v want="$1" '
+    /^Invalid display/ { valid = 0 }
+    /^Display /        { valid = 1; b = "" }
+    /I2C bus:/         { b = $NF; sub(".*/i2c-", "", b) }
+    /DRM connector:/   { if (valid && b == want) { print $NF; exit } }
+  '
+}
 
 _rc=0
 # How many buses this run actually ASSERTED something about. A verify that
@@ -333,8 +355,29 @@ if [ "$_intent" = lit ] && [ -f "$DARK_RECORD" ]; then
     else rm -f "$DARK_RECORD" 2>/dev/null || true; fi
   fi
 fi
+# NO DDC/CI DISPLAY AT ALL is n/a, and it is answered HERE, after the vanished
+# check, for two reasons. Exiting 0 above that check claimed "I did the work"
+# for a hook that drove nothing, which is the conflation 78 exists to break: on
+# a laptop docked to monitors DDC cannot reach, `verify sleep` reported this
+# hook as checked while both externals sat lit. And exiting BEFORE the check
+# meant the case it was written for, the only DDC monitor going dark and then
+# dropping off DDC entirely, left an empty map and was never reported.
+#
+# The record is kept (a vanished bus must stay named until it returns), but
+# the excused outputs are not: nothing here is holding any output dark now.
+if [ -z "$_map" ]; then
+  if [ "$_verify" != 1 ]; then rm -f "$DARK_OUTPUTS" 2>/dev/null || true; fi
+  if [ "$_rc" != 0 ]; then exit "$_rc"; fi
+  echo "ddc-monitor: no DDC/CI display found; nothing to drive or check" >&2
+  exit 78
+fi
+
 if [ "$_intent" = dark ] && [ "$_verify" != 1 ]; then
   _dark_record_reset
+  rm -f "$DARK_OUTPUTS" 2>/dev/null || true
+fi
+if [ "$_intent" = lit ] && [ "$_verify" != 1 ]; then
+  rm -f "$DARK_OUTPUTS" 2>/dev/null || true
 fi
 
 for _bus in $_map; do
@@ -432,6 +475,12 @@ for _bus in $_map; do
     # the reset gates it, so it can only fire on a mid-run change.
     if [ -n "$DARK_RECORD_OK" ]; then
       printf '%s\n' "$_bus" >> "$DARK_RECORD" 2>/dev/null || DARK_RECORD_OK=
+    fi
+    # Tolerant like every write here: a missing entry costs screen-dark a
+    # false report about this output, never this monitor its command.
+    _cn=$(_conn_of "$_bus")
+    if [ -n "$_cn" ]; then
+      printf '%s\n' "$_cn" >> "$DARK_OUTPUTS" 2>/dev/null || true
     fi
   fi
 done
