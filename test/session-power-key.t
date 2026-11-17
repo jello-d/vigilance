@@ -45,6 +45,20 @@ has no triggers/power-key, so the rendered rule would run nothing"
 # WHOSE SEAT. The trigger wakes seat0's ACTIVE session, so the test reads the
 # same thing rather than assuming which account that is.
 _sid=$(loginctl show-seat seat0 -p ActiveSession --value 2>/dev/null || true)
+# A HEADLESS GUEST CAN HAVE A SEAT SESSION THAT IS NOT ACTIVE: greetd's session
+# sits on seat0 while the foreground VT has none. On real hardware the session
+# being looked at IS the active one, so make the guest match rather than
+# teaching the trigger to wake a session nobody can see.
+if [ -z "$_sid" ]; then
+  _cand=$(loginctl list-sessions --no-legend 2>/dev/null \
+    | awk '$4 == "seat0" { print $1; exit }')
+  if [ -n "$_cand" ]; then
+    loginctl activate "$_cand" >/dev/null 2>&1 || true
+    sleep 1
+    _sid=$(loginctl show-seat seat0 -p ActiveSession --value 2>/dev/null \
+      || true)
+  fi
+fi
 [ -n "$_sid" ] || fail "seat0 has no active session, so a press has no ladder
 to wake and every assertion below would pass with nothing having run:
 $(loginctl list-sessions --no-legend 2>&1 | head -8)"

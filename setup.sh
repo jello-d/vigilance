@@ -646,6 +646,10 @@ _check_access() {
 # is what acpid itself does, rather than guessing from its file name.
 ACPI_EVENTS=${VIGILANCE_ACPI_EVENTS:-/etc/acpi/events}
 ACPID_LOCK=${VIGILANCE_ACPID_LOCK:-/var/lock/acpid}
+# The daemon's name, a seam so a sandbox can ask about an acpid that is NOT
+# installed: on a box that has one, hiding a stub leaves the real binary
+# further down PATH answering, and the check reads the host instead.
+ACPID=${VIGILANCE_ACPID:-acpid}
 _PK_EVENT='button/power PBTN 00000080 00000000'
 _pk_epoch() {   # <systemd timestamp> -> epoch, or empty
   [ -n "$1" ] || return 0
@@ -696,7 +700,7 @@ _check_power_key() {
   fi
   # PATH, not a hardcoded /usr/sbin/acpid: the check must be answerable in a
   # sandbox, and a user PATH on this fleet carries /usr/sbin.
-  if ! command -v acpid >/dev/null 2>&1; then
+  if ! command -v "$ACPID" >/dev/null 2>&1; then
     bad "power key: the rule is placed but acpid is not installed, so nothing"\
 " reads it"
     return 0

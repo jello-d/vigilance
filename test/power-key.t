@@ -252,10 +252,12 @@ _has FAIL 'PAUSED' "acpid's lock file pauses every event, and a paused acpid
 was not reported"
 rm -f "$T/acpid.lock"
 
-rm -f "$T/cstub/acpid"
+# By NAME, not by hiding the stub: a host (or guest) with acpid installed would
+# answer from further down PATH, and this case would be about the substrate.
+export VIGILANCE_ACPID=vigilance-no-such-acpid
 _has FAIL 'not installed' "a placed rule with no acpid installed is nothing
 reading it"
-printf '#!/bin/sh\n' > "$T/cstub/acpid"; chmod +x "$T/cstub/acpid"
+unset VIGILANCE_ACPID
 
 printf 'event=button/power.*\naction=/sbin/shutdown -h now\n' > "$EV/powerbtn"
 _has FAIL 'match the same press' "a second rule on the power key runs on the
