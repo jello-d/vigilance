@@ -1,0 +1,121 @@
+#!/usr/bin/env python3
+"""wayfire-idle-holder - HOLDER: who is holding idle off in wayfire?
+
+A Wayland compositor keeps its own idle inhibitors (zwp_idle_inhibit_v1, what a
+browser takes for a call or a wake lock), and logind cannot see them. While any
+is held, wayfire tells its idle notifier to deliver nothing, so the idle timer
+goes silent exactly as a wedged one does. This asks the compositor itself,
+through the `idle-audit` plugin from wayfire-mods (`idle-audit/list`), and
+answers with the holder.d contract:
+
+    0  HELD     stdout: one line naming who, e.g.
+                "google-chrome (pid 4242 chrome, hidden) held 3600s"
+    1  NONE     the compositor holds idle off for nobody
+    78 n/a      no wayfire to ask, or it lacks the idle-audit plugin
+
+Two holders are joined with "; ". A compositor that says idle is inhibited
+while no client holds an inhibitor is reported as HELD, with words saying so:
+its counter has drifted from its inhibitors, which is a wayfire bug (or a
+compositor plugin's own inhibitor; none in this fleet takes one).
+
+Durations are written as `<n>s`, which the alert dedup normalises away, so a
+hold that grows does not re-notify on every pass.
+
+The IPC is wayfire's own framing (a native-endian 32-bit length, then JSON)
+over the socket in WAYFIRE_SOCKET, or any wayfire-*.socket in the runtime dir.
+Standard library only: the fleet's pywayfire is not something a hook may
+assume.
+"""
+import glob
+import json
+import os
+import socket
+import struct
+import sys
+import time
+
+NA = 78
+
+
+def sockets():
+    env = os.environ.get("WAYFIRE_SOCKET", "")
+    if env:
+        return [env]
+    run = os.environ.get("XDG_RUNTIME_DIR") or "/run/user/%d" % os.getuid()
+    return sorted(glob.glob(os.path.join(run, "wayfire-*.socket")))
+
+
+def recv_exact(sock, n):
+    data = b""
+    while len(data) < n:
+        chunk = sock.recv(n - len(data))
+        if not chunk:
+            raise OSError("connection closed")
+        data += chunk
+    return data
+
+
+def ask(path):
+    body = json.dumps({"method": "idle-audit/list", "data": {}}).encode()
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
+        sock.settimeout(5)
+        sock.connect(path)
+        sock.sendall(struct.pack("=I", len(body)) + body)
+        (length,) = struct.unpack("=I", recv_exact(sock, 4))
+        return json.loads(recv_exact(sock, length))
+
+
+def describe(inh, now):
+    name = inh.get("app-id") or inh.get("comm") or "pid %s" % inh.get("pid")
+    notes = [("pid %s %s" % (inh.get("pid"), inh.get("comm", ""))).strip()]
+    if inh.get("view-id") is None:
+        notes.append("no window")
+    elif not inh.get("visible"):
+        notes.append("hidden")
+    text = "%s (%s)" % (name, ", ".join(notes))
+    since = inh.get("since")
+    if isinstance(since, int) and since > 0 and now >= since:
+        text += " held %ds" % (now - since)
+    return text
+
+
+def main():
+    if os.environ.get("VIGILANCE_KIND", "holder") != "holder":
+        return NA
+    reply = None
+    for path in sockets():
+        try:
+            reply = ask(path)
+        except (OSError, ValueError, struct.error):
+            continue
+        if isinstance(reply, dict) and "inhibitors" in reply:
+            break
+        reply = None
+    if reply is None:
+        print("no wayfire with the idle-audit plugin answered")
+        return NA
+    holders = reply.get("inhibitors") or []
+    if holders:
+        now = int(time.time())
+        print("; ".join(describe(h, now) for h in holders))
+        return 0
+    if reply.get("inhibited"):
+        print("nothing that exists: wayfire says idle is inhibited and no"
+              " client holds an inhibitor, so its counter has drifted from"
+              " its inhibitors (a wayfire bug)")
+        return 0
+    print("nothing holds idle off in wayfire")
+    return 1
+
+
+if __name__ == "__main__":
+    # ANY FAILURE IS n/a, NEVER "NONE". An uncaught exception exits 1, and 1
+    # here means "nothing holds idle off", which lets the watchdog call a
+    # held idle timer WEDGED with certainty. A hook that could not look must
+    # say so, not read as having looked and found nothing.
+    try:
+        rc = main()
+    except Exception as exc:  # pylint: disable=broad-except
+        print("could not ask wayfire: %s" % exc)
+        rc = NA
+    sys.exit(rc)

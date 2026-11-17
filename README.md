@@ -114,7 +114,7 @@ intermittent and the button is the only instrument that will be running. It
 actuates nothing itself: recovery is `force open`, which crosses every ascent
 edge through the hooks, so anything it drives exists once instead of twice.
 
-## Eleven hook kinds
+## Twelve hook kinds
 
 Five are **per-edge**, keyed by the edge being crossed:
 
@@ -124,7 +124,7 @@ Five are **per-edge**, keyed by the edge being crossed:
     <edge>.due.d      WHEN       when SHOULD this edge have fired?
     <edge>.block.d    WHY NOT    is something legitimately preventing it?
 
-Six are **cross-cutting**: they sit at the top of a scope rather than under an
+Seven are **cross-cutting**: they sit at the top of a scope rather than under an
 edge, because each asks about the seat or the machine rather than a transition.
 
     audit.d           DID IT       did a PAST event produce its edge?
@@ -135,9 +135,14 @@ edge, because each asks about the seat or the machine rather than a transition.
                                    was quiet? One it never saw pass is
                                    DEFERRED, not missed.
     cursor.d          HIDDEN       does something auto-hide the pointer?
+    holder.d          WHO          what holds idle off where logind cannot
+                                   see? (a compositor's own inhibitors)
 
 An audit hook names the edge in its own output, because one event source (a
-journal) reports events for several edges. An `idle.d` answer is a number and
+journal) reports events for several edges. A `holder.d` source exits 0 naming
+who holds idle off, 1 when nothing does, 78 when it cannot ask; any failure to
+ask must be 78, never 1, because "nothing held" is what lets the watchdog call
+a silent idle timer a wedge. An `idle.d` answer is a number and
 the **minimum** wins, so the source that saw input most recently is the one that
 stops a stale clock manufacturing a false overdue.
 
@@ -323,6 +328,8 @@ An integrator chooses which run on which edge, because that is policy:
                            identical from outside; both get the bounded
                            deferral escalation rather than an accusation
     hooks/cursor-autohide  cursor.d: is the POINTER auto-hidden on this seat?
+    hooks/wayfire-idle-holder  holder.d: who holds idle off in wayfire (needs
+                           wayfire-mods' idle-audit plugin)
                            Only asked where the panel is darkened by painting
                            black, because there a notification brings the
                            pointer up and those pixels emit. Answers for

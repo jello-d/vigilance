@@ -253,6 +253,21 @@ if [ "$_whrc" = 0 ]; then
   exit 78
 fi
 
+# AND THE COMPOSITOR'S OWN INHIBITORS, which logind cannot see: a browser's
+# call takes one there. The runner asks its holder.d sources once per pass and
+# hands the answer down as held|none|unknown. A named holder is the same case
+# as a logind hold, honoured rather than wedged, and the unnamed bound owns it.
+# Measured on dragonfly: hours of this hook saying WEDGED from logind alone,
+# while a fresh subscription to the compositor was equally deaf, which a held
+# compositor inhibitor explains as well as a wedge does.
+if [ "$_whrc" != 0 ] && [ "${VIGILANCE_IDLE_HELD:-unknown}" = held ]; then
+  echo "idle is held off in the compositor by ${VIGILANCE_IDLE_HOLDER:-a"\
+" client}, which suppresses every timeout including the heartbeat, so this"\
+" silence is that hold being honoured rather than a wedge. The unnamed bound"\
+" owns a hold that goes on too long."
+  exit 78
+fi
+
 # CANNOT TELL KEEPS BOTH CAUSES. With no answer from logind the evidence
 # genuinely cannot separate them, and saying so is the honest shape; asserting
 # a wedge there would be the confidently-wrong diagnosis this project keeps
@@ -267,12 +282,25 @@ if [ "$_whrc" = 2 ]; then
   exit 1
 fi
 
-# NO INHIBITOR, AND THE SILENCE IS WATCHED TIME, so the remaining explanation
-# is the one this hook was built for and it can be stated without hedging.
+# NO LOGIND INHIBITOR, BUT THE COMPOSITOR COULD NOT BE ASKED, so both causes
+# stay: this used to call it WEDGED outright, and a compositor-level inhibitor
+# leaves exactly the same silence.
+if [ "${VIGILANCE_IDLE_HELD:-unknown}" != none ]; then
+  echo "the idle timer has emitted nothing for ${_silent}s of WATCHED time"\
+" while the machine sat at '${_depth:-open}', and logind reports no idle"\
+" inhibitor held. Either it is WEDGED: running, correctly armed and firing"\
+" nothing; or the compositor is holding idle off for a client, which logind"\
+" cannot see and nothing here could ask (a holder.d source can). Restart"\
+" vigilance-idle.service to clear a wedge."
+  exit 1
+fi
+
+# NO INHIBITOR ANYWHERE, AND THE SILENCE IS WATCHED TIME, so the remaining
+# explanation is the one this hook was built for, stated without hedging.
 echo "the idle timer has emitted nothing for ${_silent}s of WATCHED time while"\
-" the machine sat at '${_depth:-open}', and logind reports no idle inhibitor"\
-" held. A healthy timer logs on every brief pause, so it is WEDGED: running,"\
-" correctly armed, and firing nothing, which is the failure this package"\
-" exists for and which every other check here passes. Restart"\
+" the machine sat at '${_depth:-open}', and neither logind nor the compositor"\
+" holds idle off. A healthy timer logs on every brief pause, so it is WEDGED:"\
+" running, correctly armed, and firing nothing, which is the failure this"\
+" package exists for and which every other check here passes. Restart"\
 " vigilance-idle.service."
 exit 1

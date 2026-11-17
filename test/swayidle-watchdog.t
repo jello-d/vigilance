@@ -308,5 +308,40 @@ diagnosis this project keeps paying for" ;;
 esac
 VIGILANCE_BLOCK_INHIBITED=''; export VIGILANCE_BLOCK_INHIBITED
 
+# --- THE COMPOSITOR'S OWN INHIBITORS, which logind cannot see ---------------
+# Measured on dragonfly: this hook said WEDGED from logind alone for hours,
+# while a fresh subscription to the compositor was equally deaf, which a held
+# compositor inhibitor explains as well as a wedge does. The runner hands down
+# what its holder.d sources said, and each of the three answers has its own
+# consequence here.
+_age 20000
+FAKE_DEPTH=open; export FAKE_DEPTH
+VIGILANCE_IDLE_HELD=held
+VIGILANCE_IDLE_HOLDER='google-chrome (pid 42 chrome, hidden) held 9000s'
+export VIGILANCE_IDLE_HELD VIGILANCE_IDLE_HOLDER
+_run; [ "$RC" = 78 ] || fail "a named compositor holder must DEFER (78) like a
+logind hold: the silence is that hold being honoured, and the unnamed bound
+owns it. Got rc=$RC: $(_out)"
+case "$(_out)" in
+  *"google-chrome (pid 42 chrome, hidden)"*) ;;
+  *) fail "the deferral did not name the compositor's holder: $(_out)" ;;
+esac
+VIGILANCE_IDLE_HELD=none
+_run; [ "$RC" = 1 ] || fail "with nothing held anywhere the silence is a wedge"
+case "$(_out)" in
+  *"neither logind nor the compositor"*) ;;
+  *) fail "with BOTH channels asked and empty, the wedge must be stated without
+hedging: $(_out)" ;;
+esac
+VIGILANCE_IDLE_HELD=unknown
+_run; [ "$RC" = 1 ] || fail "an unaskable compositor must still report"
+case "$(_out)" in
+  *"Either it is WEDGED"*"compositor"*) ;;
+  *) fail "with the compositor UNASKED, a bare wedge is the overclaim this
+replaces: both causes must be named. Got: $(_out)" ;;
+esac
+unset VIGILANCE_IDLE_HELD VIGILANCE_IDLE_HOLDER
+
 pass "silence counts only while watched, a held inhibitor defers to the\
- bound, and an unanswerable bus keeps both causes"
+ bound, an unanswerable bus keeps both causes, and so does an unasked\
+ compositor"

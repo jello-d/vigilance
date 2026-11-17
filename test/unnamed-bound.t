@@ -42,6 +42,13 @@ duehook() {   # <edge> <name> <stdout>
 # A STUB TIER, because the framework half is what this file tests: the real
 # hook is driven against real heartbeats in concur.t, and a fixture that
 # modelled the heartbeat here would be testing my model of it twice.
+holderhook() {   # <name> <rc> [sentence]
+  mkdir -p "$VIGILANCE_HOOK_ROOT/holder.d"
+  printf '#!/bin/sh\nprintf "%%s\\n" "%s"\nexit %s\n' "${3:-}" "$2" \
+    > "$VIGILANCE_HOOK_ROOT/holder.d/$1"
+  chmod +x "$VIGILANCE_HOOK_ROOT/holder.d/$1"
+}
+
 concurhook() {   # <name> <rc> [sentence]
   mkdir -p "$VIGILANCE_HOOK_ROOT/concur.d"
   printf '#!/bin/sh\nprintf "%%s\\n" "%s"\nexit %s\n' "${3:-saw nothing}" "$2" \
@@ -91,7 +98,7 @@ _kinds() { cut -d' ' -f1 < "$T/alerts" | sort -u | tr '\n' ' '; }
 
 _reset() {
   rm -rf "$VIGILANCE_HOOK_ROOT/lock.due.d" "$VIGILANCE_HOOK_ROOT/sleep.due.d" \
-         "$VIGILANCE_HOOK_ROOT/concur.d"
+         "$VIGILANCE_HOOK_ROOT/concur.d" "$VIGILANCE_HOOK_ROOT/holder.d"
   _noepisode
   rm -f "$VIGILANCE_RUN_DIR/inhibit-since" "$VIGILANCE_RUN_DIR/inhibit-clock"
   printf '' > "$VIGILANCE_LOG"
@@ -155,6 +162,36 @@ case "$_out" in
   *"has seen none of the 900s"*) ;;
   *) fail "the pass did not say what it observed: $_out" ;;
 esac
+
+# --- 2b. THE SAME DEFERRAL, WITH A HOLDER NAMED -------------------------------
+# "Cannot be named" was the honest sentence only while nothing could ask the
+# compositor. A holder.d source that can see one replaces it with who, and the
+# report and force paths use the same words, so a reader is sent to the
+# holder rather than left to hunt.
+_reset
+duehook lock 10-fake '480 idle'
+_backdate open 9999
+_idle 900
+concurhook 20-c 1 'the timer saw none of it'
+holderhook 10-h 0 'google-chrome (pid 42 chrome, hidden) held 900s'
+"$VIGILANT" enforce >/dev/null 2>>"$T/stderr" || true
+grep -q 'deferred by an idle inhibitor: google-chrome (pid 42 chrome' \
+  "$VIGILANCE_LOG" || fail "with a holder.d source naming the holder, the
+deferral still did not say who: $(cat "$VIGILANCE_LOG")"
+grep -q 'cannot be named' "$VIGILANCE_LOG" && fail "a NAMED holder was still
+logged as something that cannot be named: $(cat "$VIGILANCE_LOG")"
+# A source that ASKED and found nothing is not a holder, and must not be
+# dressed up as one: the old sentence stands.
+_reset
+duehook lock 10-fake '480 idle'
+_backdate open 9999
+_idle 900
+concurhook 20-c 1 'the timer saw none of it'
+holderhook 10-h 1 'nothing holds idle off in wayfire'
+"$VIGILANT" enforce >/dev/null 2>>"$T/stderr" || true
+grep -q 'deferred by something that cannot be named' "$VIGILANCE_LOG" \
+  || fail "a holder.d source answering NONE changed the deferral's words:
+$(cat "$VIGILANCE_LOG")"
 
 # --- 3. PAST THE REPORT BOUND: reported, with the source's own sentence -----
 _reset

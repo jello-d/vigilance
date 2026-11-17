@@ -1451,3 +1451,33 @@ f setup.sh
 t power-key
 -   if [ -n "$_others" ]; then
 +   if false; then
+
+= holder-crash-reads-as-none
+f libexec/hooks/wayfire-idle-holder
+t holder
+-         rc = NA
++         rc = 1
+
+= holder-never-reaches-watchdog
+f bin/vigilant
+t holder
+-     0) _wheld=held ;;
++     0) _wheld=unknown ;;
+
+= watchdog-ignores-compositor-holder
+f libexec/hooks/swayidle-watchdog
+t swayidle-watchdog
+- if [ "$_whrc" != 0 ] && [ "${VIGILANCE_IDLE_HELD:-unknown}" = held ]; then
++ if false; then
+
+= watchdog-hedges-when-both-asked
+f libexec/hooks/swayidle-watchdog
+t swayidle-watchdog
+- if [ "${VIGILANCE_IDLE_HELD:-unknown}" != none ]; then
++ if true; then
+
+= deferral-never-names-holder
+f bin/vigilant
+t unnamed-bound
+-     _uen="an idle inhibitor: $HOLDER_SAYS"
++     _uen="something that cannot be named"

@@ -56,7 +56,7 @@
 # why suspending now actually powers the monitor down instead of leaving it
 # lit. There is no minimum-rung special case; you simply cannot skip a rung.
 #
-# ELEVEN HOOK KINDS, and vigilant hardcodes NO mechanism in any of them. It
+# TWELVE HOOK KINDS, and vigilant hardcodes NO mechanism in any of them. It
 # knows nothing of logind, swayidle, swaylock or systemd; each is a hook that
 # binds vigilance to one environment. That is the whole point of the split.
 #
@@ -78,7 +78,7 @@
 #                                  LOCK, because suppressing one is a security
 #                                  failure and a redundant one is just noise.
 #
-# SIX ARE CROSS-CUTTING (`CROSS_KINDS`), sitting at the top of a scope rather
+# SEVEN ARE CROSS-CUTTING (`CROSS_KINDS`), sitting at the top of a scope rather
 # than under an edge, because each asks about the SEAT or the machine:
 #
 #   audit.d           DID IT       read an external event source and report
@@ -98,6 +98,9 @@
 #                                  been quiet? One it never saw pass is
 #                                  DEFERRED, not missed.
 #   cursor.d          HIDDEN       does something auto-hide the pointer here?
+#   holder.d          WHO          what is holding idle off at a level logind
+#                                  cannot see (the compositor's own idle
+#                                  inhibitors)? Names it, or says none is held.
 #
 # THE THREE QUESTIONS, which is why verify/due/audit are separate kinds and not
 # one cleverer kind. They differ in TENSE, and none can answer another:
@@ -305,7 +308,7 @@ NEVER_ENFORCED='suspend'
 
 # The cross-cutting tiers are NOT edges. Listing them beside edges is what once
 # made an audit hook read as wired while nothing would ever run it.
-CROSS_KINDS='audit alert concur cursor idle watchdog'
+CROSS_KINDS='audit alert concur cursor holder idle watchdog'
 
 _is_cross_kind() {   # <name>
   case " $CROSS_KINDS " in
@@ -2964,6 +2967,18 @@ _rep_deadlines() {
     _r_info "idle clock: none wired (idle.d); idle-anchored deadlines cannot"\
 " be measured here"
   fi
+  # WHO HOLDS IDLE OFF in the compositor, beside the clock it defers. INFO,
+  # because a held inhibitor is usually a call doing its job; the inhibit and
+  # unnamed bounds own a hold that goes on too long, and they now name it.
+  if [ -n "$(_hooks_for holder)" ]; then
+    _dhc=0
+    _holder_says || _dhc=$?
+    case "$_dhc" in
+      0) _r_info "idle held off in the compositor by: $HOLDER_SAYS" ;;
+      1) _r_ok "nothing holds idle off in the compositor" ;;
+      *) _r_info "who holds idle off in the compositor: cannot tell" ;;
+    esac
+  fi
   for _dr in $LADDER; do
     _de=$(_next_down "$_dr")
     if [ -z "$_de" ]; then continue; fi
@@ -4171,6 +4186,61 @@ _concur_says() {   # <quiet-secs> -> 0 concurs, 1 does not, 2 cannot tell
   return 2
 }
 
+# WHO IS HOLDING IDLE OFF where logind cannot see? `concur.d` can only say THAT
+# the idle timer heard nothing; a compositor keeps its own idle inhibitors
+# (Wayland's zwp_idle_inhibit_manager_v1, what a browser takes for a call),
+# and a leaked one, a legitimate call and a compositor bug all read alike from
+# outside. A `holder.d` source asks the compositor itself:
+#
+#   0  HELD, and HOLDER_SAYS is the source's own one-line description of who
+#   1  NONE: the source asked and nothing holds idle off at its level, which
+#      is what lets the watchdog call a silent timer WEDGED without hedging
+#   2  cannot tell (nothing wired, or every source declined)
+#
+# Answered ONCE per process and cached, because a pass asks it from the
+# watchdog and from the deferral alike, and two answers could disagree.
+HOLDER_DONE=
+HOLDER_RC=2
+HOLDER_SAYS=
+_holder_says() {   # -> 0 held (HOLDER_SAYS names it), 1 none, 2 cannot tell
+  if [ -n "$HOLDER_DONE" ]; then return "$HOLDER_RC"; fi
+  HOLDER_DONE=1
+  _hsl=$(_hooks_for holder)
+  [ -n "$_hsl" ] || return 2
+  _hsnone=
+  _hsifs=$IFS
+  IFS='
+'
+  for _hsh in $_hsl; do
+    IFS=$_hsifs
+    [ -n "$_hsh" ] || continue
+    _hso=$RUN_DIR/holder.$$
+    _hsrc=0
+    _hssd=$STATE_ROOT/$(basename "$_hsh")
+    mkdir -p "$_hssd" 2>/dev/null || true
+    VIGILANCE_KIND=holder VIGILANCE_STATE_DIR="$_hssd" PATH="$HOOK_PATH" \
+      $HOOK_TMO "$_hsh" > "$_hso" 2>/dev/null || _hsrc=$?
+    case $_hsrc in
+      0)  # ONE HOLDER NAMED IS ENOUGH: a source that can see one settles it,
+          # and a source that sees none must not overrule it.
+          HOLDER_SAYS=$(head -1 "$_hso" 2>/dev/null || true)
+          HOLDER_SAYS=${HOLDER_SAYS:-$(basename "$_hsh") reports a holder}
+          rm -f "$_hso" 2>/dev/null || true
+          IFS=$_hsifs
+          HOLDER_RC=0
+          return 0 ;;
+      1)  _hsnone=1 ;;
+      *)  ;;
+    esac
+    rm -f "$_hso" 2>/dev/null || true
+    IFS='
+'
+  done
+  IFS=$_hsifs
+  if [ -n "$_hsnone" ]; then HOLDER_RC=1; return 1; fi
+  return 2
+}
+
 # IS THE POINTER AUTO-HIDDEN? A cross-cutting question like idle time, and for
 # the same reason: it belongs to the SEAT rather than to any edge.
 #
@@ -4513,6 +4583,16 @@ _run_watchdogs() {   # -> 0 healthy or unknown, 1 something is not doing its job
   _wl=$(_hooks_for watchdog)
   if [ -z "$_wl" ]; then return 0; fi
   _wrc=0
+  # WHO HOLDS IDLE OFF, handed to every watchdog as held|none|unknown plus the
+  # holder's description: a silent idle timer is a wedge only if nothing holds
+  # idle off, and logind cannot see the compositor's own inhibitors.
+  _whc=0
+  _holder_says || _whc=$?
+  case $_whc in
+    0) _wheld=held ;;
+    1) _wheld=none ;;
+    *) _wheld=unknown ;;
+  esac
   _wifs=$IFS; IFS='
 '
   for _wh in $_wl; do
@@ -4523,6 +4603,7 @@ _run_watchdogs() {   # -> 0 healthy or unknown, 1 something is not doing its job
     _wsd=$STATE_ROOT/$(basename "$_wh")
     mkdir -p "$_wsd" 2>/dev/null || true
     VIGILANCE_KIND=watchdog VIGILANCE_STATE_DIR="$_wsd" \
+      VIGILANCE_IDLE_HELD="$_wheld" VIGILANCE_IDLE_HOLDER="$HOLDER_SAYS" \
       PATH="$HOOK_PATH" $HOOK_TMO "$_wh" >"$_wo" 2>/dev/null || _whrc=$?
     _wmsg=$(head -1 "$_wo" 2>/dev/null || true)
     rm -f "$_wo" 2>/dev/null || true
@@ -4950,13 +5031,21 @@ _unnamed_escalate() {   # <edge> <idle> <deadline> <span> -> 1 if a finding
   # actually observed, and a bare duration sends the reader hunting.
   _uew=
   if [ -n "${CONCUR_WHY:-}" ]; then _uew=" $CONCUR_WHY"; fi
+  # AND WHO, where a holder.d source can say: "cannot be named" was the honest
+  # sentence only while nothing could ask the compositor.
+  _uen="something that cannot be named"
+  _uenx="something this box cannot name"
+  if _holder_says; then
+    _uen="an idle inhibitor: $HOLDER_SAYS"
+    _uenx=$_uen
+  fi
 
   # THE START IS RECORDED ONCE, mirroring _inhibit_track's two records per
   # hold. Without it the log says nothing at all for the three hours before the
   # report bound, and the audit tier reads this file. A fresh span elapses
   # exactly 0, and a continuing one has had a pass interval to grow.
   if [ "$_ues" = 0 ]; then
-    _log "$_uee deferred by something that cannot be named; the idle timer has"\
+    _log "$_uee deferred by $_uen; the idle timer has"\
 " seen none of the ${_uei}s this clock measured"
   fi
 
@@ -4964,10 +5053,10 @@ _unnamed_escalate() {   # <edge> <idle> <deadline> <span> -> 1 if a finding
 
   if [ "$_ust" = force ]; then
     _log "UNNAMED-BOUND $_uee: deferred ${_ues}s past the ${INHIBIT_FORCE}s"\
-" bound by something that cannot be named, with the seat idle ${_uei}s;"\
+" bound by $_uen, with the seat idle ${_uei}s;"\
 " securing the session"
-    _alert unnamed-forced "'$_uee' has been deferred for ${_ues}s by something"\
-" this box cannot name, past the ${INHIBIT_FORCE}s bound, and nobody"\
+    _alert unnamed-forced "'$_uee' has been deferred for ${_ues}s by"\
+" $_uenx, past the ${INHIBIT_FORCE}s bound, and nobody"\
 " acknowledged it; securing the session now.$_uew"
     _defer_secure unnamed-bound "$UNNAMED_CLOCK"
     echo "enforce: $_uee deferred past the ${INHIBIT_FORCE}s bound by"\
@@ -4976,14 +5065,14 @@ _unnamed_escalate() {   # <edge> <idle> <deadline> <span> -> 1 if a finding
   fi
 
   if [ "$_ust" = report ]; then
-    _log "UNNAMED-HELD $_uee: deferred ${_ues}s by something that cannot be"\
-" named, holding off a ${_ued}s deadline"
+    _log "UNNAMED-HELD $_uee: deferred ${_ues}s by $_uen,"\
+" holding off a ${_ued}s deadline"
     # THE DURATIONS ARE SAFE IN THIS KEY: `_alert_repeat` normalises digit-runs
     # followed by `s` out of it, precisely because a message that counts upward
     # hashes as a fresh onset every pass and produced a 45-notification storm
     # once.
-    _alert unnamed-held "'$_uee' has been deferred for ${_ues}s by something"\
-" this box cannot name.$_uew If that is expected, 'vigilant timer reset'"\
+    _alert unnamed-held "'$_uee' has been deferred for ${_ues}s by"\
+" $_uenx.$_uew If that is expected, 'vigilant timer reset'"\
 " restarts the clock; otherwise find what is holding the idle timer off."
     echo "enforce: $_uee deferred ${_ues}s by something unnameable, past the"\
 " ${INHIBIT_REPORT}s report bound; reported"
@@ -5339,6 +5428,19 @@ _timer_show() {
       echo "  secure: disabled (VIGILANCE_INHIBIT_FORCE=0)"
     fi
     echo "  reset:  vigilant timer reset"
+  fi
+  # THE COMPOSITOR'S HOLDERS, which logind cannot see, on their own line so
+  # neither claim is mistaken for the other. Shown only where a holder.d
+  # source is wired: a line saying "cannot tell" on every box that has none
+  # would be noise about a question nobody asked it.
+  if [ -n "$(_hooks_for holder)" ]; then
+    _thc=0
+    _holder_says || _thc=$?
+    case "$_thc" in
+      0) echo "holder:   $HOLDER_SAYS" ;;
+      1) echo "holder:   nothing holds idle off in the compositor" ;;
+      *) echo "holder:   cannot tell; no holder.d source could ask" ;;
+    esac
   fi
 
   # --- the next edge, which is the countdown people mean by "when will it lock"

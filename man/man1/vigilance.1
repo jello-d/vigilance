@@ -311,12 +311,12 @@ the button IS the instrument; recovering first would burn the only evidence.
 It actuates nothing itself. Anything it should drive belongs in a hook, where it
 is one implementation instead of two.
 .SH HOOKS
-Eleven kinds, five of them keyed per EDGE
+Twelve kinds, five of them keyed per EDGE
 .RI ( <edge>.d ", " .verify.d ", " .report.d ", " .due.d ", " .block.d )
-and six CROSS\-CUTTING, which sit at the top of a scope because each asks about
-the seat or the machine rather than a transition
+and seven CROSS\-CUTTING, which sit at the top of a scope because each asks
+about the seat or the machine rather than a transition
 .RI ( audit.d ", " alert.d ", " idle.d ", " watchdog.d ", " concur.d ", "
-.IR cursor.d ).
+.IR cursor.d ", " holder.d ).
 They live in TWO SCOPES:
 .TP
 .I /etc/vigilance/hooks
@@ -993,6 +993,41 @@ being alive. A knob would have been a promise; a hook that returns 0 is a
 measurement, and the shipped
 .B cursor\-autohide
 answers for wayfire and for X11 helpers and declines elsewhere.
+.SS holder.d: who is holding idle off
+.PP
+A Wayland compositor keeps its own idle inhibitors, the ones a browser takes
+for a call or a wake lock, and logind cannot see them. While one is held the
+idle timer hears nothing, exactly as a wedged one does. A
+.I holder.d
+source asks the compositor and answers:
+.TP
+.B 0
+held; stdout is one line naming who (app, pid, whether its window is hidden,
+how long)
+.TP
+.B 1
+nothing holds idle off at this level
+.TP
+.B 78
+cannot ask. Any failure to ask MUST be 78 and never 1: "nothing held" is what
+lets a watchdog call a silent idle timer a wedge with certainty.
+.PP
+The runner asks once per pass. The answer names the holder in the deferral
+log and in the unnamed bound's report and force, in
+.B vigilant timer
+and in
+.BR report ,
+and reaches every
+.I watchdog.d
+hook as
+.B VIGILANCE_IDLE_HELD
+(held, none or unknown) and
+.BR VIGILANCE_IDLE_HOLDER .
+The shipped
+.I wayfire-idle-holder
+asks wayfire's
+.B idle-audit/list
+(the idle-audit plugin from wayfire-mods).
 .SS Policy and bounds
 .TP
 .B VIGILANCE_HOOK_TIMEOUT
