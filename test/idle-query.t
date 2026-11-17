@@ -39,6 +39,9 @@ _got() { cat "$T/q" 2>/dev/null; }
 command -v python3 >/dev/null 2>&1 || skip_now python3 "the test parses JSON"
 
 # --- 1. THE FACTS ------------------------------------------------------------
+# The user's path, even where the suite runs as root (the guest does): the
+# root path is section 2's subject and would answer 78 with no seat here.
+VIGILANCE_IDLE_AS_USER=1; export VIGILANCE_IDLE_AS_USER
 _idle 1234
 holderhook 1 'nothing holds idle off in wayfire'
 VIGILANCE_BLOCK_INHIBITED=''; export VIGILANCE_BLOCK_INHIBITED
@@ -86,6 +89,7 @@ _q
 _idle 1234
 
 # --- 2. AS ROOT: seat0's active graphical session, or 78 ----------------------
+unset VIGILANCE_IDLE_AS_USER
 mkdir -p "$T/stub"
 printf '#!/bin/sh\necho 0\n' > "$T/stub/id"
 cat > "$T/stub/loginctl" <<'EOF'
