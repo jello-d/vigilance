@@ -1,0 +1,14 @@
+[project]
+name = "vigilance-indicator"
+version = "0.1.0"
+description = "SNI tray indicator: who is keeping the screen awake"
+license = "Apache-2.0"
+requires-python = ">=3.9"
+dependencies = ["dbus-next>=0.2.3", "Pillow>=9"]
+
+[project.scripts]
+vigilance-indicator = "vigilance_indicator.__main__:main"
+
+[build-system]
+requires = ["setuptools>=77.0.1"]
+build-backend = "setuptools.build_meta"

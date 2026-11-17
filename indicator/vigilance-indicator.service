@@ -1,0 +1,21 @@
+# vigilance-indicator: the tray icon for who is keeping the screen awake.
+#
+# A PRESENTER over `vigilant holders --json`, acting only through `vigilant`
+# (holder-go, keep-awake), so it holds no state of its own and stopping it
+# changes nothing about what locks. Part of the graphical session, like the
+# tray host it registers with.
+[Unit]
+Description=vigilance-indicator: who is keeping the screen awake
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=exec
+Slice=app-graphical.slice
+Environment=PATH=%h/.local/bin:%h/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=%h/.local/bin/vigilance-indicator
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=graphical-session.target

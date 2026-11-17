@@ -1541,3 +1541,33 @@ f bin/vigilant
 t holder
 -   VIGILANCE_KIND=holder PATH="$HOOK_PATH" $HOOK_TMO "$_hgh" go "$_hgt" \
 +   VIGILANCE_KIND=holder PATH="$HOOK_PATH" $HOOK_TMO "$_hgh" go x \
+
+= payload-drops-the-tray-venv
+f setup.sh
+t indicator
+-     if [ -d "$_pv" ]; then mv -- "$_pv" "$_paynew/"; fi
++     :
+
+= core-check-asks-an-absent-tray
+f setup.sh
+t indicator
+-      && sh "$_root/indicator/setup.sh" installed 2>/dev/null; then
++      && true; then
+
+= indicator-check-trusts-enabled
+f indicator/setup.sh
+t indicator
+-   if [ "$_st" = active ]; then ok "$UNIT running"
++   if true; then ok "$UNIT running"
+
+= indicator-keep-awake-not-loudest
+f indicator/vigilance_indicator/__main__.py
+t indicator
+-         state = "awake"
++         state = "held"
+
+= indicator-ring-not-scaled
+f indicator/vigilance_indicator/__main__.py
+t indicator
+-         ring = max(0.0, min(1.0, float(left) / MAX))
++         ring = 1.0

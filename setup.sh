@@ -238,6 +238,12 @@ _payload_stage() {
   for _pd in bin lib libexec man; do
     if [ -d "$_root/$_pd" ]; then cp -R "$_root/$_pd" "$_paynew/$_pd"; fi
   done
+  # THE TRAY'S VENV IS CARRIED ACROSS, not rebuilt: it lives in this payload
+  # (indicator/setup.sh), and a swap that replaced the tree would delete it on
+  # every core install and leave the tray link pointing at nothing.
+  for _pv in "$_pay"/venv*; do
+    if [ -d "$_pv" ]; then mv -- "$_pv" "$_paynew/"; fi
+  done
   mkdir -p "$(dirname "$_pay")"
   if [ -e "$_pay" ]; then mv -- "$_pay" "$_payold"; fi
   mv -- "$_paynew" "$_pay"
@@ -1131,9 +1137,17 @@ do_check() {
     ok "no vigilance-lock-argv on PATH, so the provider uses a plain lock:"\
 " a supported configuration rather than a gap"
   fi
+  # THE OPTIONAL TRAY ICON, asked about only where a box chose to have it: on
+  # one that did not, a line about it would be noise about a question nobody
+  # asked. Its own check tells RUNNING from installed-but-not-running.
+  if [ -f "$_root/indicator/setup.sh" ] \
+     && sh "$_root/indicator/setup.sh" installed 2>/dev/null; then
+    sh "$_root/indicator/setup.sh" check || RC=1
+  fi
 }
 
-_U="usage: setup.sh [install|service|all|uninstall|check|test|version]"
+_U="usage: setup.sh [install|service|all|uninstall|check|test|version|\
+indicator [install|app|service|check|uninstall]]"
 case "${1:-install}" in
   install)   do_install ;;
   service)   do_service ;;
@@ -1141,6 +1155,9 @@ case "${1:-install}" in
   uninstall) do_uninstall ;;
   check)     do_check; exit "$RC" ;;
   test)      exec sh "$_root/test/run" ;;
+  # THE OPTIONAL TRAY ICON, its own installer, reached through here so an
+  # integrator enables it exactly as it enables usher's.
+  indicator) shift; exec sh "$_root/indicator/setup.sh" "${@:-install}" ;;
   version)   echo "$PKG $VERSION" ;;
   -h|--help|help) echo "$_U" ;;
   *) echo "setup.sh: unknown command '${1:-}'" >&2; echo "$_U" >&2; exit 2 ;;

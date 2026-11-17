@@ -568,6 +568,25 @@ ignored for the whole gap between the bounds **and** a seat genuinely idle past
 the edge's own deadline, so a call somebody is attending is never cut off.
 Either knob at `0` disables that half.
 
+## The tray indicator (optional)
+
+`indicator/` is an SNI tray icon for who is keeping the screen awake, modelled
+on usher's: a near-black tile whose FRAME is the state (quiet green, amber when
+something else holds the screen up, blue for your own keep-awake, grey when
+`vigilant` does not answer), with the keep-awake time drawn as a border that
+drains, scaled to the two-hour maximum so one hour fills half the frame. It is
+a PRESENTER: it polls `vigilant holders --json` every 5 seconds and acts only
+through `vigilant`, so stopping it changes nothing about what locks.
+
+    left click     go to the holder's window (each click the next one); with
+                   nothing else holding, `keep-awake cycle` (1h, 2h, off)
+    scroll         keep-awake one hour more (up) or less (down)
+    middle click   keep-awake off
+
+It is an install-time OPTION (`./setup.sh indicator`, its own venv inside the
+payload, a `--user` unit), and `./setup.sh check` reports it running or
+installed-but-not-running only on a box that installed it.
+
 ## Install
 
     ./setup.sh install     symlink the tools (+ man) into ~/.local
@@ -576,6 +595,8 @@ Either knob at `0` disables that half.
     ./setup.sh check       tools, deps, plugins, units, man, device access
     ./setup.sh test        the in-repo suite
     ./setup.sh uninstall   remove what install placed
+    ./setup.sh indicator   OPTIONAL: the tray icon (install|app|service|
+                           check|uninstall; default install)
 
 `install` is the tools alone, which is what a provisioning layer delegates to.
 `VIGILANCE_INSTALL_COPY=1` copies instead of symlinking, for a system prefix a
