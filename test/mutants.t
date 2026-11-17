@@ -90,6 +90,9 @@ while IFS= read -r _line; do
   case "$_line" in
     'f '*) case "${_line#??}" in
              bin/*|lib/*|libexec/*|systemd/*|install|setup.sh) ;;
+             # The optional tray and the acpid rule: shipped, installed by
+             # setup.sh on request, so as much the package as libexec is.
+             indicator/*|acpi/*) ;;
              *) fail "a record targets '${_line#??}', which is not shipped
 code. The corpus must guard what the package installs, not a fixture" ;;
            esac ;;
