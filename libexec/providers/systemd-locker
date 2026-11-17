@@ -31,8 +31,9 @@ edge=${1:-${VIGILANCE_EDGE:-}}
 # Self-locate vigilant for the ExecStopPost, for the same reason the logind
 # trigger does: the transient unit will not have ~/.local/bin on its PATH, so
 # `command -v` here would bake in an empty path and the unlock edge would
-# never be crossed.
-_vigilant=$(dirname "$_self")/../../../bin/vigilant
+# never be crossed. ../../bin, since the libexec flattening removed a level;
+# see logind-lock for why a wrong relative path went unnoticed.
+_vigilant=$(dirname "$_self")/../../bin/vigilant
 if [ ! -x "$_vigilant" ]; then
   _vigilant=$(command -v vigilant 2>/dev/null || true)
 fi

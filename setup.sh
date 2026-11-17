@@ -84,9 +84,9 @@ _man=$_shr/man
 # libexec at all; it is the PLUGINS that locate the COMMAND, each one resolving
 # its own real path and walking up:
 #
-#   libexec/vigilance/hooks/*      . "$(dirname "$_self")/../hook_lib"
-#   libexec/vigilance/triggers/*   ../../../bin/vigilant
-#   libexec/vigilance/providers/*  ../../../bin/vigilant
+#   libexec/hooks/*      . "$(dirname "$_self")/../../lib/hook_lib"
+#   libexec/triggers/*   ../../bin/vigilant
+#   libexec/providers/*  ../../bin/vigilant
 #
 # So the payload must contain `bin/` AND `libexec/` at exactly that relative
 # depth. Dropping `bin/` from the payload on the grounds that `vigilant` is also
@@ -363,7 +363,7 @@ do_install() {
     else
       # THE STRUCK ROOT. `~/.local/libexec/<pkg>` is gone as a concept: it was
       # a symlink into the clone, so it dangled on every re-clone, and the
-      # plugins live in the payload now where their `../../../bin/vigilant`
+      # plugins live in the payload now where their `../../bin/vigilant`
       # resolves. RETIRED here rather than only on uninstall, because install is
       # what every box runs and a conversion that waits for an uninstall never
       # happens.
@@ -933,13 +933,13 @@ do_check() {
   real tree, because a link into the clone dangles on the next re-clone"
     fi
     # THE PLUGINS' OWN DEPENDENCY, asserted rather than assumed. A hook finds
-    # `hook_lib` at `../hook_lib` and a trigger finds the command at
-    # `../../../bin/vigilant`, both from inside the payload, so bin and libexec
+    # `hook_lib` at `../../lib/hook_lib` and a trigger finds the command at
+    # `../../bin/vigilant`, both from inside the payload, so bin and libexec
     # have to sit at that exact relative depth. If they do not, nothing fails
     # loudly: `_hooks_in` lists a hook only `if [ -x ]`, so a plugin that cannot
     # resolve its dependency stops EXISTING as far as the runner is concerned.
     if [ -x "$_pay/bin/vigilant" ]; then
-      ok "plugins can reach vigilant at ../../../bin/vigilant"
+      ok "plugins can reach vigilant at ../../bin/vigilant"
     else
       bad "no $_pay/bin/vigilant, so every trigger and provider in the payload
   resolves its command to nothing and the hooks silently stop existing"

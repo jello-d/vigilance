@@ -33,9 +33,9 @@ done
 # AND THE PLUGINS CAN STILL FIND THE COMMAND, which is this package's own
 # invariant and the one a reader is most likely to break. `bin/vigilant` reads
 # no libexec at all; it is the PLUGINS that locate the COMMAND, each resolving
-# its own real path and walking up: a hook sources `../hook_lib`, and a trigger
-# or provider execs `../../../bin/vigilant`. So bin and libexec must sit at that
-# exact relative depth INSIDE the payload.
+# its own real path and walking up: a hook sources `../../lib/hook_lib`, a
+# trigger or provider execs `../../bin/vigilant`. So bin, lib and libexec must
+# sit at that exact relative depth INSIDE the payload.
 #
 # DROPPING bin/ FROM THE PAYLOAD WOULD LOOK HARMLESS, since `vigilant` is also
 # published system-wide, and it would silently disable every hook: `_hooks_in`
@@ -55,6 +55,30 @@ env VIGILANCE_KIND=verify VIGILANCE_EDGE=sleep \
     sh "$PAY/libexec/hooks/screen-dark" sleep >/dev/null 2>&1 \
   || fail "a shipped hook could not run from inside the payload, so its
 relative source of hook_lib does not resolve there"
+# AND THE TRIGGER AND PROVIDER, likewise BY RUNNING THEM, with `vigilant` OFF
+# PATH. Both computed ../../../bin/vigilant for a month after the libexec
+# flattening removed a level, and no test noticed, because each falls back to
+# `command -v vigilant` and every box here has it on PATH. Dead self-location
+# reads exactly like working self-location until PATH lacks the command, and
+# for the provider that is the ExecStopPost which crosses the unlock edge.
+#
+# The PATH farm holds only what a script needs to RESOLVE, so each one stops
+# right after (no gdbus, no systemd-run): nothing here can start a real unit.
+mkdir -p "$T/farm"
+for _c in readlink dirname sh cat; do
+  ln -sf "$(command -v "$_c")" "$T/farm/$_c"
+done
+for _p in triggers/logind-lock providers/systemd-locker; do
+  _rc=0
+  env -i PATH="$T/farm" HOME="$T" VIGILANCE_EDGE=lock \
+    sh "$PAY/libexec/$_p" lock >/dev/null 2>"$T/selfloc" || _rc=$?
+  if grep -q 'cannot locate vigilant' "$T/selfloc"; then
+    fail "$_p, run from inside the payload with vigilant off PATH, could not
+find the command at its own relative path, so it only ever worked through the
+PATH fallback:
+$(cat "$T/selfloc")"
+  fi
+done
 [ -e "$CFG/systemd/user/vigilance-logind.service" ] \
   && fail "install linked the --user unit (should be service-only)"
 # Same for the supervision timer: `install` is bin + man, nothing that runs.

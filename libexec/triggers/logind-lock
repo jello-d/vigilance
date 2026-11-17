@@ -24,14 +24,17 @@ set -eu
 # /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin and does NOT
 # include ~/.local/bin, so `command -v vigilant` fails and this exited 1 in a
 # restart loop the moment it was deployed. This plugin lives at
-# <prefix>/libexec/vigilance/triggers/, so vigilant is ../../../bin/vigilant
-# from its own resolved path.
+# <prefix>/libexec/triggers/, so vigilant is ../../bin/vigilant from its own
+# resolved path. It said ../../../ for a month after the libexec flattening
+# removed a level, and nothing noticed, because the PATH fallback below quietly
+# answered instead: self-location that is dead looks exactly like
+# self-location that works, until PATH lacks the command.
 #
 # This is the same assumption that has now bitten four times in this stack
 # (swaylock's hardcoded helper path, the wayfire autostart, HOME under
 # cloud-init, and here). A service context is not a login shell.
 _self=$(readlink -f "$0")
-VIGILANT=${VIGILANT:-$(dirname "$_self")/../../../bin/vigilant}
+VIGILANT=${VIGILANT:-$(dirname "$_self")/../../bin/vigilant}
 if [ ! -x "$VIGILANT" ]; then
   VIGILANT=$(command -v vigilant 2>/dev/null || true)
 fi
