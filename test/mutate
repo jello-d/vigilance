@@ -75,9 +75,13 @@ _parses() {   # file -> 0 if it still parses under ITS OWN shell
   case "$1" in
     *.service|*.timer|*.conf|*.ini) return 0 ;;
   esac
+  # By SHEBANG, as tools.t does: `dash -n` on a python hook fails on its first
+  # line and reported a perfectly good mutation as invalid code.
   case "$(head -1 "$1")" in
-    *bash) bash -n "$1" 2>/dev/null ;;
-    *)     dash -n "$1" 2>/dev/null ;;
+    *bash)   bash -n "$1" 2>/dev/null ;;
+    *python*) python3 -c 'import ast,sys; ast.parse(open(sys.argv[1]).read())' \
+                "$1" 2>/dev/null ;;
+    *)       dash -n "$1" 2>/dev/null ;;
   esac
 }
 
