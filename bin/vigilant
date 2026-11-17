@@ -3109,6 +3109,12 @@ cmd_holder_go() {   # <source>:<token>
 # (their runtime dir is where the record and the compositor socket live); a
 # greeter, a non-graphical session or no session at all is 78.
 cmd_idle() {   # [--json]
+  # A ROOT SERVICE PARSES THIS, so an unknown argument is refused rather than
+  # answered in the text form, which would read as a malformed reply.
+  case "${1:-}" in
+    '' | --json) ;;
+    *) echo "usage: vigilant idle [--json]" >&2; return 2 ;;
+  esac
   if [ "$(id -u)" = 0 ] && [ -z "${VIGILANCE_IDLE_AS_USER:-}" ]; then
     _iar=0
     _idle_as_seat_user "$@" || _iar=$?

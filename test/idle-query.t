@@ -75,6 +75,10 @@ case "$(_got)" in "1234 False True True"*) ;;
   *) fail "keep-awake was not reported: '$(_got)'" ;; esac
 "$VIGILANT" keep-awake off > /dev/null
 
+# A typo from a root service must not come back as an answer in the text form.
+_rc=0; "$VIGILANT" idle --jsno > /dev/null 2>&1 || _rc=$?
+[ "$_rc" = 2 ] || fail "an unknown argument was answered (rc=$_rc)"
+
 # No idle clock is "cannot tell", never a number.
 rm -rf "$VIGILANCE_HOOK_ROOT/idle.d"
 _q
