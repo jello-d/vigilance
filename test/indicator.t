@@ -16,10 +16,15 @@ set -eu
 harness_init indicator
 
 IND=$HERE/indicator
-command -v python3 >/dev/null 2>&1 || skip "needs python3"
-python3 -c 'import PIL' 2>/dev/null || skip "needs Pillow for the drawing"
+command -v python3 >/dev/null 2>&1 || skip_now python3 "the tray is python"
+# PILLOW GATES THE PRESENTER ONLY. The installer and the payload carry need
+# none of it, so a box without it still checks those, and the pass line says
+# what was not checked rather than reading as a full pass.
+_vskip=
+if python3 -c 'import PIL' 2>/dev/null; then :; else _vskip=" pillow"; fi
 
 # --- 1. THE PRESENTER ---------------------------------------------------------
+if [ -z "$_vskip" ]; then
 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=$IND \
   python3 - "$T" <<'PYEOF' > "$T/py.out" 2>&1 || true
 import sys
@@ -90,6 +95,7 @@ for st in ("quiet", "held", "awake", "down"):
 print("FAIL " + "; ".join(fails) if fails else "OK")
 PYEOF
 [ "$(tail -1 "$T/py.out")" = OK ] || fail "the presenter: $(cat "$T/py.out")"
+fi
 
 # --- 2. THE INSTALLER, with systemctl stubbed --------------------------------
 mkdir -p "$T/stub" "$T/venv/bin" "$T/bin" "$T/cfg"
@@ -161,4 +167,4 @@ the payload its own contents"
 
 pass "the presenter (states, clicks, a half-filled border for 1h), an\
  optional installer that tells running from stopped, and a payload swap\
- that keeps the tray's venv"
+ that keeps the tray's venv${_vskip:+ (not checked:$_vskip)}"

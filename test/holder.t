@@ -23,7 +23,7 @@ set -eu
 scenario_init holder
 
 HOOK=$HERE/libexec/hooks/wayfire-idle-holder
-command -v python3 >/dev/null 2>&1 || skip "needs python3"
+command -v python3 >/dev/null 2>&1 || skip_now python3 "the hook is python"
 
 # --- the fake compositor ----------------------------------------------------
 # Answers every request with the bytes in $T/reply, framed as wayfire frames
