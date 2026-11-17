@@ -30,7 +30,7 @@ command -v python3 >/dev/null 2>&1 || skip "needs python3"
 # them (native-endian 32-bit length, then the body). `raw:` sends the rest
 # unframed and `close` hangs up, which are the two ways a reply can be wrong.
 cat > "$T/fakewf" <<'PYEOF'
-import os, socket, struct, sys
+import json, os, socket, struct, sys
 path, reply_file = sys.argv[1], sys.argv[2]
 srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
 srv.bind(path); srv.listen(4)
@@ -40,10 +40,13 @@ while True:
     with conn:
         try:
             (n,) = struct.unpack("=I", conn.recv(4))
-            conn.recv(n)
+            method = json.loads(conn.recv(n)).get("method", "")
         except Exception:
             continue
-        reply = open(reply_file, "rb").read()
+        # A reply file per method where the test wrote one, so view-info and
+        # focus-view can answer differently from idle-audit/list.
+        alt = "%s.%s" % (reply_file, method.replace("/", "_"))
+        reply = open(alt if os.path.exists(alt) else reply_file, "rb").read()
         if reply == b"close":
             continue
         if reply.startswith(b"raw:"):
@@ -188,5 +191,93 @@ case "$(cat "$T/handed" 2>/dev/null)" in unknown\|*) ;;
     "$T/handed" 2>/dev/null)" ;;
 esac
 
-pass "the hook names, says none, flags drift, and reads every bad reply as\
- n/a; the runner shows it, hands watchdogs held|none|unknown, asks once"
+# --- 7. WHOSE, THE JSON FORM, AND GOING THERE --------------------------------
+# An enclave window carries a security context; its holder is that enclave's,
+# not the pid of the proxy that relays its traffic.
+_reply "{\"inhibited\": true, \"consistent\": true, \"inhibitors\": [
+  {\"pid\": 7, \"comm\": \"severance-disp\", \"since\": null, \"view-id\": 32,
+   \"app-id\": \"google-chrome\", \"visible\": false}]}"
+printf '%s' '{"result": "ok", "info": {"id": 32, "security-context":
+  {"sandbox-engine": "severance", "app-id": "", "instance-id": "titan"}}}' \
+  > "$T/reply.window-rules_view-info"
+_ask
+case "$(_said)" in "google-chrome (titan, pid 7 severance-disp, hidden)") ;;
+  *) fail "an enclave holder was not attributed to its enclave: $(_said)" ;;
+esac
+RC=0
+env WAYFIRE_SOCKET="$SOCK" VIGILANCE_KIND=holder VIGILANCE_HOLDER_FORMAT=json \
+  python3 "$HOOK" > "$T/said" 2>&1 || RC=$?
+_j=$(python3 -I -c 'import json,sys
+o = json.loads(open(sys.argv[1]).read())
+print(o["who"], o["owner"], o["window"], o["visible"], o["go"])' "$T/said" \
+  2>&1)
+[ "$_j" = "google-chrome titan 32 False view:32" ] || fail "the JSON form read
+'$_j' from: $(_said)"
+printf '%s' '{"result": "ok"}' > "$T/reply.window-rules_focus-view"
+RC=0
+env WAYFIRE_SOCKET="$SOCK" VIGILANCE_KIND=holder python3 "$HOOK" go view:32 \
+  > "$T/said" 2>&1 || RC=$?
+[ "$RC" = 0 ] || fail "go view:32 with wayfire agreeing answered $RC: $(_said)"
+printf '%s' '{"error": "no such view"}' > "$T/reply.window-rules_focus-view"
+RC=0
+env WAYFIRE_SOCKET="$SOCK" VIGILANCE_KIND=holder python3 "$HOOK" go view:32 \
+  > "$T/said" 2>&1 || RC=$?
+[ "$RC" = 1 ] || fail "a refused focus answered $RC"
+RC=0
+env WAYFIRE_SOCKET="$SOCK" VIGILANCE_KIND=holder python3 "$HOOK" go 'x;rm' \
+  > "$T/said" 2>&1 || RC=$?
+[ "$RC" = 1 ] || fail "a token the hook never issued was acted on ($RC)"
+rm -f "$T/reply.window-rules_view-info" "$T/reply.window-rules_focus-view"
+
+# --- 8. vigilant holders: every source, as text and as one object per line --
+mkdir -p "$T/stub"
+cat > "$T/stub/systemd-inhibit" <<'EOF'
+#!/bin/sh
+cat <<'ROWS'
+WHO                UID  USER   PID  COMM    WHAT          WHY       MODE
+Zoom Meeting       997  titan  555  zoom    idle          in a call block
+swayidle           1000 jello  66   swayidl sleep         preventing delay
+ROWS
+EOF
+chmod +x "$T/stub/systemd-inhibit"
+holderhook 0 'google-chrome (pid 42 chrome, hidden) held 900s'
+printf '%s\n' '#!/bin/sh' \
+  'if [ "${VIGILANCE_HOLDER_FORMAT:-}" = json ]; then' \
+  '  echo "{\"who\": \"google-chrome\", \"go\": \"view:9\", \"text\": \"g\"}"' \
+  'else echo "google-chrome (pid 42 chrome, hidden)"; fi' \
+  'if [ "$1" = go ]; then echo "$2" > '"'$T/went'"'; exit 0; fi' \
+  'exit 0' > "$VIGILANCE_HOOK_ROOT/holder.d/10-h"
+chmod +x "$VIGILANCE_HOOK_ROOT/holder.d/10-h"
+"$VIGILANT" keep-awake 1h > /dev/null
+PATH="$T/stub:$PATH" "$VIGILANT" holders > "$T/h.txt" 2>&1 || true
+for _want in 'keep-awake: 3' 'logind: Zoom Meeting (uid 997, pid 555)' \
+             '10-h: google-chrome (pid 42 chrome, hidden)'; do
+  grep -q "^$_want" "$T/h.txt" || fail "holders did not list '$_want':
+$(cat "$T/h.txt")"
+done
+grep -q swayidle "$T/h.txt" && fail "a sleep-only inhibitor was listed as
+holding the screen up: $(cat "$T/h.txt")"
+PATH="$T/stub:$PATH" "$VIGILANT" holders --json > "$T/h.json" 2>&1 || true
+_j=$(python3 -I -c 'import json,sys
+rows = [json.loads(l) for l in open(sys.argv[1]) if l.strip()]
+print(" ".join("%s/%s/%s" % (r["source"], r["who"], r.get("go")) for r in rows))
+' "$T/h.json" 2>&1)
+[ "$_j" = "keep-awake/keep-awake/None logind/Zoom Meeting/None"\
+" 10-h/google-chrome/view:9" ] || fail "holders --json read '$_j' from:
+$(cat "$T/h.json")"
+"$VIGILANT" keep-awake off > /dev/null
+
+# --- 9. holder-go routes the token back to the source that issued it --------
+rm -f "$T/went"
+"$VIGILANT" holder-go 10-h:view:9 > /dev/null 2>&1 || fail "holder-go to a
+wired source failed"
+[ "$(cat "$T/went" 2>/dev/null)" = view:9 ] || fail "the source was handed
+'$(cat "$T/went" 2>/dev/null)', not its own token view:9"
+for _bad in 'nope:view:9' 'view9' '../x:view:9'; do
+  _rc=0; "$VIGILANT" holder-go "$_bad" > /dev/null 2>&1 || _rc=$?
+  [ "$_rc" = 2 ] || fail "holder-go '$_bad' answered $_rc, want 2"
+done
+
+pass "the hook names (whose included), says none, flags drift, reads every\
+ bad reply as n/a, emits JSON and goes there; holders merges every source,\
+ holder-go routes home; the runner hands watchdogs held|none|unknown, once"

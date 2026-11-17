@@ -21,6 +21,20 @@ compositor plugin's own inhibitor; none in this fleet takes one).
 Durations are written as `<n>s`, which the alert dedup normalises away, so a
 hold that grows does not re-notify on every pass.
 
+WHOSE: a window's security context (wayfire-mods' view-info patch) names an
+enclave by its instance id, so an enclave's holder reads as "titan" rather
+than as the pid of severance-display, which proxies its Wayland traffic. No
+context means a personal window.
+
+TWO MORE MODES, for `vigilant holders` and `vigilant holder-go`:
+
+    VIGILANCE_HOLDER_FORMAT=json  one JSON object per holder instead of the
+                                  line: who, owner, pid, comm, window,
+                                  visible, since, and a `go` token
+    go <token>                    bring the holder's window into view
+                                  (window-rules/focus-view, which switches to
+                                  its workspace): 0 done, 1 refused, 78 n/a
+
 The IPC is wayfire's own framing (a native-endian 32-bit length, then JSON)
 over the socket in WAYFIRE_SOCKET, or any wayfire-*.socket in the runtime dir.
 Standard library only: the fleet's pywayfire is not something a hook may
@@ -55,8 +69,8 @@ def recv_exact(sock, n):
     return data
 
 
-def ask(path):
-    body = json.dumps({"method": "idle-audit/list", "data": {}}).encode()
+def ask(path, method="idle-audit/list", data=None):
+    body = json.dumps({"method": method, "data": data or {}}).encode()
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
         sock.settimeout(5)
         sock.connect(path)
@@ -65,9 +79,27 @@ def ask(path):
         return json.loads(recv_exact(sock, length))
 
 
-def describe(inh, now):
+def owner(path, inh):
+    """An enclave's instance id, "personal", or None without a window."""
+    view = inh.get("view-id")
+    if view is None:
+        return None
+    try:
+        info = ask(path, "window-rules/view-info", {"id": view}).get("info")
+    except (OSError, ValueError, struct.error, AttributeError):
+        return None
+    ctx = (info or {}).get("security-context")
+    if ctx is None:
+        return "personal"
+    return ctx.get("instance-id") or ctx.get("app-id") or "sandbox"
+
+
+def describe(inh, now, whose=None):
     name = inh.get("app-id") or inh.get("comm") or "pid %s" % inh.get("pid")
-    notes = [("pid %s %s" % (inh.get("pid"), inh.get("comm", ""))).strip()]
+    notes = []
+    if whose and whose != "personal":
+        notes.append(whose)
+    notes.append(("pid %s %s" % (inh.get("pid"), inh.get("comm", ""))).strip())
     if inh.get("view-id") is None:
         notes.append("no window")
     elif not inh.get("visible"):
@@ -79,30 +111,72 @@ def describe(inh, now):
     return text
 
 
-def main():
-    if os.environ.get("VIGILANCE_KIND", "holder") != "holder":
-        return NA
-    reply = None
+def answering():
+    """(socket path, idle-audit reply) of the first wayfire that answers."""
     for path in sockets():
         try:
             reply = ask(path)
         except (OSError, ValueError, struct.error):
             continue
         if isinstance(reply, dict) and "inhibitors" in reply:
-            break
-        reply = None
+            return path, reply
+    return None, None
+
+
+def go(token):
+    if not token.startswith("view:") or not token[5:].isdigit():
+        print("not a token this hook issued: %s" % token)
+        return 1
+    path, _ = answering()
+    if path is None:
+        print("no wayfire with the idle-audit plugin answered")
+        return NA
+    reply = ask(path, "window-rules/focus-view", {"id": int(token[5:])})
+    if isinstance(reply, dict) and reply.get("result") == "ok":
+        return 0
+    print("wayfire refused: %s" % reply)
+    return 1
+
+
+def main():
+    if os.environ.get("VIGILANCE_KIND", "holder") != "holder":
+        return NA
+    if len(sys.argv) >= 3 and sys.argv[1] == "go":
+        return go(sys.argv[2])
+    path, reply = answering()
     if reply is None:
         print("no wayfire with the idle-audit plugin answered")
         return NA
     holders = reply.get("inhibitors") or []
     if holders:
         now = int(time.time())
-        print("; ".join(describe(h, now) for h in holders))
+        whose = [owner(path, h) for h in holders]
+        if os.environ.get("VIGILANCE_HOLDER_FORMAT") == "json":
+            for h, w in zip(holders, whose):
+                since = h.get("since")
+                print(json.dumps({
+                    "who": h.get("app-id") or h.get("comm") or "",
+                    "owner": w, "pid": h.get("pid"), "comm": h.get("comm"),
+                    "window": h.get("view-id"),
+                    "visible": bool(h.get("visible")),
+                    "held": (now - since) if isinstance(since, int)
+                    and since > 0 and now >= since else None,
+                    "go": "view:%s" % h["view-id"]
+                    if h.get("view-id") is not None else None,
+                    "text": describe(h, now, w)}))
+            return 0
+        print("; ".join(describe(h, now, w) for h, w in zip(holders, whose)))
         return 0
     if reply.get("inhibited"):
-        print("nothing that exists: wayfire says idle is inhibited and no"
-              " client holds an inhibitor, so its counter has drifted from"
-              " its inhibitors (a wayfire bug)")
+        text = ("nothing that exists: wayfire says idle is inhibited and no"
+                " client holds an inhibitor, so its counter has drifted from"
+                " its inhibitors (a wayfire bug)")
+        if os.environ.get("VIGILANCE_HOLDER_FORMAT") == "json":
+            print(json.dumps({"who": "wayfire", "owner": None, "pid": None,
+                              "comm": None, "window": None, "visible": False,
+                              "held": None, "go": None, "text": text}))
+        else:
+            print(text)
         return 0
     print("nothing holds idle off in wayfire")
     return 1

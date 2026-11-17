@@ -90,6 +90,11 @@ check enforces which invariant: `THEORY.md`.
                               cycle, more, less); never the battery suspend
                               or a lid close, and on expiry the held lock
                               happens if the seat stayed idle
+    vigilant holders [--json] who is holding the screen up: keep-awake,
+                              logind's idle inhibitors, and every holder.d
+                              source (one JSON object per line with --json)
+    vigilant holder-go <id>   bring that holder's window into view, routed
+                              back to the source that issued the id
 
 The verb set is closed and the **argument is the state**, so a new rung can
 never collide with a command name.

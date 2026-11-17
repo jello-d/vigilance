@@ -1517,3 +1517,27 @@ f bin/vigilant
 t keep-awake
 -     printf '%s %s %s\n' "${_to:-$3}" "$(date +%s)" "$(_src_tag)" \
 +     printf '%s %s %s\n' "$1" "$(date +%s)" "$(_src_tag)" \
+
+= holder-enclave-reads-as-personal
+f libexec/hooks/wayfire-idle-holder
+t holder
+-     return ctx.get("instance-id") or ctx.get("app-id") or "sandbox"
++     return "personal"
+
+= holder-go-trusts-any-token
+f libexec/hooks/wayfire-idle-holder
+t holder
+-     if not token.startswith("view:") or not token[5:].isdigit():
++     if not token:
+
+= holders-lists-sleep-inhibitors
+f bin/vigilant
+t holder
+-         if (p[j] == "idle") {
++         if (1) {
+
+= holder-go-loses-the-token
+f bin/vigilant
+t holder
+-   VIGILANCE_KIND=holder PATH="$HOOK_PATH" $HOOK_TMO "$_hgh" go "$_hgt" \
++   VIGILANCE_KIND=holder PATH="$HOOK_PATH" $HOOK_TMO "$_hgh" go x \

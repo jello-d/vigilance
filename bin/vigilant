@@ -24,6 +24,8 @@
 #   vigilant timer [reset]    the deferral clocks; `reset` acknowledges a hold
 #   vigilant keep-awake [..]  hold the idle lock and blank off, 1h or 2h, then
 #                             lock on expiry if the seat stayed idle
+#   vigilant holders [--json] who is holding the screen up, every source
+#   vigilant holder-go <id>   bring that holder's window into view
 #   vigilant enforce          the supervision loop, for a timer
 #   vigilant audit            did past events produce the edges they should?
 #
@@ -2970,6 +2972,120 @@ _trig_holder() {   # <handler> -> "a, b" or nothing
       }
     }
     END { if (s != "") print s }'
+}
+
+# logind's idle inhibitors as `<who>\t<uid>\t<pid>` lines, located the same way
+# as _trig_holder (UID and PID are numeric and two fields apart), so the two
+# readers cannot come to disagree about where WHO ends.
+_logind_idle_rows() {
+  command -v systemd-inhibit >/dev/null 2>&1 || return 0
+  systemd-inhibit --list 2>/dev/null | awk '
+    {
+      u = 0
+      for (i = 1; i + 2 <= NF; i++) {
+        if ($i ~ /^[0-9]+$/ && $(i + 2) ~ /^[0-9]+$/) { u = i; break }
+      }
+      if (u == 0 || u + 4 > NF) next
+      n = split($(u + 4), p, ":")
+      for (j = 1; j <= n; j++) {
+        if (p[j] == "idle") {
+          who = $1
+          for (k = 2; k < u; k++) who = who " " $k
+          printf "%s\t%s\t%s\n", who, $u, $(u + 2)
+          break
+        }
+      }
+    }'
+}
+
+# A shell string as a JSON string: control characters (newlines included)
+# become spaces, then backslash and quote are escaped. The holders view is
+# read by a program, and a WHO with a quote in it must not end the object.
+_json_str() {   # <text>
+  printf '%s' "$1" | tr '\001-\037' ' ' \
+    | sed 's/\\/\\\\/g; s/"/\\"/g; s/^/"/; s/$/"/'
+}
+
+# WHO IS HOLDING THE SCREEN UP, every source at once: the user's own
+# keep-awake, logind's idle inhibitors, and each holder.d source. Text for a
+# person, or with --json one object per line for a program (the tray
+# indicator). Every object carries `source`, `who` and `text`; a holder whose
+# window can be brought into view carries `go`, which `holder-go` takes back
+# to the source that issued it, so vigilant never learns how.
+cmd_holders() {   # [--json]
+  _hj=
+  if [ "${1:-}" = --json ]; then _hj=1; fi
+  _hka=$(_keep_awake_left)
+  if [ -n "$_hka" ]; then
+    _hks=$(cut -d' ' -f2 "$KEEP_AWAKE" 2>/dev/null || true)
+    case "${_hks:-}" in '' | *[!0-9]*) _hks=$_hka ;; esac
+    if [ -n "$_hj" ]; then
+      printf '{"source": "keep-awake", "who": "keep-awake", "left": %s,'\
+' "set": %s, "go": null, "text": "keep-awake, %ss left"}\n' \
+        "$_hka" "$_hks" "$_hka"
+    else
+      echo "keep-awake: ${_hka}s left (of ${_hks}s)"
+    fi
+  fi
+  _logind_idle_rows | while IFS='	' read -r _hw _hu _hp; do
+    [ -n "$_hw" ] || continue
+    if [ -n "$_hj" ]; then
+      printf '{"source": "logind", "who": %s, "uid": %s, "pid": %s,'\
+' "go": null, "text": %s}\n' "$(_json_str "$_hw")" "$_hu" "$_hp" \
+        "$(_json_str "$_hw (uid $_hu, pid $_hp)")"
+    else
+      echo "logind: $_hw (uid $_hu, pid $_hp)"
+    fi
+  done
+  _hhl=$(_hooks_for holder)
+  [ -n "$_hhl" ] || return 0
+  printf '%s\n' "$_hhl" | while IFS= read -r _hh; do
+    [ -n "$_hh" ] || continue
+    _hn=$(basename "$_hh")
+    _hho=$RUN_DIR/holders.$$
+    _hhrc=0
+    VIGILANCE_KIND=holder VIGILANCE_HOLDER_FORMAT=${_hj:+json} \
+      VIGILANCE_STATE_DIR="$STATE_ROOT/$_hn" PATH="$HOOK_PATH" \
+      $HOOK_TMO "$_hh" > "$_hho" 2>/dev/null || _hhrc=$?
+    if [ "$_hhrc" = 0 ]; then
+      while IFS= read -r _hl; do
+        [ -n "$_hl" ] || continue
+        if [ -z "$_hj" ]; then echo "$_hn: $_hl"; continue; fi
+        # ONLY AN OBJECT IS PASSED THROUGH, with the source spliced in first,
+        # so a hook that printed something else cannot break the stream.
+        case "$_hl" in
+          '{'*) printf '{"source": %s, %s\n' "$(_json_str "$_hn")" \
+                  "${_hl#\{}" ;;
+        esac
+      done < "$_hho"
+    fi
+    rm -f "$_hho" 2>/dev/null || true
+  done
+  return 0
+}
+
+# BRING A HOLDER INTO VIEW: `<source>:<token>`, exactly as `holders --json`
+# issued it. Routed back to the holder.d hook of that name, which alone knows
+# what its token means: 0 done, 1 refused, 2 no such source, 78 cannot.
+cmd_holder_go() {   # <source>:<token>
+  _hgs=${1%%:*}
+  _hgt=${1#*:}
+  case "$_hgs" in '' | *[!A-Za-z0-9._-]*)
+    echo "vigilant: holder-go wants <source>:<token>" >&2; return 2 ;;
+  esac
+  if [ "$_hgt" = "${1:-}" ] || [ -z "$_hgt" ]; then
+    echo "vigilant: holder-go wants <source>:<token>" >&2; return 2
+  fi
+  _hgh=$(_hooks_for holder | while IFS= read -r _h; do
+    if [ "$(basename "$_h")" = "$_hgs" ]; then printf '%s' "$_h"; break; fi
+  done)
+  if [ -z "$_hgh" ]; then
+    echo "vigilant: no holder.d source named '$_hgs'" >&2; return 2
+  fi
+  _hgrc=0
+  VIGILANCE_KIND=holder PATH="$HOOK_PATH" $HOOK_TMO "$_hgh" go "$_hgt" \
+    || _hgrc=$?
+  return "$_hgrc"
 }
 
 # IS IDLE INHIBITED RIGHT NOW?  0 inhibited, 1 not, 2 cannot tell.
@@ -6273,6 +6389,7 @@ _U="usage: vigilant go <open|lock|sleep|suspend> [atleast|atmost]
                  | due [edge] | enforce | audit
                  | timer [reset]
                  | keep-awake [status|off|cycle|more|less|<duration>]
+                 | holders [--json] | holder-go <source>:<token>
        (the wiring audit is 'setup.sh check', not a verb here)"
 _sub=${1:-}
 if [ "$#" -gt 0 ]; then shift; fi
@@ -6312,6 +6429,12 @@ case "$_sub" in
   enforce) cmd_enforce ;;
   timer)   cmd_timer "${1:-}" ;;
   keep-awake) cmd_keep_awake "${1:-}" ;;
+  holders) cmd_holders "${1:-}" ;;
+  holder-go)
+    if [ "$#" -lt 1 ]; then
+      echo "vigilant: 'holder-go' needs <source>:<token>" >&2; exit 2
+    fi
+    cmd_holder_go "$1" ;;
   ack)     cmd_ack ;;
   audit)   cmd_audit ;;
   # NAMED EXPLICITLY rather than falling through to "unknown command", because

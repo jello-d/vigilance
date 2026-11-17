@@ -24,6 +24,12 @@ vigilance \- edge framework for what a machine does when you step away
 .B vigilant keep\-awake
 .RI [ status | off | cycle | more | less | duration ]
 .br
+.B vigilant holders
+.RB [ \-\-json ]
+|
+.B holder\-go
+.I source:token
+.br
 .B swayidle-mgr ", " idle-capture ", " lock-watch
 .SH DESCRIPTION
 vigilance is an edge framework. It owns a LADDER of states, the ordering and
@@ -311,6 +317,26 @@ the deepest of them is replayed
 if the idle clock shows the seat idle ever since it was asked: walk away during
 a keep\-awake and the box still locks when it ends. While it is on, an overdue
 idle deadline is reported as held by it rather than as a fault.
+.PP
+.B "vigilant holders"
+lists who is holding the screen up, from every source at once: the user's
+keep\-awake, logind's idle inhibitors, and each
+.I holder.d
+source. With
+.B \-\-json
+it prints one object per line, each with
+.BR source ,
+.B who
+and
+.BR text ;
+a holder whose window can be brought into view carries
+.BR go ,
+and
+.B "vigilant holder-go"
+.I source:token
+hands that token back to the source that issued it (the shipped wayfire
+source focuses the window, switching to its workspace). vigilant itself never
+learns how.
 .PP
 Only the
 .B lock
@@ -1274,7 +1300,18 @@ how far back an audit source reads
 the edge being crossed
 .TP
 .B VIGILANCE_KIND
-act|verify|report|due|block|audit|idle|watchdog
+act|verify|report|due|block|audit|idle|watchdog|concur|cursor|holder
+.TP
+.B VIGILANCE_HOLDER_FORMAT
+json when
+.B "vigilant holders \-\-json"
+asks a holder.d source for one object per holder; unset for the one line
+.TP
+.B VIGILANCE_IDLE_HELD
+held|none|unknown, to a watchdog: what the holder.d sources said
+.TP
+.B VIGILANCE_IDLE_HOLDER
+and who, when held
 .TP
 .B VIGILANCE_FROM
 the rung being left
