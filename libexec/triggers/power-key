@@ -1,0 +1,124 @@
+#!/bin/sh
+# power-key - TRIGGER SOURCE: a press of the power key lights a dark display.
+#
+# THE SIGN OF LIFE THAT DOES NOT GO THROUGH THE COMPOSITOR. When the keyboard
+# does nothing, the human needs to know whether the machine is alive, and the
+# case that matters is a compositor that is wedged or eating input: every
+# keybinding is dead there by construction. The power key is read by the
+# kernel and reported by acpid, so a panel that lights on a press says the
+# machine is alive AND that the fault is the compositor.
+#
+# RUN BY acpid, AS ROOT, from a rule the integrator places in /etc/acpi/events
+# (acpi/vigilance-power-key is the template). It answers to acpid's
+# `button/power` event however the key reached the kernel: the ACPI power
+# button, an Intel HID power button, or a dock's own button forwarded as one.
+#
+# THE VERB IS `go lock atmost`, and the qualifier is the whole design:
+#
+#   from `sleep`   ascends to `lock`, which is LIT and still SECURED
+#   from `lock`    nothing: already lit
+#   from `open`    nothing, so a press can NEVER lock a machine in use
+#
+# The wake hooks that light a panel without the compositor (sysfs backlight,
+# DDC) are exactly the ones that still work when it is frozen. It never locks,
+# never powers off and never suspends: logind's own power-key action is the
+# integrator's to set to `ignore`, and nothing here changes it.
+#
+# AS THE ACTIVE SEAT'S USER, never root and never a fixed uid. vigilant's state
+# lives in that user's runtime dir and their hooks under their home, so the
+# ladder being raised is theirs. A greeter session is a user like any other
+# (its machine-scope hooks light its screen); a session class that is neither
+# is left alone, as is a seat with no active session.
+#
+# THE EVENT TEXT IS NEVER READ. acpid can substitute it into the action with
+# `%e`; the rule does not, and nothing here takes arguments, so nothing a
+# device reports reaches a root shell.
+set -eu
+
+_self=$(readlink -f "$0")
+# ../../bin, from <prefix>/libexec/triggers. The PATH fallback is kept, and is
+# the reason a wrong relative path once went unnoticed for a month; setup.t
+# runs this with vigilant OFF PATH so that cannot happen silently again.
+VIGILANT=${VIGILANT:-$(dirname "$_self")/../../bin/vigilant}
+if [ ! -x "$VIGILANT" ]; then
+  VIGILANT=$(command -v vigilant 2>/dev/null || true)
+fi
+if [ -z "$VIGILANT" ] || [ ! -x "$VIGILANT" ]; then
+  echo "power-key: cannot locate vigilant (not beside libexec, not on PATH)"
+  exit 1
+fi
+
+STATE=${VIGILANCE_POWER_KEY_STATE:-/run/vigilance-power-key}
+DEBOUNCE=${VIGILANCE_POWER_KEY_DEBOUNCE:-2}
+BOUND=${VIGILANCE_POWER_KEY_TIMEOUT:-60}
+case "$DEBOUNCE$BOUND" in ''|*[!0-9]*)
+  echo "power-key: VIGILANCE_POWER_KEY_DEBOUNCE and _TIMEOUT must be seconds"
+  exit 2 ;;
+esac
+
+# DEBOUNCE, because one press can arrive more than once: the ACPI button driver
+# reports through the input layer AND netlink, and acpid reads both, while a
+# dock may deliver a burst. Duplicates would be harmless (the crossing lock
+# serialises them and `atmost` from `lock` is a no-op), so this only saves
+# spawning a session lookup per copy. A clock that stepped BACK reads as a
+# fresh press rather than suppressing every press until it catches up.
+mkdir -p "$STATE"
+_now=$(date +%s)
+_last=$(cat "$STATE/last" 2>/dev/null || true)
+case "$_last" in ''|*[!0-9]*) _last=0 ;; esac
+_ago=$((_now - _last))
+if [ "$_ago" -ge 0 ] && [ "$_ago" -lt "$DEBOUNCE" ]; then
+  exit 0
+fi
+printf '%s\n' "$_now" > "$STATE/last"
+
+# WHOSE LADDER. One property per call: `loginctl show-* -p A -p B --value`
+# prints in systemd's own order, not the order asked, and reading such a list
+# positionally has already swapped two fields in this project once.
+_sid=$(loginctl show-seat seat0 -p ActiveSession --value 2>/dev/null || true)
+if [ -z "$_sid" ]; then
+  echo "power-key: no active session on seat0; nothing to wake"
+  exit 0
+fi
+_class=$(loginctl show-session "$_sid" -p Class --value 2>/dev/null || true)
+_uid=$(loginctl show-session "$_sid" -p User --value 2>/dev/null || true)
+_name=$(loginctl show-session "$_sid" -p Name --value 2>/dev/null || true)
+case "$_class" in
+  user|greeter) ;;
+  *) echo "power-key: session $_sid is class '$_class'; nothing to wake"
+     exit 0 ;;
+esac
+# Validated because they reach `runuser` and a path, from a root shell.
+case "$_uid" in ''|*[!0-9]*)
+  echo "power-key: session $_sid has no usable uid ('$_uid')"; exit 1 ;;
+esac
+case "$_name" in ''|-*|*[!A-Za-z0-9_.-]*)
+  echo "power-key: session $_sid has no usable user name ('$_name')"
+  exit 1 ;;
+esac
+_run=${VIGILANCE_POWER_KEY_RUN_ROOT:-/run/user}/$_uid
+if [ ! -d "$_run" ]; then
+  echo "power-key: $_name has no runtime dir ($_run); nothing to wake"
+  exit 0
+fi
+_home=$(getent passwd "$_name" | cut -d: -f6)
+_home=${_home:-/}
+
+# ONE LINE, because acpid sends an action's stdout to syslog on every press.
+echo "power-key: waking the display for $_name (session $_sid)"
+
+# DETACHED AND BOUNDED. acpid runs actions as events arrive, and a wake whose
+# hooks take seconds must not hold up the next event; the bound stops a wedged
+# hook from leaving a process behind for ever. A clean environment, because
+# acpid's is root's and vigilant reads the user's home, runtime dir and bus.
+(
+  setsid timeout "$BOUND" runuser -u "$_name" -- env -i \
+    HOME="$_home" USER="$_name" LOGNAME="$_name" \
+    PATH="$_home/.local/bin:$_home/bin:/usr/local/sbin:/usr/local/bin:\
+/usr/sbin:/usr/bin:/sbin:/bin" \
+    XDG_RUNTIME_DIR="$_run" \
+    DBUS_SESSION_BUS_ADDRESS="unix:path=$_run/bus" \
+    VIGILANCE_SOURCE=power-key \
+    "$VIGILANT" go lock atmost >/dev/null 2>&1 &
+)
+exit 0

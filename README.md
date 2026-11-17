@@ -341,6 +341,19 @@ An integrator chooses which run on which edge, because that is policy:
     hooks/swayidle-idle-audit did each idle timer firing produce its `lock`?
     providers/systemd-locker  bring a locker up as a transient systemd unit
     triggers/logind-lock   cross `lock` on logind's Session.Lock
+    triggers/power-key     a power-key press lights a dark display (acpid)
+
+`power-key` is a sign of life that does not go through the compositor. When
+the keyboard does nothing and the question is whether the machine is alive, a
+compositor keybinding is the one thing guaranteed dead, so a press of the power
+key is read by acpid instead, from `acpi/vigilance-power-key`, a rule a root
+integrator renders into `/etc/acpi/events`. It runs `vigilant go lock atmost`
+as the active seat's user: from a dark rung the panel lights and the session
+stays locked, and from `open` it does nothing, so it can never lock a machine
+in use. logind's own power-key action is the integrator's to set to `ignore`.
+`setup.sh check` tells ARMED (acpid running, rule loaded) from merely placed,
+and fails if any other rule also matches the key, since acpid runs every match
+and a stock power-button rule shuts the machine down.
 
 `dpms` is deliberately asymmetric: it issues `wlopm --on` and **never** turns an
 output off, because on wlroots that is a connector change which re-modesets and

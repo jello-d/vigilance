@@ -63,9 +63,13 @@ RELEASE=${VIGILANCE_VM_RELEASE:-resolute}
 # COMPUTES from the mode bits and the ACL about another uid rather than
 # attempting access, so running as root does not make the case pass vacuously
 # the way `chmod a-w` does in the fault cells.
+# `acpid` IS HERE FOR THE POWER KEY: session-power-key.t drives a real
+# KEY_POWER through the real daemon and the rendered rule, which is the chain
+# no stub can stand in for. It starts only once a rule exists, so its presence
+# changes nothing for any other scenario.
 PKGS='dash util-linux sway swaylock swayidle dbus-user-session wayfire git
 greetd xvfb x11-xserver-utils xprintidle i3lock imagemagick
-xserver-xorg-core acl'
+xserver-xorg-core acl acpid'
 
 # --- FLAVOURS ---------------------------------------------------------------
 # A FLAVOUR IS A DESKTOP ENVIRONMENT, and it exists because the interesting
@@ -337,6 +341,12 @@ runcmd:
         printf '%s=lock\n' "$_k" \
           >> /etc/systemd/logind.conf.d/90-vigilance-test.conf
       done
+      # AND THE POWER KEY IGNORED, for the same reason and to match the
+      # integration: logind's default is poweroff, so the synthetic press the
+      # power-key scenario makes would shut the guest down mid-suite, while a
+      # real box this feature serves has tackup's HandlePowerKey=ignore.
+      printf 'HandlePowerKey=ignore\n' \
+        >> /etc/systemd/logind.conf.d/90-vigilance-test.conf
       systemctl reload systemd-logind >/dev/null 2>&1 \
         || systemctl restart systemd-logind >/dev/null 2>&1 || true
       echo "  lid -> lock: $(loginctl show-seat seat0 2>/dev/null \

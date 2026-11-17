@@ -7,9 +7,13 @@
 harness_init setup
 
 BIN=$T/bin; SHR=$T/share; CFG=$T/config
+# The acpid events dir is pinned EMPTY: `check` reads it to tell whether the
+# power key is armed, and unpinned it would judge the host's acpid instead.
+mkdir -p "$T/acpi-events"
 run() {
   env PREFIX="$T" XDG_BIN_HOME="$BIN" XDG_DATA_HOME="$SHR" \
-    XDG_CONFIG_HOME="$CFG" NO_COLOR=1 sh "$HERE/setup.sh" "$@"
+    XDG_CONFIG_HOME="$CFG" NO_COLOR=1 VIGILANCE_ACPI_EVENTS="$T/acpi-events" \
+    sh "$HERE/setup.sh" "$@"
 }
 
 # install: every bin/ tool + the man page linked; the --user unit is NOT (that
@@ -68,7 +72,7 @@ mkdir -p "$T/farm"
 for _c in readlink dirname sh cat; do
   ln -sf "$(command -v "$_c")" "$T/farm/$_c"
 done
-for _p in triggers/logind-lock providers/systemd-locker; do
+for _p in triggers/logind-lock triggers/power-key providers/systemd-locker; do
   _rc=0
   env -i PATH="$T/farm" HOME="$T" VIGILANCE_EDGE=lock \
     sh "$PAY/libexec/$_p" lock >/dev/null 2>"$T/selfloc" || _rc=$?

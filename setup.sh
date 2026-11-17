@@ -45,6 +45,10 @@
 # runs vigilance must be in the group, the greeter included. Why a DEDICATED
 # group rather than `input`, `video`, `i2c` or uaccess: the rule's own header
 # carries the prior art and the measurements, so it is not restated here.
+#
+# acpi/vigilance-power-key is the same shape again: an acpid rule, rendered
+# like the units and placed in /etc/acpi/events by a root host, so a press of
+# the power key lights a dark display without the compositor in the path.
 set -eu
 
 PKG=vigilance
@@ -513,6 +517,8 @@ do_service() {
   echo "  Also root-only: $_root/udev/99-vigilance.rules under /etc/udev/"
   echo "  rules.d, plus a 'vigilant' group holding every user that runs"
   echo "  vigilance. Without it the peripheral hooks silently no-op."
+  echo "  And for the power key: render $_root/acpi/vigilance-power-key"
+  echo "  (@PLUGINS@) into /etc/acpi/events, install acpid, and reload it."
 }
 
 # A COPY cannot be identified by readlink, so in copy mode remove by NAME: the
@@ -620,6 +626,114 @@ _check_access() {
     warn "udev/99-vigilance.rules not in /etc/udev/rules.d (needs root);"\
 " without it the group grants nothing"
   fi
+}
+
+# THE POWER KEY, which is placed by a root integrator like the udev rule, and
+# asked about HERE rather than in `vigilant report` for one reason: this is the
+# verdict an integrator's own check delegates to, and "a rule nothing reads" is
+# a placement failure, not a liveness one. So the line distinguishes four
+# states, because the requirement was to tell ARMED from merely INSTALLED:
+#
+#   not placed               WARN, an integrator task (needs root)
+#   placed, nothing reads it  FAIL: acpid absent, stopped, or PAUSED by its lock
+#   placed, not reloaded     FAIL: acpid reads rules at start and on SIGHUP only
+#   placed and loaded        OK, armed
+#
+# AND IT MUST BE THE ONLY RULE ON THE KEY. acpid runs every matching rule, and
+# the stock power-button rules (acpi-support's) shut the machine down, so a
+# second match turns a sign of life into a power-off. Each other rule's own
+# `event=` regex is tested against the event acpid reports for the key, which
+# is what acpid itself does, rather than guessing from its file name.
+ACPI_EVENTS=${VIGILANCE_ACPI_EVENTS:-/etc/acpi/events}
+ACPID_LOCK=${VIGILANCE_ACPID_LOCK:-/var/lock/acpid}
+_PK_EVENT='button/power PBTN 00000080 00000000'
+_pk_epoch() {   # <systemd timestamp> -> epoch, or empty
+  [ -n "$1" ] || return 0
+  date -d "$1" +%s 2>/dev/null || true
+}
+# The value of an acpid rule's first `<key>=` line. acpid takes the key
+# case-insensitively, so this does too.
+_rule_val() {   # <key> <file>
+  awk -v k="$1" '{
+    i = index($0, "="); if (!i) next
+    n = substr($0, 1, i - 1); sub(/[[:blank:]]+$/, "", n)
+    if (tolower(n) != k) next
+    v = substr($0, i + 1); sub(/^[[:blank:]]+/, "", v); print v; exit
+  }' "$2"
+}
+_check_power_key() {
+  _pk=$ACPI_EVENTS/vigilance-power-key
+  _others=
+  for _rf in "$ACPI_EVENTS"/*; do
+    [ -f "$_rf" ] || continue
+    [ "$_rf" != "$_pk" ] || continue
+    case ${_rf##*/} in .*|*~) continue ;; esac     # acpid skips these names
+    _re=$(_rule_val event "$_rf")
+    [ -n "$_re" ] || continue
+    if printf '%s\n' "$_PK_EVENT" | grep -Eq -- "$_re" 2>/dev/null; then
+      _others="$_others ${_rf##*/}"
+    fi
+  done
+  if [ ! -e "$_pk" ]; then
+    warn "power key: acpid rule not placed ($_pk; needs root, from"\
+" $_root/acpi)"
+    if [ -n "$_others" ]; then
+      warn "power key: another acpid rule handles it already:$_others"
+    fi
+    return 0
+  fi
+  ok "power key: acpid rule placed ($_pk)"
+  _act=$(_rule_val action "$_pk")
+  _act=${_act%% *}
+  if [ -x "$_act" ]; then ok "power key: rule action resolves"
+  else bad "power key: the rule's action is '$_act', which is not an"\
+" executable file, so every press runs nothing. Re-render it from"\
+" $_root/acpi"; fi
+  if [ -n "$_others" ]; then
+    bad "power key: other acpid rule(s) match the same press:$_others."\
+" acpid runs every match, and a stock power-button rule shuts the machine"\
+" down"
+  fi
+  # PATH, not a hardcoded /usr/sbin/acpid: the check must be answerable in a
+  # sandbox, and a user PATH on this fleet carries /usr/sbin.
+  if ! command -v acpid >/dev/null 2>&1; then
+    bad "power key: the rule is placed but acpid is not installed, so nothing"\
+" reads it"
+    return 0
+  fi
+  _st=$(systemctl is-active acpid.service 2>/dev/null || true)
+  if [ "$_st" != active ]; then
+    bad "power key: acpid.service is '${_st:-unknown}', so the rule is placed"\
+" and nothing is listening"
+    return 0
+  fi
+  if [ -e "$ACPID_LOCK" ]; then
+    bad "power key: acpid is PAUSED by $ACPID_LOCK and ignores every event"\
+" while that file exists"
+    return 0
+  fi
+  # LOADED SINCE PLACED: acpid's start, or its last "N rules loaded" (logged on
+  # SIGHUP), whichever is later, must not predate the rule file.
+  _mt=$(stat -c %Y "$_pk" 2>/dev/null || true)
+  _ld=$(_pk_epoch "$(systemctl show acpid.service -p ActiveEnterTimestamp \
+    --value 2>/dev/null || true)")
+  _rl=$(journalctl -u acpid.service -o short-unix --no-pager 2>/dev/null \
+    | grep -E 'rules? loaded' | tail -1 | cut -d' ' -f1 | cut -d. -f1)
+  case "$_rl" in ''|*[!0-9]*) ;; *)
+    if [ -z "$_ld" ] || [ "$_rl" -gt "$_ld" ]; then _ld=$_rl; fi ;;
+  esac
+  case "$_mt:$_ld" in
+    *[!0-9:]*|:*|*:)
+      warn "power key: cannot tell whether acpid has loaded the rule (no"\
+" readable start time or reload record)" ;;
+    *)
+      if [ "$_ld" -lt "$_mt" ]; then
+        bad "power key: acpid has not reloaded since the rule was placed, so"\
+" it is not in force: systemctl kill -s HUP acpid.service"
+      else
+        ok "power key: armed (acpid running, rule loaded)"
+      fi ;;
+  esac
 }
 
 # THE UNITS, because a tool on PATH that no unit invokes crosses no edges. Every
@@ -982,6 +1096,7 @@ do_check() {
   _check_root_inputs
   _check_units
   _check_access
+  _check_power_key
   # THE SEAM IS THE HELPER, NOT ANOTHER PACKAGE'S LAYOUT. This used to test for
   # `~/.config/shapes` and WARN when it was missing, which was wrong twice
   # over: that tree belongs to the integrator (it is tackup's, holding mako and

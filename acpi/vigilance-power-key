@@ -1,0 +1,14 @@
+# vigilance: a press of the power key lights a dark display.
+#
+# RENDERED, NOT COPIED: @PLUGINS@ is replaced with the installed plugin tree,
+# exactly as the units are, and the result placed in /etc/acpi/events/ by a
+# root integrator, root-owned and not user-writable, since acpid runs the
+# action as root. Reload acpid afterwards (it reads rules at start and on
+# SIGHUP): `systemctl kill -s HUP acpid.service`.
+#
+# The action deliberately carries no `%e`: the event text never reaches a
+# shell. It must be the ONLY rule matching button/power, or another handler
+# (acpi-support's shuts the machine down) runs on the same press; `setup.sh
+# check` asserts that.
+event=^button/power[ ]
+action=@PLUGINS@/triggers/power-key

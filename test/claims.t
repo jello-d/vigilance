@@ -193,7 +193,8 @@ _undoc=
 for _k in $(grep -ohE 'VIGILANCE_[A-Z_]+' "$HERE"/bin/* \
               "$HERE"/lib/hook_lib \
               "$HERE"/libexec/hooks/* \
-              "$HERE"/libexec/providers/* 2>/dev/null | sort -u); do
+              "$HERE"/libexec/providers/* \
+              "$HERE"/libexec/triggers/* 2>/dev/null | sort -u); do
   grep -qE "\b$_k\b" "$M" "$HERE/README.md" 2>/dev/null || _undoc="$_undoc $_k"
 done
 [ -z "$_undoc" ] || fail "knob(s) referenced in code and documented nowhere:

@@ -1409,3 +1409,45 @@ f libexec/hooks/ddc-monitor
 t ddc-monitor
 -       printf '%s\n' "$_cn" >> "$DARK_OUTPUTS" 2>/dev/null || true
 +       true
+
+= power-key-locks-from-open
+f libexec/triggers/power-key
+t power-key
+-     "$VIGILANT" go lock atmost >/dev/null 2>&1 &
++     "$VIGILANT" go lock >/dev/null 2>&1 &
+
+= power-key-not-debounced
+f libexec/triggers/power-key
+t power-key
+- if [ "$_ago" -ge 0 ] && [ "$_ago" -lt "$DEBOUNCE" ]; then
++ if [ "$_ago" -ge 0 ] && false; then
+
+= power-key-future-stamp-silences
+f libexec/triggers/power-key
+t power-key
+- if [ "$_ago" -ge 0 ] && [ "$_ago" -lt "$DEBOUNCE" ]; then
++ if [ "$_ago" -lt "$DEBOUNCE" ]; then
+
+= power-key-wakes-any-class
+f libexec/triggers/power-key
+t power-key
+-   user|greeter) ;;
++   *) ;;
+
+= power-key-armed-without-reload
+f setup.sh
+t power-key
+-       if [ "$_ld" -lt "$_mt" ]; then
++       if false; then
+
+= power-key-paused-acpid-armed
+f setup.sh
+t power-key
+-   if [ -e "$ACPID_LOCK" ]; then
++   if false; then
+
+= power-key-second-rule-ignored
+f setup.sh
+t power-key
+-   if [ -n "$_others" ]; then
++   if false; then

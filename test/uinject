@@ -26,6 +26,7 @@ refuses.
 Usage:
   uinject lid close [hold]   create a lid switch, report CLOSED, hold it
   uinject lid open  [hold]   ... report OPEN, hold it
+  uinject power [hold] [delay]  create a power button, wait `delay`, press it
   uinject key [n] [hold] [delay]
                              create a keyboard, wait `delay`, tap n
                              times, then hold the device alive
@@ -41,7 +42,7 @@ UI_DEV_CREATE, UI_DEV_DESTROY = 0x5501, 0x5502
 UI_SET_EVBIT, UI_SET_KEYBIT = 0x40045564, 0x40045565
 UI_SET_SWBIT = 0x4004556D
 EV_SYN, EV_KEY, EV_SW = 0x00, 0x01, 0x05
-SYN_REPORT, SW_LID, KEY_A = 0x00, 0x00, 30
+SYN_REPORT, SW_LID, KEY_A, KEY_POWER = 0x00, 0x00, 30, 116
 
 
 def _open():
@@ -121,6 +122,26 @@ def key(taps, hold, delay=0.0):
     os.close(fd)
 
 
+def power(hold, delay):
+    # A device that can send KEY_POWER and nothing else, which is the shape
+    # of an ACPI power button. The DELAY comes before the press because acpid
+    # finds a new input device by watching /dev/input, and a press it has not
+    # opened yet is a press nobody heard.
+    fd = _open()
+    fcntl.ioctl(fd, UI_SET_EVBIT, EV_KEY)
+    fcntl.ioctl(fd, UI_SET_KEYBIT, KEY_POWER)
+    fcntl.ioctl(fd, UI_SET_EVBIT, EV_SYN)
+    _create(fd, "uinject-power")
+    time.sleep(delay)
+    for value in (1, 0):
+        _emit(fd, EV_KEY, KEY_POWER, value)
+        _emit(fd, EV_SYN, SYN_REPORT, 0)
+    print("uinject: power key pressed", flush=True)
+    time.sleep(hold)
+    fcntl.ioctl(fd, UI_DEV_DESTROY)
+    os.close(fd)
+
+
 if __name__ == "__main__":
     a = sys.argv[1:]
     if len(a) >= 2 and a[0] == "lid" and a[1] in ("close", "open"):
@@ -129,5 +150,8 @@ if __name__ == "__main__":
         key(int(a[1]) if len(a) > 1 else 5,
             float(a[2]) if len(a) > 2 else 1.0,
             float(a[3]) if len(a) > 3 else 0.0)
+    elif a and a[0] == "power":
+        power(float(a[1]) if len(a) > 1 else 3.0,
+              float(a[2]) if len(a) > 2 else 2.0)
     else:
         sys.exit(__doc__.split("Usage:")[1])
