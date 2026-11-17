@@ -22,6 +22,8 @@
 #   vigilant rescue           record everything, then recover
 #   vigilant due [edge]       when SHOULD this edge have fired?
 #   vigilant timer [reset]    the deferral clocks; `reset` acknowledges a hold
+#   vigilant keep-awake [..]  hold the idle lock and blank off, 1h or 2h, then
+#                             lock on expiry if the seat stayed idle
 #   vigilant enforce          the supervision loop, for a timer
 #   vigilant audit            did past events produce the edges they should?
 #
@@ -246,6 +248,14 @@ IDLE_DEMO=$RUN_DIR/idle-demonstrated
 # counter snapshot, then nearly again for a throttle stamp).
 INHIBIT_SINCE=$RUN_DIR/inhibit-since
 INHIBIT_CLOCK=$RUN_DIR/inhibit-clock
+# KEEP-AWAKE: the user's own, deliberate, always-expiring hold on the two
+# rungs the idle timer drives (`<expiry> <seconds-set>`), and the requests it
+# declined while on (`<target> <epoch> <src>` per line), which are what the
+# expiry replays if the seat stayed idle. In RUN_DIR for the same reason as
+# the inhibit records: report reads a number under STATE_ROOT as a saved level.
+KEEP_AWAKE=$RUN_DIR/keep-awake
+KEEP_AWAKE_HELD=$RUN_DIR/keep-awake-held
+KEEP_AWAKE_MAX=${VIGILANCE_KEEP_AWAKE_MAX:-7200}
 # `<edge> <since> <last-seen>`: the edge because an episode belongs to one, and
 # the last-seen because the span must not credit an interval nothing watched.
 OVERDUE_SINCE=$RUN_DIR/overdue-since
@@ -489,6 +499,143 @@ _src_tag() {
 # the idle path and never suspend/manual/Session.Lock, because gating the
 # suspend path would sleep the box UNLOCKED. That distinction lives in the
 # hook, which is the only thing that knows what a source means.
+# KEEP-AWAKE HOLDS THE IDLE TIMER'S TWO RUNGS AND NOTHING ELSE.
+#
+# Only a descent the IDLE TIMER asked for (`src=idle`, the 480s lock, and
+# `src=blank`, the 600s dark screen) is declined. A lid close (`logind`), a
+# keybind (`manual`), the system sleep lock (`suspend`) and every other caller
+# go through untouched, and so does the battery suspend, which is the trap the
+# obvious design falls into: on this fleet the lid-open battery suspend rides
+# swayidle's OWN idle timer, so "make swayidle think the seat is busy", or a
+# compositor idle inhibitor, would defer it too. Nothing here tells swayidle
+# anything; it keeps seeing the seat idle and keeps firing its suspend.
+#
+# IT ALWAYS EXPIRES, at most VIGILANCE_KEEP_AWAKE_MAX after it was set, and a
+# stamp further out than that (a clock stepped back, a hand-edited file) is
+# read as OFF: failing toward locking is the only safe direction for this.
+_keep_awake_left() {   # -> seconds left, or nothing when off
+  _kar=$(cat "$KEEP_AWAKE" 2>/dev/null || true)
+  _kae=${_kar%% *}
+  case "${_kae:-}" in '' | *[!0-9]*) return 0 ;; esac
+  _kal=$(( _kae - $(date +%s) ))
+  if [ "$_kal" -le 0 ] || [ "$_kal" -gt "$KEEP_AWAKE_MAX" ]; then return 0; fi
+  printf '%s' "$_kal"
+}
+_keep_awake_holds() {   # <edge> -> 0 if keep-awake declines this descent
+  case "$1" in lock|sleep) ;; *) return 1 ;; esac
+  case "${VIGILANCE_SOURCE:-}" in idle|blank) ;; *) return 1 ;; esac
+  KA_LEFT=$(_keep_awake_left)
+  [ -n "$KA_LEFT" ]
+}
+_keep_awake_set() {   # <seconds> -> 0 set, or clears for 0
+  if [ "$1" -le 0 ]; then
+    rm -f "$KEEP_AWAKE" 2>/dev/null || true
+    return 0
+  fi
+  _kas=$1
+  if [ "$_kas" -gt "$KEEP_AWAKE_MAX" ]; then _kas=$KEEP_AWAKE_MAX; fi
+  mkdir -p "$RUN_DIR"
+  printf '%s %s\n' "$(( $(date +%s) + _kas ))" "$_kas" > "$KEEP_AWAKE.$$"
+  mv -f "$KEEP_AWAKE.$$" "$KEEP_AWAKE"
+}
+
+# THE EXPIRY LOCKS IF THE SEAT STAYED IDLE, and that is the half that makes a
+# hold safe to offer. The idle timer fires each threshold ONCE per idle
+# stretch, so a lock declined while keep-awake was on would otherwise never
+# come: walk away during one and the box is never locked. So each declined
+# request is recorded, and on expiry (or `off`) the deepest one is replayed if
+# the seat has been idle EVER SINCE it was asked: the idle clock reaching back
+# to that moment is the evidence nobody returned. The idle timer's own resume
+# arm is still pending for every threshold it fired, so a replayed dark rung
+# has its way back armed. With no idle clock nothing can be shown, and nothing
+# is replayed: said, not guessed.
+_keep_awake_replay() {
+  [ -s "$KEEP_AWAKE_HELD" ] || { rm -f "$KEEP_AWAKE_HELD"; return 0; }
+  _kri=$(_idle_secs 2>/dev/null || true)
+  _krnow=$(date +%s)
+  _krt=
+  _krd=-1
+  while read -r _krtarget _krat _krsrc; do
+    case "${_krat:-}" in '' | *[!0-9]*) continue ;; esac
+    _krdt=$(_depth_of "$_krtarget" 2>/dev/null) || continue
+    case "${_kri:-}" in '' | *[!0-9]*) continue ;; esac
+    if [ "$_kri" -ge $(( _krnow - _krat )) ] && [ "$_krdt" -gt "$_krd" ]; then
+      _krt=$_krtarget; _krd=$_krdt
+    fi
+  done < "$KEEP_AWAKE_HELD"
+  rm -f "$KEEP_AWAKE_HELD" 2>/dev/null || true
+  if [ -z "${_kri:-}" ]; then
+    _log "keep-awake ended; no idle clock, so nothing it held is replayed"
+    return 0
+  fi
+  if [ -z "$_krt" ]; then
+    _log "keep-awake ended; the seat was used since, so nothing is replayed"
+    return 0
+  fi
+  _log "keep-awake ended with the seat idle ${_kri}s; replaying '$_krt'"
+  VIGILANCE_SOURCE=keep-awake-expired cmd_go "$_krt" atleast || true
+}
+_keep_awake_tick() {   # the supervision pass: expire, then replay
+  [ -e "$KEEP_AWAKE" ] || [ -e "$KEEP_AWAKE_HELD" ] || return 0
+  if [ -n "$(_keep_awake_left)" ]; then return 0; fi
+  if [ -e "$KEEP_AWAKE" ]; then
+    rm -f "$KEEP_AWAKE" 2>/dev/null || true
+    _log "keep-awake expired"
+  fi
+  _keep_awake_replay
+}
+
+# `vigilant keep-awake [status|off|1h|2h|<n>s|<n>m|cycle|more|less]`.
+# `cycle` steps off -> 1h -> 2h -> off (the indicator's one gesture), and
+# `more`/`less` move an hour at a time within 0..MAX (its scroll).
+_keep_awake_parse() {   # <duration> -> seconds, or nothing
+  case "$1" in
+    *[!0-9hms]* | '' | h | m | s) return 0 ;;
+    *h) printf '%s' "$(( ${1%h} * 3600 ))" ;;
+    *m) printf '%s' "$(( ${1%m} * 60 ))" ;;
+    *s) printf '%s' "${1%s}" ;;
+    *)  printf '%s' "$1" ;;
+  esac
+}
+cmd_keep_awake() {   # [status|off|<duration>|cycle|more|less]
+  _kal=$(_keep_awake_left)
+  _kaset=$(cut -d' ' -f2 "$KEEP_AWAKE" 2>/dev/null || true)
+  case "${1:-status}" in
+    status)
+      if [ -n "$_kal" ]; then
+        echo "keep-awake: on, ${_kal}s left (of ${_kaset:-?}s)"
+      else
+        echo "keep-awake: off"
+      fi
+      return 0 ;;
+    off)   _kanew=0 ;;
+    cycle)
+      if [ -z "$_kal" ]; then _kanew=3600
+      elif [ "$_kal" -le 3600 ]; then _kanew=7200
+      else _kanew=0; fi ;;
+    more)  _kanew=$(( ${_kal:-0} + 3600 )) ;;
+    less)  _kanew=$(( ${_kal:-0} - 3600 )) ;;
+    *)
+      _kanew=$(_keep_awake_parse "$1")
+      if [ -z "$_kanew" ]; then
+        echo "vigilant: keep-awake wants status, off, cycle, more, less or a"\
+" duration (1h, 90m, 3600s)" >&2
+        return 2
+      fi ;;
+  esac
+  _keep_awake_set "$_kanew"
+  _kal=$(_keep_awake_left)
+  if [ -n "$_kal" ]; then
+    _log "keep-awake on: ${_kal}s"
+    echo "keep-awake: on, ${_kal}s left"
+  else
+    _log "keep-awake off"
+    echo "keep-awake: off"
+    _keep_awake_replay
+  fi
+  return 0
+}
+
 _blocked() {   # edge from -> 0 if an explicit block was raised
   _bl=$(_hooks_for "$1" .block)
   if [ -z "$_bl" ]; then return 1; fi
@@ -1414,6 +1561,18 @@ _cross_one() {   # edge leaving to [note]
   # RECORD and the restore hooks, desyncing the file from a machine the user has
   # already unlocked. An ascent block is all cost and no benefit, so it is
   # refused here and reported as a wiring error rather than honoured.
+  if _is_descent "$1" && _keep_awake_holds "$1"; then
+    # RECORDS THE TARGET, not the edge: a blank from `open` asks for `sleep`
+    # and is stopped at the `lock` edge first, and the expiry must replay the
+    # whole request. Logged in a shape the audit tier reconciles, since this
+    # decline is what the user asked for and not a missed edge.
+    mkdir -p "$RUN_DIR"
+    printf '%s %s %s\n' "${_to:-$3}" "$(date +%s)" "$(_src_tag)" \
+      >> "$KEEP_AWAKE_HELD" 2>/dev/null || true
+    _log "keep-awake held $1: $2, toward '${_to:-$3}', ${KA_LEFT}s left"\
+" src=$(_src_tag)"
+    return 3
+  fi
   if _is_descent "$1" && _blocked "$1" "$2"; then
     _log "refused $1: $2 (blocked)"
     return 3
@@ -2966,6 +3125,10 @@ _rep_deadlines() {
   else
     _r_info "idle clock: none wired (idle.d); idle-anchored deadlines cannot"\
 " be measured here"
+  fi
+  _dka=$(_keep_awake_left)
+  if [ -n "$_dka" ]; then
+    _r_info "keep-awake on: the idle lock and blank are held ${_dka}s more"
   fi
   # WHO HOLDS IDLE OFF in the compositor, beside the clock it defers. INFO,
   # because a held inhibitor is usually a call doing its job; the inhibit and
@@ -5429,6 +5592,11 @@ _timer_show() {
     fi
     echo "  reset:  vigilant timer reset"
   fi
+  # KEEP-AWAKE, the hold the user asked for, with what is left of it.
+  _tka=$(_keep_awake_left)
+  if [ -n "$_tka" ]; then
+    echo "keep-awake: ${_tka}s left (then the lock, if the seat stays idle)"
+  fi
   # THE COMPOSITOR'S HOLDERS, which logind cannot see, on their own line so
   # neither claim is mistaken for the other. Shown only where a holder.d
   # source is wired: a line saying "cannot tell" on every box that has none
@@ -5648,6 +5816,10 @@ cmd_enforce() {
   # read FROZEN on a perfectly live machine. Tolerant: bookkeeping must never
   # suppress supervision.
   printf '%s\n' "$(date +%s)" > "$PASS_MARK" 2>/dev/null || true
+  # KEEP-AWAKE EXPIRES HERE, BEFORE THE DEPTH IS READ: an expiry that replays a
+  # held lock changes the rung, and everything below must judge the rung the
+  # machine is actually at afterwards.
+  _keep_awake_tick || true
   _from=$(_depth)
   _at=$(_depth_at)
   # THE CLOCK IS SAMPLED BEFORE ANY HOOK RUNS, and that ordering is the whole
@@ -5802,6 +5974,15 @@ cmd_enforce() {
       # CANNOT TELL DOES NOT DEFER: `_inhibit_track` opens a span only on a
       # definite yes, so an unreadable bus leaves this detector exactly as it
       # was rather than silently switching it off.
+      # THE USER'S OWN KEEP-AWAKE DEFERS FIRST: they asked for exactly this, it
+      # expires by construction, and its expiry replays what it held if the
+      # seat stayed idle. The idle timer fired and was declined, so its
+      # concurrence below would otherwise read as "saw idleness, did not act".
+      if [ -n "$(_keep_awake_left)" ]; then
+        _overdue_clear   # keep-awake owns this deadline
+        echo "enforce: $_e held by keep-awake ($(_keep_awake_left)s left)"
+        return "$_erc"
+      fi
       if [ -n "$_ispan" ]; then
         # DEFERRED IS NOT OVERDUE, so the inhibitor's own escalation owns this
         # and the overdue episode must not run in parallel with it. Crediting
@@ -5973,6 +6154,9 @@ _log_has_edge() {   # epoch edge
       # that decline satisfies the assertion just as firmly. Anchored on the
       # ASSERTED rung, which is why cmd_go names both in that line.
       if ($0 ~ ("deeper than ." e ".")) { found = 1 }
+      # HELD BY THE USERS OWN KEEP-AWAKE: declined on request, not missed. The
+      # expiry replays it if the seat stayed idle, which crosses it then.
+      if ($0 ~ ("keep-awake held " e ":")) { found = 1 }
     }
     END { exit(found ? 0 : 1) }' "$LOG_FILE"
 }
@@ -6088,6 +6272,7 @@ _U="usage: vigilant go <open|lock|sleep|suspend> [atleast|atmost]
                  | report | rescue
                  | due [edge] | enforce | audit
                  | timer [reset]
+                 | keep-awake [status|off|cycle|more|less|<duration>]
        (the wiring audit is 'setup.sh check', not a verb here)"
 _sub=${1:-}
 if [ "$#" -gt 0 ]; then shift; fi
@@ -6126,6 +6311,7 @@ case "$_sub" in
   due)     cmd_due "${1:-}" ;;
   enforce) cmd_enforce ;;
   timer)   cmd_timer "${1:-}" ;;
+  keep-awake) cmd_keep_awake "${1:-}" ;;
   ack)     cmd_ack ;;
   audit)   cmd_audit ;;
   # NAMED EXPLICITLY rather than falling through to "unknown command", because

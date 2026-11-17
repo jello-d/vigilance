@@ -21,6 +21,9 @@ vigilance \- edge framework for what a machine does when you step away
 .B vigilant timer
 .RI [ reset ]
 .br
+.B vigilant keep\-awake
+.RI [ status | off | cycle | more | less | duration ]
+.br
 .B swayidle-mgr ", " idle-capture ", " lock-watch
 .SH DESCRIPTION
 vigilance is an edge framework. It owns a LADDER of states, the ordering and
@@ -277,6 +280,37 @@ not tell a reader what it would do;
 .B ack
 now refuses and points here, because a notification delivered before the rename
 names it and a toast can sit in a tray for days.
+.PP
+.B "vigilant keep\-awake"
+is the opposite gesture: the user deliberately holding the screen up, for an
+hour or two. It declines only the descents the idle timer asks for (the lock,
+.BR src=idle ,
+and the dark screen,
+.BR src=blank );
+a lid close, a keybind, the system sleep lock and the battery suspend all go
+through, because nothing tells the idle timer anything and it keeps firing its
+own suspend.
+.B cycle
+steps off, 1h, 2h, off;
+.B more
+and
+.B less
+move an hour within that; a duration may be
+.BR 1h ,
+.B 90m
+or
+.BR 3600s .
+IT ALWAYS EXPIRES, at most
+.B VIGILANCE_KEEP_AWAKE_MAX
+after it was set, and a stamp further out than that reads as off. The idle
+timer fires each threshold once per idle stretch, so the requests it declined
+are recorded, and on expiry (or
+.BR off )
+the deepest of them is replayed
+.RB ( src=keep\-awake\-expired )
+if the idle clock shows the seat idle ever since it was asked: walk away during
+a keep\-awake and the box still locks when it ends. While it is on, an overdue
+idle deadline is reported as held by it rather than as a fault.
 .PP
 Only the
 .B lock
@@ -602,6 +636,12 @@ edge never fired. Only that edge: a dark one is re-armed, never forced.
 .TP
 .B rescue
 the panic key.
+.TP
+.B keep\-awake\-expired
+the expiry of
+.BR "vigilant keep-awake" ,
+replaying a lock or blank it held, because the seat stayed idle the whole
+time.
 .TP
 .B power\-key
 a press of the power key, read by acpid rather than the compositor, so it
@@ -1049,6 +1089,9 @@ slack before an edge counts as overdue
 .B VIGILANCE_INHIBIT_REPORT
 how long a held idle inhibitor may defer an idle-anchored deadline before that
 is reported (default 10800); 0 never reports
+.TP
+.B VIGILANCE_KEEP_AWAKE_MAX
+the longest a keep\-awake may hold, seconds (default 7200)
 .TP
 .B VIGILANCE_INHIBIT_FORCE
 how long before the session is secured anyway (default 14400); 0 never acts

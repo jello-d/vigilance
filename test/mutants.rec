@@ -1481,3 +1481,39 @@ f bin/vigilant
 t unnamed-bound
 -     _uen="an idle inhibitor: $HOLDER_SAYS"
 +     _uen="something that cannot be named"
+
+= keep-awake-holds-a-lid-close
+f bin/vigilant
+t keep-awake
+-   case "${VIGILANCE_SOURCE:-}" in idle|blank) ;; *) return 1 ;; esac
++   case "${VIGILANCE_SOURCE:-}" in *) ;; esac
+
+= keep-awake-replays-over-a-user
+f bin/vigilant
+t keep-awake
+-     if [ "$_kri" -ge $(( _krnow - _krat )) ] && [ "$_krdt" -gt "$_krd" ]; then
++     if [ "$_krdt" -gt "$_krd" ]; then
+
+= keep-awake-stamp-past-max-holds
+f bin/vigilant
+t keep-awake
+-   if [ "$_kal" -le 0 ] || [ "$_kal" -gt "$KEEP_AWAKE_MAX" ]; then return 0; fi
++   if [ "$_kal" -le 0 ]; then return 0; fi
+
+= keep-awake-overdue-is-a-fault
+f bin/vigilant
+t keep-awake
+-       if [ -n "$(_keep_awake_left)" ]; then
++       if false; then
+
+= keep-awake-decline-is-a-miss
+f bin/vigilant
+t keep-awake
+-       if ($0 ~ ("keep-awake held " e ":")) { found = 1 }
++       if (0) { found = 1 }
+
+= keep-awake-records-the-edge
+f bin/vigilant
+t keep-awake
+-     printf '%s %s %s\n' "${_to:-$3}" "$(date +%s)" "$(_src_tag)" \
++     printf '%s %s %s\n' "$1" "$(date +%s)" "$(_src_tag)" \

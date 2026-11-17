@@ -86,6 +86,10 @@ check enforces which invariant: `THEORY.md`.
     vigilant timer            what is counting, and how long is left
     vigilant timer reset      restart the inhibit escalation clock without
                               ending the hold ("this one is expected")
+    vigilant keep-awake 1h    hold the idle lock and blank off (1h, 2h, off,
+                              cycle, more, less); never the battery suspend
+                              or a lid close, and on expiry the held lock
+                              happens if the seat stayed idle
 
 The verb set is closed and the **argument is the state**, so a new rung can
 never collide with a command name.
