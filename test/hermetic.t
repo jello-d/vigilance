@@ -81,11 +81,15 @@ done
 # _rep_machinery always has, and they are named here rather than folded into it
 # because the check is keyed on function NAMES: extracting a host read into a
 # helper is otherwise a way to smuggle one past this ratchet.
+# _idle_as_seat_user asks logind which session holds seat0, which only the
+# live logind can answer. It runs only as ROOT (the stub tier never is), and
+# idle-query.t stubs `id` and `loginctl` to drive every branch of it.
 LIVE_OK='_rep_machinery _rep_unit_runnable _rep_idle_armed _r_session
 _r_locker_up cmd_rescue cmd_report _rep_budget_secs
 _proc_pids _proc_running _proc_pid
 _unit_known _unit_state_ok _rep_unit_role
-_trig_blocked _screensaver_active _rep_coherence _overdue_rearm'
+_trig_blocked _screensaver_active _rep_coherence _overdue_rearm
+_idle_as_seat_user'
 
 # _overdue_rearm IS THE FIRST ENTRY HERE THAT WRITES. Every other declared
 # function READS the running machine; that one restarts a unit, by the name the

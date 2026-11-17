@@ -26,6 +26,8 @@
 #                             lock on expiry if the seat stayed idle
 #   vigilant holders [--json] who is holding the screen up, every source
 #   vigilant holder-go <id>   bring that holder's window into view
+#   vigilant idle [--json]    seconds idle, whether anything else holds it
+#                             up, keep-awake: facts for an integrator
 #   vigilant enforce          the supervision loop, for a timer
 #   vigilant audit            did past events produce the edges they should?
 #
@@ -3086,6 +3088,101 @@ cmd_holder_go() {   # <source>:<token>
   VIGILANCE_KIND=holder PATH="$HOOK_PATH" $HOOK_TMO "$_hgh" go "$_hgt" \
     || _hgrc=$?
   return "$_hgrc"
+}
+
+# HOW LONG HAS THE SEAT BEEN IDLE, AND IS ANYTHING HOLDING IT UP: three facts
+# for a caller that decides something else (the integrator's battery sleep),
+# so the policy stays in one place and none of it lives here.
+#
+#   idle_seconds     the ladder's own idle clock (`_idle_secs`), with the same
+#                    caps; they only ever LOWER it, the safe direction for
+#                    anything that suspends on it
+#   app_holder       true when something ELSE holds idle off (a holder.d
+#                    source names one, or logind holds what=idle, which the
+#                    ScreenSaver bridge takes); false only when BOTH were
+#                    asked and said none; null when the compositor could not
+#                    be asked, so an unknown is never read as "no video"
+#   keep_awake       the user's own keep-awake, and its seconds left
+#
+# 0 with the facts, 78 when the idle clock cannot answer. AS ROOT it answers
+# for seat0's ACTIVE graphical session by re-running as that session's user
+# (their runtime dir is where the record and the compositor socket live); a
+# greeter, a non-graphical session or no session at all is 78.
+cmd_idle() {   # [--json]
+  if [ "$(id -u)" = 0 ] && [ -z "${VIGILANCE_IDLE_AS_USER:-}" ]; then
+    _iar=0
+    _idle_as_seat_user "$@" || _iar=$?
+    return "$_iar"
+  fi
+  _ij=
+  if [ "${1:-}" = --json ]; then _ij=1; fi
+  _isec=$(_idle_secs 2>/dev/null || true)
+  case "${_isec:-}" in
+    '' | *[!0-9]*)
+      echo "idle: cannot tell; no idle clock answered here" >&2
+      return "$HOOK_NA" ;;
+  esac
+  _ihc=0
+  _holder_says || _ihc=$?
+  _ilc=0
+  _idle_inhibited || _ilc=$?
+  if [ "$_ihc" = 0 ] || [ "$_ilc" = 0 ]; then _iah=true
+  elif [ "$_ihc" = 1 ] && [ "$_ilc" = 1 ]; then _iah=false
+  else _iah=null; fi
+  _ika=$(_keep_awake_left)
+  if [ -n "$_ij" ]; then
+    printf '{"idle_seconds": %s, "app_holder": %s, "holder": %s,'\
+' "keep_awake": %s, "keep_awake_left": %s}\n' "$_isec" "$_iah" \
+      "$( [ "$_ihc" = 0 ] && _json_str "$HOLDER_SAYS" || echo null)" \
+      "$( [ -n "$_ika" ] && echo true || echo false)" "${_ika:-null}"
+  else
+    echo "idle: ${_isec}s since last input"
+    echo "app_holder: $_iah${HOLDER_SAYS:+ ($HOLDER_SAYS)}"
+    echo "keep_awake: ${_ika:+${_ika}s left}${_ika:-off}"
+  fi
+  return 0
+}
+
+# Seat0's active graphical session, run as its user. One property per call,
+# as the power-key trigger does, because `show-* -p A -p B --value` prints in
+# systemd's order and has swapped two fields here once.
+_idle_as_seat_user() {   # [args...]
+  _isid=$(loginctl show-seat seat0 -p ActiveSession --value 2>/dev/null \
+    || true)
+  if [ -z "$_isid" ]; then
+    echo "idle: cannot tell; no active session on seat0" >&2
+    return "$HOOK_NA"
+  fi
+  _iscl=$(loginctl show-session "$_isid" -p Class --value 2>/dev/null || true)
+  _isty=$(loginctl show-session "$_isid" -p Type --value 2>/dev/null || true)
+  _isu=$(loginctl show-session "$_isid" -p User --value 2>/dev/null || true)
+  _isn=$(loginctl show-session "$_isid" -p Name --value 2>/dev/null || true)
+  if [ "$_iscl" != user ]; then
+    echo "idle: cannot tell; seat0's session is class '$_iscl'" >&2
+    return "$HOOK_NA"
+  fi
+  case "$_isty" in wayland|x11) ;; *)
+    echo "idle: cannot tell; seat0's session is '$_isty', not graphical" >&2
+    return "$HOOK_NA" ;;
+  esac
+  case "$_isu" in '' | *[!0-9]*)
+    echo "idle: cannot tell; no usable uid for session $_isid" >&2
+    return "$HOOK_NA" ;;
+  esac
+  case "$_isn" in '' | -* | *[!A-Za-z0-9_.-]*)
+    echo "idle: cannot tell; no usable user for session $_isid" >&2
+    return "$HOOK_NA" ;;
+  esac
+  _isrun=${VIGILANCE_RUNTIME_BASE:-/run/user}/$_isu
+  _ishome=$(getent passwd "$_isn" | cut -d: -f6)
+  _isrc=0
+  runuser -u "$_isn" -- env -i HOME="${_ishome:-/}" USER="$_isn" \
+    LOGNAME="$_isn" PATH="${_ishome:-/}/.local/bin:${_ishome:-/}/bin:\
+/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
+    XDG_RUNTIME_DIR="$_isrun" \
+    DBUS_SESSION_BUS_ADDRESS="unix:path=$_isrun/bus" \
+    VIGILANCE_IDLE_AS_USER=1 "$(readlink -f "$0")" idle "$@" || _isrc=$?
+  return "$_isrc"
 }
 
 # IS IDLE INHIBITED RIGHT NOW?  0 inhibited, 1 not, 2 cannot tell.
@@ -6390,6 +6487,7 @@ _U="usage: vigilant go <open|lock|sleep|suspend> [atleast|atmost]
                  | timer [reset]
                  | keep-awake [status|off|cycle|more|less|<duration>]
                  | holders [--json] | holder-go <source>:<token>
+                 | idle [--json]
        (the wiring audit is 'setup.sh check', not a verb here)"
 _sub=${1:-}
 if [ "$#" -gt 0 ]; then shift; fi
@@ -6430,6 +6528,7 @@ case "$_sub" in
   timer)   cmd_timer "${1:-}" ;;
   keep-awake) cmd_keep_awake "${1:-}" ;;
   holders) cmd_holders "${1:-}" ;;
+  idle)    cmd_idle "${1:-}" ;;
   holder-go)
     if [ "$#" -lt 1 ]; then
       echo "vigilant: 'holder-go' needs <source>:<token>" >&2; exit 2

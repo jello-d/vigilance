@@ -29,6 +29,9 @@ vigilance \- edge framework for what a machine does when you step away
 |
 .B holder\-go
 .I source:token
+|
+.B idle
+.RB [ \-\-json ]
 .br
 .B swayidle-mgr ", " idle-capture ", " lock-watch
 .SH DESCRIPTION
@@ -337,6 +340,21 @@ and
 hands that token back to the source that issued it (the shipped wayfire
 source focuses the window, switching to its workspace). vigilant itself never
 learns how.
+.PP
+.B "vigilant idle"
+gives an integrator three facts and no verdict:
+.B idle_seconds
+from the ladder's own idle clock (its caps only ever lower it, the safe
+direction for anything that suspends on it);
+.BR app_holder ,
+true when something else holds idle off (a holder.d source names one, or
+logind holds an idle inhibitor), false only when both were asked and said
+none, and null when the compositor could not be asked, so an unknown never
+reads as "no video playing"; and
+.B keep_awake
+with its seconds left. It exits 78 when no idle clock answers. AS ROOT it
+answers for seat0's active graphical session by re\-running as that session's
+user; a greeter, a non\-graphical session or no session at all is 78.
 .PP
 Only the
 .B lock
@@ -819,6 +837,12 @@ runtime state; the depth record lives here
 .TP
 .B VIGILANCE_RUNTIME_BASE
 per-uid runtime root (default /run/user)
+.TP
+.B VIGILANCE_IDLE_AS_USER
+set by
+.B vigilant idle
+on the copy it re\-runs as the seat's user, so that copy does not resolve the
+seat again; never set it by hand
 .TP
 .B VIGILANCE_POWER_KEY_STATE
 the power-key trigger's debounce stamp, root-owned (default

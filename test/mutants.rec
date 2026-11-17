@@ -1571,3 +1571,21 @@ f indicator/vigilance_indicator/__main__.py
 t indicator
 -         ring = max(0.0, min(1.0, float(left) / MAX))
 +         ring = 1.0
+
+= idle-unknown-holder-reads-false
+f bin/vigilant
+t idle-query
+-   else _iah=null; fi
++   else _iah=false; fi
+
+= idle-answers-for-a-greeter
+f bin/vigilant
+t idle-query
+-   if [ "$_iscl" != user ]; then
++   if false; then
+
+= idle-answers-for-a-tty
+f bin/vigilant
+t idle-query
+-   case "$_isty" in wayland|x11) ;; *)
++   case "$_isty" in *) ;; *)

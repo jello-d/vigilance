@@ -95,6 +95,10 @@ check enforces which invariant: `THEORY.md`.
                               source (one JSON object per line with --json)
     vigilant holder-go <id>   bring that holder's window into view, routed
                               back to the source that issued the id
+    vigilant idle [--json]    seconds idle, whether something else holds
+                              idle off (null when the compositor cannot be
+                              asked), keep-awake; as root, for seat0's active
+                              graphical session, 78 for anything else
 
 The verb set is closed and the **argument is the state**, so a new rung can
 never collide with a command name.
