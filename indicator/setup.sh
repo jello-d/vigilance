@@ -102,6 +102,22 @@ check() {
   if "$VENV/bin/python" -c 'import dbus_next, PIL' 2>/dev/null
   then ok "indicator deps import (dbus-next, Pillow)"
   else bad "indicator deps not importable in the venv"; fi
+  # CURRENT, not merely present: the code lives in the venv, copied at install,
+  # so a pull of the source changes nothing that runs. An integrator that
+  # reinstalls only when this check fails would otherwise never deploy a
+  # change to the tray at all.
+  _site=$("$VENV/bin/python" -c 'import os, vigilance_indicator as m
+print(os.path.dirname(m.__file__))' 2>/dev/null || true)
+  if [ -z "$_site" ]; then
+    bad "indicator package not importable in the venv; run: indicator install"
+  else
+    _stale=
+    for _f in "$PKG_DIR"/vigilance_indicator/*.py; do
+      cmp -s "$_f" "$_site/${_f##*/}" || _stale="$_stale ${_f##*/}"
+    done
+    if [ -z "$_stale" ]; then ok "indicator code current with its source"
+    else bad "indicator code stale ($_stale ); run: indicator install"; fi
+  fi
   if [ -x "$BIN_DIR/$APP" ]; then ok "indicator $BIN_DIR link"
   else bad "indicator $BIN_DIR/$APP missing"; fi
   if cmp -s "$PKG_DIR/$UNIT" "$UNIT_DIR/$UNIT" 2>/dev/null

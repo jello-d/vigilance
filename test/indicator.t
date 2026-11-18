@@ -136,6 +136,24 @@ _out=$(_ind check 2>&1 || true)
 printf '%s\n' "$_out" | grep -q 'vigilance-indicator.service running' \
   || fail "a running tray was not reported running: $_out"
 
+# CURRENT WITH ITS SOURCE: the code is copied into the venv at install, so a
+# pull changes nothing that runs, and an integrator that reinstalls only when
+# the check fails must be told. A stub venv whose python sees a copied package.
+mkdir -p "$T/site"
+cp -R "$IND/vigilance_indicator" "$T/site/"
+rm "$T/venv/bin/python"
+printf '#!/bin/sh\nPYTHONPATH=%s exec python3 "$@"\n' "$T/site" \
+  > "$T/venv/bin/python"
+chmod +x "$T/venv/bin/python"
+_out=$(PYTHONDONTWRITEBYTECODE=1 _ind check 2>&1 || true)
+printf '%s\n' "$_out" | grep -q 'indicator code current' || fail "an
+installed copy identical to the source was not called current: $_out"
+printf '# changed\n' >> "$T/site/vigilance_indicator/__main__.py"
+_out=$(PYTHONDONTWRITEBYTECODE=1 _ind check 2>&1 || true)
+printf '%s\n' "$_out" | grep -q 'indicator code stale ( __main__.py )' \
+  || fail "an installed copy that differs from the source was not called
+stale, so a pull would never reach the running tray: $_out"
+
 # The core's check mentions the tray ONLY where it is installed.
 _core() {
   env PATH="$T/stub:$PATH" PREFIX="$T/pfx" XDG_BIN_HOME="$T/pfx/bin" \
@@ -174,5 +192,6 @@ leave the tray link pointing at nothing"
 the payload its own contents"
 
 pass "the presenter (states, clicks, a round clock face lit to 6 for 1h), an\
- optional installer that tells running from stopped, and a payload swap\
+ optional installer that tells running from stopped and current from stale,\
+ and a payload swap\
  that keeps the tray's venv${_vskip:+ (not checked:$_vskip)}"
