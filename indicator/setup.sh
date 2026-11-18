@@ -17,6 +17,7 @@
 #   VI_VENV   venv dir   (default ~/.local/share/vigilance/venv-indicator)
 #   VI_BIN    bin dir    (default ~/.local/bin)
 #   VI_SKIP_BUILD  adopt an existing venv (a test's stub) instead of pip
+#   VI_STALE=warn  report stale installed code as a WARN (the core's check)
 set -eu
 
 self=$0
@@ -91,11 +92,12 @@ installed() {
 check() {
   if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
     _e=$(printf '\033')
-    _G="$_e[1;32m"; _R="$_e[1;31m"; _O="$_e[0m"
-  else _G=; _R=; _O=; fi
+    _G="$_e[1;32m"; _R="$_e[1;31m"; _Y="$_e[1;33m"; _O="$_e[0m"
+  else _G=; _R=; _Y=; _O=; fi
   RC=0
   ok()  { printf '  %s[OK]%s   %s\n' "$_G" "$_O" "$*"; }
   bad() { printf '  %s[FAIL]%s %s\n' "$_R" "$_O" "$*"; RC=1; }
+  warn() { printf '  %s[WARN]%s %s\n' "$_Y" "$_O" "$*"; }
 
   if [ -x "$VENV/bin/$APP" ]; then ok "indicator venv app ($VENV)"
   else bad "indicator venv app missing ($VENV); run: indicator install"; fi
@@ -116,6 +118,8 @@ print(os.path.dirname(m.__file__))' 2>/dev/null || true)
       cmp -s "$_f" "$_site/${_f##*/}" || _stale="$_stale ${_f##*/}"
     done
     if [ -z "$_stale" ]; then ok "indicator code current with its source"
+    elif [ "${VI_STALE:-}" = warn ]; then
+      warn "indicator code stale ($_stale ); run: indicator install"
     else bad "indicator code stale ($_stale ); run: indicator install"; fi
   fi
   if [ -x "$BIN_DIR/$APP" ]; then ok "indicator $BIN_DIR link"

@@ -1140,9 +1140,14 @@ do_check() {
   # THE OPTIONAL TRAY ICON, asked about only where a box chose to have it: on
   # one that did not, a line about it would be noise about a question nobody
   # asked. Its own check tells RUNNING from installed-but-not-running.
+  # STALE CODE IS A WARN HERE, never a FAIL: an integrator runs this check
+  # straight after pulling an update, when the tray's installed copy is behind
+  # its source BY CONSTRUCTION until the reinstall later in the same run, so a
+  # FAIL reads as a bad update and gets it rolled back. The tray's own check,
+  # asked alone, still FAILs on it, which is what triggers that reinstall.
   if [ -f "$_root/indicator/setup.sh" ] \
      && sh "$_root/indicator/setup.sh" installed 2>/dev/null; then
-    sh "$_root/indicator/setup.sh" check || RC=1
+    VI_STALE=warn sh "$_root/indicator/setup.sh" check || RC=1
   fi
 }
 

@@ -154,6 +154,18 @@ printf '%s\n' "$_out" | grep -q 'indicator code stale ( __main__.py )' \
   || fail "an installed copy that differs from the source was not called
 stale, so a pull would never reach the running tray: $_out"
 
+# ...and the CORE's check, which an integrator runs straight after pulling an
+# update, must not FAIL on it: the tray is stale by construction until the
+# reinstall later in that run, and a FAIL there rolled the update back.
+_out=$(PYTHONDONTWRITEBYTECODE=1 VI_STALE=warn _ind check 2>&1 || true)
+printf '%s\n' "$_out" | grep -q '\[WARN\] indicator code stale' || fail "with
+VI_STALE=warn a stale copy was not a WARN: $_out"
+printf '%s\n' "$_out" | grep -q 'FAIL.*stale' && fail "with VI_STALE=warn a
+stale copy still FAILed: $_out"
+grep -q 'VI_STALE=warn sh "$_root/indicator/setup.sh" check' "$HERE/setup.sh" \
+  || fail "the core check asks the tray without VI_STALE=warn, so pulling an
+update fails the core check and an integrator rolls it back"
+
 # The core's check mentions the tray ONLY where it is installed.
 _core() {
   env PATH="$T/stub:$PATH" PREFIX="$T/pfx" XDG_BIN_HOME="$T/pfx/bin" \
