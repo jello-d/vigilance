@@ -75,7 +75,7 @@ def near(p, col, tol=40):
     return p[3] > 0xC0 and all(abs(p[i] - col[i]) <= tol for i in range(3))
 def on_ring(deg, s=48):
     # A point mid-band on the ring, `deg` clockwise from 12 o'clock.
-    r = s / 2.0 - s / 9.0 / 2.0
+    r = s / 2.0 - s / 11.0 / 2.0
     a = math.radians(deg)
     return int(s / 2.0 + r * math.sin(a)), int(s / 2.0 - r * math.cos(a))
 def blue(img):
@@ -99,16 +99,23 @@ h = tile("awake", 0.5, 48).load()
 want(near(h[on_ring(135)], COLOUR["awake"])
      and not near(h[on_ring(225)], COLOUR["awake"]),
      "an hour left did not reach 6 o'clock")
-# THE INSIDE IS THE APP'S HOLD, independent of the ring.
+# THE EYE IS THE APP'S HOLD, independent of the ring: a faint closed slit
+# when quiet, wide open on a red face with a lit keyhole when held. Quiet is
+# meant to be ignorable, so it must be FAINT, not merely grey.
 inner = (24, 9)                                # inside the ring, above the eye
 qt = tile("quiet", 0, 48).load()
 want(qt[1, 1][3] == 0, "the quiet icon has a corner, so it is not round")
-want(near(qt[on_ring(0)], COLOUR["down"]), "the quiet ring is not grey")
-want(not near(qt[inner], COLOUR["held"], 90), "the quiet inside is amber")
+_ra = qt[on_ring(0)][3]
+want(0x30 < _ra < 0xA0, "the quiet ring is not faint: alpha %d" % _ra)
+want(qt[24, 15][3] == 0, "the quiet eye is open: a closed one draws nothing"
+     " above the slit")
+want(0 < qt[24, 24][3] < 0xA0, "the quiet slit is missing or not faint")
 for st in ("held", "awake+held"):
     hp = tile(st, 0.5, 48).load()
-    want(near(hp[inner], COLOUR["held"], 90),
-         "%s did not turn the inside amber: %r" % (st, hp[inner]))
+    want(near(hp[inner], COLOUR["held"]),
+         "%s did not turn the face red: %r" % (st, hp[inner]))
+    want(near(hp[24, 21], (0xFF, 0xD0, 0x40), 60),
+         "%s has no lit keyhole: %r" % (st, hp[24, 21]))
 ah = tile("awake+held", 0.5, 48).load()
 want(near(ah[on_ring(90)], COLOUR["awake"]), "an app's hold hid the clock")
 for st in ("quiet", "held", "awake", "awake+held", "down"):
@@ -220,7 +227,7 @@ leave the tray link pointing at nothing"
 [ -x "$T/p2/share/vigilance/bin/vigilant" ] || fail "the carried venv cost
 the payload its own contents"
 
-pass "the presenter (states, clicks, a ring lit to 6 for 1h, an amber inside\
- for an app's hold), an optional installer that tells running from stopped\
+pass "the presenter (states, clicks, a ring lit to 6 for 1h, an eye wide\
+ open for an app's hold), an optional installer that tells running from stopped\
  and current from stale, and a payload swap that keeps the tray's\
  venv${_vskip:+ (not checked:$_vskip)}"

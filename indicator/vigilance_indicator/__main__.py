@@ -4,15 +4,17 @@ A PRESENTER. It reads `vigilant holders --json` and acts only through
 `vigilant` (`holder-go`, `keep-awake`), so it keeps no state of its own and
 stopping it changes nothing about what locks.
 
-AN EYE IN A RING, and the two halves say different things, so both can show:
+AN EYE IN A RING, after the 1984 poster. The two halves say different
+things, so both can show:
 
-  the RING    hollow grey; while the user's own keep-awake runs it lights blue
+  the RING    faint grey; while the user's own keep-awake runs it lights blue
               as a CLOCK, clockwise from 12 o'clock for the time left, scaled
               to the maximum, so 1h reaches 6 o'clock and 2h is the whole ring
-  the INSIDE  dark; amber while something ELSE holds the screen up (a
+  the EYE     a closed slit while nothing holds the screen up; wide open on a
+              red face, with a lit keyhole, while something ELSE does (a
               compositor inhibitor, a logind idle inhibitor), named in the
               tooltip
-  struck through, dim   vigilant did not answer
+  struck through   vigilant did not answer
 
 Round, so it does not run together with the square icons beside it.
 
@@ -32,6 +34,7 @@ network byte order per the StatusNotifierItem spec.
 """
 import asyncio
 import json
+import math
 import os
 import subprocess
 import sys
@@ -44,9 +47,9 @@ POLL = 5.0
 MAX = float(os.environ.get("VIGILANCE_KEEP_AWAKE_MAX", "7200") or 7200)
 
 COLOUR = {
-    "held":  (0xF2, 0xA6, 0x2C),  # amber: something else holds it up
+    "held":  (0xE0, 0x3A, 0x1E),  # red: something else holds it up
     "awake": (0x3A, 0x9C, 0xF2),  # blue: the user's own keep-awake
-    "down":  (0x84, 0x84, 0x8A),  # grey: the quiet face, and vigilant silent
+    "down":  (0x84, 0x84, 0x8A),  # grey: the quiet ring, and vigilant silent
 }
 
 
@@ -125,31 +128,59 @@ def next_target(targets, last):
 
 
 # --- drawing: PURE -----------------------------------------------------------
-# THE EYE IN A RING. The ring is the user's: hollow grey, lit as a clock while
-# a keep-awake runs. The inside is everyone else's: it turns amber while an
-# app holds the screen up. The two are independent, so both can show at once.
-# Round rather than square so it does not run together with the square icons
-# beside it in a tray. Drawn OVERSAMPLE times larger and scaled down, which is
-# the antialiasing Pillow's shapes lack.
+# A CIRCLE, after the 1984 poster's eye. Two halves, independent, so both can
+# show at once:
+#
+#   the RING   the user's: faint grey, and lit blue as a CLOCK while a
+#              keep-awake runs, clockwise from 12 o'clock for the time left
+#   the EYE    everyone else's: a closed slit, barely there, while nothing
+#              holds the screen up; WIDE OPEN while an app does, the whole
+#              face red, a huge black iris and a lit keyhole through it,
+#              because what it watches over is a lock
+#
+# Quiet is meant to be ignorable and a hold is meant to be seen from across
+# the room at 22px, so the two are deliberately far apart. Drawn OVERSAMPLE
+# times larger and scaled down, which is the antialiasing Pillow lacks.
 OVERSAMPLE = 4
-_BASE = (0x14, 0x15, 0x19)       # near-black inside: the eye reads on any bar
-_HELD_TINT = 0.7                 # how far the inside goes toward amber
+_INK = (0x16, 0x14, 0x15)        # the iris
+_CREAM = (0xEC, 0xE4, 0xDA)      # the white of the eye
+_KEY = (0xFF, 0xD0, 0x40)        # the lit keyhole
+_FAINT = 0x70                    # the quiet ring and slit: there, ignorable
 
 
 def _rgba(col, alpha=0xFF):
     return tuple(col) + (alpha,)
 
 
-def _mix(a, b, f):
-    return tuple(int(a[i] * (1 - f) + b[i] * f) for i in range(3))
+def _lid(cx, cy, half, sag, up, n=32):
+    # One lid: a circular arc through both corners of the eye and a point SAG
+    # above (or below) the centre, sampled corner to corner.
+    r = (half * half + sag * sag) / (2.0 * sag)
+    oy = cy + (r - sag) if up else cy - (r - sag)
+    t = math.asin(half / r)
+    pts = []
+    for i in range(n + 1):
+        a = -t + 2 * t * i / n
+        x = cx + r * math.sin(a)
+        y = oy - r * math.cos(a) if up else oy + r * math.cos(a)
+        pts.append((x, y))
+    return pts
 
 
-def _eye(d, big, sclera, pupil):
+def _open_eye(d, big, inner):
     cx = cy = big / 2.0
-    w, h = big * 0.25, big * 0.14
-    d.ellipse([cx - w, cy - h, cx + w, cy + h], fill=_rgba(sclera))
-    r = big * 0.09
-    d.ellipse([cx - r, cy - r, cx + r, cy + r], fill=_rgba(pupil))
+    half = inner
+    sag = half * 0.68
+    d.polygon(_lid(cx, cy, half, sag, True)
+              + _lid(cx, cy, half, sag, False)[::-1], fill=_rgba(_CREAM))
+    ir = sag
+    d.ellipse([cx - ir, cy - ir, cx + ir, cy + ir], fill=_rgba(_INK))
+    kr = ir * 0.28
+    ky = cy - ir * 0.18
+    d.ellipse([cx - kr, ky - kr, cx + kr, ky + kr], fill=_rgba(_KEY))
+    d.polygon([(cx - kr * 0.55, ky), (cx + kr * 0.55, ky),
+               (cx + kr * 1.15, cy + ir * 0.45),
+               (cx - kr * 1.15, cy + ir * 0.45)], fill=_rgba(_KEY))
 
 
 def tile(state, ring, size):
@@ -158,28 +189,32 @@ def tile(state, ring, size):
     big = size * OVERSAMPLE
     img = Image.new("RGBA", (big, big), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
-    lw = max(OVERSAMPLE, big // 9)
+    lw = max(OVERSAMPLE, big // 11)
     box = [0, 0, big - 1, big - 1]
+    inner = big / 2.0 - lw
     grey = COLOUR["down"]
+    cx = cy = big / 2.0
     held = state in ("held", "awake+held")
-    inside = _mix(_BASE, COLOUR["held"], _HELD_TINT) if held else _BASE
-    d.ellipse([lw, lw, big - 1 - lw, big - 1 - lw], fill=_rgba(inside))
-    if state == "down":
-        # Nothing answered: a dim ring and a dim eye, struck through.
-        d.ellipse(box, outline=_rgba(grey, 0x80), width=lw)
-        _eye(d, big, _mix(_BASE, grey, 0.5), _BASE)
-        d.line([big * 0.22, big * 0.78, big * 0.78, big * 0.22],
-               fill=_rgba(grey), width=max(1, lw * 2 // 3))
+    if held:
+        d.ellipse([lw, lw, big - 1 - lw, big - 1 - lw],
+                  fill=_rgba(COLOUR["held"]))
+        _open_eye(d, big, inner)
     else:
-        d.ellipse(box, outline=_rgba(grey), width=lw)
-        a = max(0.0, min(1.0, ring)) if state.startswith("awake") else 0.0
-        if a > 0:
-            # THE CLOCK: 12 o'clock is nothing left, the lit arc runs
-            # CLOCKWISE, so an hour of a two-hour maximum reaches 6 o'clock.
-            # Pillow measures from 3 o'clock, clockwise, hence the -90.
-            d.arc(box, -90, -90 + 360 * a, fill=_rgba(COLOUR["awake"]),
-                  width=lw)
-        _eye(d, big, (0xD8, 0xD8, 0xDC), _BASE)
+        half = inner * 0.85
+        d.line(_lid(cx, cy, half, half * 0.12, False),
+               fill=_rgba(grey, _FAINT), width=int(big * 0.06),
+               joint="curve")
+    if state == "down":
+        # Nothing answered: the faint face, struck through.
+        d.line([big * 0.22, big * 0.78, big * 0.78, big * 0.22],
+               fill=_rgba(grey, 0xB0), width=max(1, lw * 2 // 3))
+    d.ellipse(box, outline=_rgba(grey, 0xFF if held else _FAINT), width=lw)
+    a = max(0.0, min(1.0, ring)) if state.startswith("awake") else 0.0
+    if a > 0:
+        # THE CLOCK: 12 o'clock is nothing left, the lit arc runs CLOCKWISE,
+        # so an hour of a two-hour maximum reaches 6 o'clock. Pillow measures
+        # from 3 o'clock, clockwise, hence the -90.
+        d.arc(box, -90, -90 + 360 * a, fill=_rgba(COLOUR["awake"]), width=lw)
     return img.resize((size, size), Image.LANCZOS)
 
 
