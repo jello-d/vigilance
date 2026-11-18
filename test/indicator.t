@@ -100,7 +100,7 @@ want(near(h[on_ring(135)], COLOUR["awake"])
      and not near(h[on_ring(225)], COLOUR["awake"]),
      "an hour left did not reach 6 o'clock")
 # THE EYE IS THE APP'S HOLD, independent of the ring: a faint closed slit
-# when quiet, wide open on a red face with a lit keyhole when held. Quiet is
+# when quiet, wide open on a red face with a catchlight when held. Quiet is
 # meant to be ignorable, so it must be FAINT, not merely grey.
 inner = (24, 9)                                # inside the ring, above the eye
 qt = tile("quiet", 0, 48).load()
@@ -114,8 +114,10 @@ for st in ("held", "awake+held"):
     hp = tile(st, 0.5, 48).load()
     want(near(hp[inner], COLOUR["held"]),
          "%s did not turn the face red: %r" % (st, hp[inner]))
-    want(near(hp[24, 21], (0xFF, 0xD0, 0x40), 60),
-         "%s has no lit keyhole: %r" % (st, hp[24, 21]))
+    want(near(hp[24, 24], (0x16, 0x14, 0x15), 30),
+         "%s has no black pupil at the centre: %r" % (st, hp[24, 24]))
+    want(near(hp[28, 20], (0xEC, 0xE4, 0xDA), 60),
+         "%s has no catchlight up and right of centre: %r" % (st, hp[28, 20]))
 ah = tile("awake+held", 0.5, 48).load()
 want(near(ah[on_ring(90)], COLOUR["awake"]), "an app's hold hid the clock")
 for st in ("quiet", "held", "awake", "awake+held", "down"):

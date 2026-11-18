@@ -7,13 +7,13 @@ stopping it changes nothing about what locks.
 AN EYE IN A RING, after the 1984 poster. The two halves say different
 things, so both can show:
 
-  the RING    faint grey; while the user's own keep-awake runs it lights blue
+  the RING    faint grey; while the user's own keep-awake runs it lights gold
               as a CLOCK, clockwise from 12 o'clock for the time left, scaled
               to the maximum, so 1h reaches 6 o'clock and 2h is the whole ring
   the EYE     a closed slit while nothing holds the screen up; wide open on a
-              red face, with a lit keyhole, while something ELSE does (a
-              compositor inhibitor, a logind idle inhibitor), named in the
-              tooltip
+              red face, a black iris with a catchlight, while something ELSE
+              does (a compositor inhibitor, a logind idle inhibitor), named in
+              the tooltip
   struck through   vigilant did not answer
 
 Round, so it does not run together with the square icons beside it.
@@ -48,7 +48,8 @@ MAX = float(os.environ.get("VIGILANCE_KEEP_AWAKE_MAX", "7200") or 7200)
 
 COLOUR = {
     "held":  (0xE0, 0x3A, 0x1E),  # red: something else holds it up
-    "awake": (0x3A, 0x9C, 0xF2),  # blue: the user's own keep-awake
+    "awake": (0xFF, 0xC2, 0x1A),  # gold: the user's own keep-awake, a
+                                  # warning that stays apart from the red
     "down":  (0x84, 0x84, 0x8A),  # grey: the quiet ring, and vigilant silent
 }
 
@@ -131,12 +132,11 @@ def next_target(targets, last):
 # A CIRCLE, after the 1984 poster's eye. Two halves, independent, so both can
 # show at once:
 #
-#   the RING   the user's: faint grey, and lit blue as a CLOCK while a
+#   the RING   the user's: faint grey, and lit gold as a CLOCK while a
 #              keep-awake runs, clockwise from 12 o'clock for the time left
 #   the EYE    everyone else's: a closed slit, barely there, while nothing
 #              holds the screen up; WIDE OPEN while an app does, the whole
-#              face red, a huge black iris and a lit keyhole through it,
-#              because what it watches over is a lock
+#              face red, a huge black iris with a small catchlight
 #
 # Quiet is meant to be ignorable and a hold is meant to be seen from across
 # the room at 22px, so the two are deliberately far apart. Drawn OVERSAMPLE
@@ -144,7 +144,7 @@ def next_target(targets, last):
 OVERSAMPLE = 4
 _INK = (0x16, 0x14, 0x15)        # the iris
 _CREAM = (0xEC, 0xE4, 0xDA)      # the white of the eye
-_KEY = (0xFF, 0xD0, 0x40)        # the lit keyhole
+_GLINT = 0.18                    # the catchlight, of the iris radius
 _FAINT = 0x70                    # the quiet ring and slit: there, ignorable
 
 
@@ -168,19 +168,19 @@ def _lid(cx, cy, half, sag, up, n=32):
 
 
 def _open_eye(d, big, inner):
+    # A huge black iris with one small catchlight: a plain pupil, so it scales
+    # down to a tray, and the glint is what keeps it reading as an EYE rather
+    # than a black dot at 22px. Small on purpose: larger reads as a stare.
     cx = cy = big / 2.0
     half = inner
     sag = half * 0.68
     d.polygon(_lid(cx, cy, half, sag, True)
               + _lid(cx, cy, half, sag, False)[::-1], fill=_rgba(_CREAM))
-    ir = sag
+    ir = sag * 0.92
     d.ellipse([cx - ir, cy - ir, cx + ir, cy + ir], fill=_rgba(_INK))
-    kr = ir * 0.28
-    ky = cy - ir * 0.18
-    d.ellipse([cx - kr, ky - kr, cx + kr, ky + kr], fill=_rgba(_KEY))
-    d.polygon([(cx - kr * 0.55, ky), (cx + kr * 0.55, ky),
-               (cx + kr * 1.15, cy + ir * 0.45),
-               (cx - kr * 1.15, cy + ir * 0.45)], fill=_rgba(_KEY))
+    gr = ir * _GLINT
+    gx, gy = cx + ir * 0.32, cy - ir * 0.32
+    d.ellipse([gx - gr, gy - gr, gx + gr, gy + gr], fill=_rgba(_CREAM))
 
 
 def tile(state, ring, size):
