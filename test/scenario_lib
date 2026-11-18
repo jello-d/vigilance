@@ -81,6 +81,13 @@ scenario_init() {   # <name>
   # difference it was not testing. Default to "a session exists" (the ordinary
   # case); the scenario that tests the no-session path sets it empty per call.
   export VIGILANCE_SESSION=1
+  # And LOGIND'S IDLE INHIBITORS, which the substrate holds for its own
+  # reasons: the xfce guest's power manager can hold one, a developer's call
+  # holds one. A held inhibitor takes the logind route and pre-empts whatever
+  # a scenario set up, so holder.t failed in the xfce guest alone, at random,
+  # with an empty log. Default to "none held"; a scenario about a hold sets
+  # its own, and one about the live read unsets it.
+  export VIGILANCE_BLOCK_INHIBITED=
   # ALERT DEDUP OFF IN SCENARIOS. Production suppresses a repeat of the SAME
   # alert within a cooldown, so a notifier does not fire every minute about an
   # unchanged fact. That is time-dependent behaviour, and a test asserting "this
