@@ -28,7 +28,7 @@ if [ -z "$_vskip" ]; then
 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=$IND \
   python3 - "$T" <<'PYEOF' > "$T/py.out" 2>&1 || true
 import sys
-from vigilance_indicator.__main__ import (FRAME, next_target, parse_rows,
+from vigilance_indicator.__main__ import (COLOUR, next_target, parse_rows,
                                           summarise, tile, icon_pixmap)
 
 fails = []
@@ -68,24 +68,32 @@ want(next_target(t, "c:3") == "a:1", "the walk did not wrap")
 want(next_target(t, "gone:9") == "a:1", "a vanished last target stuck")
 want(next_target([], "a:1") is None, "no targets still produced one")
 
-# THE BORDER IS THE COUNTDOWN, scaled to the maximum: 1h is half the frame.
+# THE FACE IS A CLOCK, scaled to the maximum: 12 o'clock is nothing left, the
+# sector runs CLOCKWISE, and 1h of 2h reaches 6 o'clock.
 def blue(img):
     px = img.load()
     s = img.size[0]
-    n = 0
-    for x in range(s):
-        for y in range(s):
-            r, g, b, a = px[x, y]
-            if a and (r, g, b) == FRAME["awake"]:
-                n += 1
-    return n
+    return sum(1 for x in range(s) for y in range(s)
+               if px[x, y] == COLOUR["awake"] + (0xFF,))
 full = blue(tile("awake", 1.0, 48))
 half = blue(tile("awake", 0.5, 48))
-none = blue(tile("awake", 0.0, 48))
-want(full > 0 and 0.35 < half / full < 0.65,
-     "half the time left drew %d of %d border pixels, want about half"
-     % (half, full))
-want(blue(tile("awake", 0.1, 48)) < half, "the border did not drain")
+want(full > 0 and 0.4 < half / full < 0.6,
+     "half the time left lit %d of %d, want about half" % (half, full))
+want(blue(tile("awake", 0.1, 48)) < half, "the clock did not wind back")
+want(blue(tile("awake", 0.0, 48)) == 0, "no time left still lit the face")
+q = tile("awake", 0.25, 48).load()
+isblue = lambda p: p == COLOUR["awake"] + (0xFF,)
+want(isblue(q[34, 14]) and not isblue(q[14, 14]) and not isblue(q[34, 34]),
+     "a quarter left did not light 12 to 3 o'clock: the sector must start at"
+     " the top and run clockwise")
+h = tile("awake", 0.5, 48).load()
+want(isblue(h[34, 34]) and not isblue(h[14, 34]),
+     "an hour left did not reach 6 o'clock")
+# QUIET IS FAINT and round: a corner is empty, the centre barely there.
+qt = tile("quiet", 0, 48).load()
+want(qt[1, 1][3] == 0, "the quiet icon has a corner, so it is not a circle")
+want(0 < qt[24, 24][3] < 0x80, "the quiet face is not faint: alpha %d"
+     % qt[24, 24][3])
 for st in ("quiet", "held", "awake", "down"):
     pm = icon_pixmap(st, 0.5)
     want([p[0] for p in pm] == [22, 32, 48]
@@ -165,6 +173,6 @@ leave the tray link pointing at nothing"
 [ -x "$T/p2/share/vigilance/bin/vigilant" ] || fail "the carried venv cost
 the payload its own contents"
 
-pass "the presenter (states, clicks, a half-filled border for 1h), an\
+pass "the presenter (states, clicks, a round clock face lit to 6 for 1h), an\
  optional installer that tells running from stopped, and a payload swap\
  that keeps the tray's venv${_vskip:+ (not checked:$_vskip)}"

@@ -2,20 +2,20 @@
 
 A PRESENTER. It reads `vigilant holders --json` and acts only through
 `vigilant` (`holder-go`, `keep-awake`), so it keeps no state of its own and
-stopping it changes nothing about what locks. Modelled on usher's indicator:
-a near-black rounded tile whose FRAME colour is the state, and a depleting
-border for a countdown.
+stopping it changes nothing about what locks. A CIRCLE, so it does not run
+together with the square icons beside it in a tray.
 
-THE FRAME IS THE STATE:
+THE FACE IS THE STATE:
 
-  quiet   muted green   nothing holds the screen up
-  held    amber         something else does (a compositor inhibitor, a
-                        logind idle inhibitor), named in the tooltip
-  awake   blue          the user's own keep-awake, the loudest, so it is never
-                        forgotten; its border DRAINS as the time runs down,
-                        scaled to the maximum, so 1h fills half the border
-                        and 2h all of it
-  down    grey          vigilant did not answer
+  quiet   faint grey disc   nothing holds the screen up
+  held    amber disc        something else does (a compositor inhibitor, a
+                            logind idle inhibitor), named in the tooltip
+  awake   a blue clock      the user's own keep-awake: lit clockwise from
+                            12 o'clock for the time left, scaled to the
+                            maximum, so 1h reaches 6 o'clock and 2h is the
+                            whole face; it winds back toward 12 as it runs
+  down    an empty slashed  vigilant did not answer
+          grey ring
 
 THE GESTURES (no right-click menu: like usher's, it has none):
 
@@ -33,7 +33,6 @@ network byte order per the StatusNotifierItem spec.
 """
 import asyncio
 import json
-import math
 import os
 import subprocess
 import sys
@@ -45,15 +44,11 @@ VIGILANT = os.environ.get("VIGILANT_BIN", "vigilant")
 POLL = 5.0
 MAX = float(os.environ.get("VIGILANCE_KEEP_AWAKE_MAX", "7200") or 7200)
 
-_BASE = (0x14, 0x15, 0x19)       # near-black screen
-_TINT = 0.14                     # state hue bleed into the screen
-FRAME = {
-    "quiet": (0x54, 0x86, 0x50),  # muted green: quiet, so louder ones win
+COLOUR = {
     "held":  (0xF2, 0xA6, 0x2C),  # amber: something else holds it up
     "awake": (0x3A, 0x9C, 0xF2),  # blue: the user's own keep-awake
-    "down":  (0x84, 0x84, 0x8A),  # grey: vigilant did not answer
+    "down":  (0x84, 0x84, 0x8A),  # grey: the quiet face, and vigilant silent
 }
-_DULL = FRAME["down"]             # what a draining border leaves behind
 
 
 # --- the state, from vigilant's own view: PURE --------------------------------
@@ -131,96 +126,44 @@ def next_target(targets, last):
 
 
 # --- drawing: PURE -----------------------------------------------------------
-def _lift(base, f):
-    return tuple(int(base[i] * (1 - f) + 0xFF * f) for i in range(3)) + (0xFF,)
+# A CIRCLE, NOT A TILE: a tray full of rounded squares runs together, and a
+# round face also reads as the clock the keep-awake is. Drawn OVERSAMPLE times
+# larger and scaled down, which is the antialiasing Pillow's shapes lack.
+OVERSAMPLE = 4
+_FAINT = 0x50                     # the quiet face: there, and easy to ignore
 
 
-def _screen(state):
-    col = FRAME.get(state, FRAME["down"])
-    return tuple(int(_BASE[i] * (1 - _TINT) + col[i] * _TINT)
-                 for i in range(3)) + (0xFF,)
-
-
-def _eye(d, s, state):
-    # The identity mark: an eye, lifted off the screen. Its pupil takes the
-    # frame colour while something holds the screen up, so the glyph and the
-    # frame say the same thing at a glance.
-    cx, cy = s / 2.0, s / 2.0
-    w, h = s * 0.27, s * 0.15
-    d.ellipse([cx - w, cy - h, cx + w, cy + h], fill=_lift(_BASE, 0.62))
-    r = s * 0.10
-    pupil = (FRAME[state] + (0xFF,)) if state in ("held", "awake") \
-        else _lift(_BASE, 0.12)
-    d.ellipse([cx - r, cy - r, cx + r, cy + r], fill=pupil)
-
-
-def _perimeter(m, side, r):
-    # The rounded-square border centreline from the UPPER-LEFT corner,
-    # counter-clockwise, sampled along the edges too, so a leading fraction
-    # can end mid-edge.
-    L, T, R, B = m, m, m + side, m + side
-    pts = []
-
-    def arc(cx, cy, a0, a1):
-        n = max(2, int(abs(a1 - a0) / 12))
-        for i in range(n + 1):
-            a = math.radians(a0 + (a1 - a0) * i / n)
-            pts.append((cx + r * math.cos(a), cy + r * math.sin(a)))
-
-    def edge(p0, p1):
-        n = max(1, int(math.hypot(p1[0] - p0[0], p1[1] - p0[1]) / 3))
-        for i in range(1, n + 1):
-            pts.append((p0[0] + (p1[0] - p0[0]) * i / n,
-                        p0[1] + (p1[1] - p0[1]) * i / n))
-
-    arc(L + r, T + r, 225, 180)
-    edge((L, T + r), (L, B - r))
-    arc(L + r, B - r, 180, 90)
-    edge((L + r, B), (R - r, B))
-    arc(R - r, B - r, 90, 0)
-    edge((R, B - r), (R, T + r))
-    arc(R - r, T + r, 360, 270)
-    edge((R - r, T), (L + r, T))
-    arc(L + r, T + r, 270, 225)
-    return pts
-
-
-def _border(img, s, frac):
-    # The border IS the countdown: blue for the fraction of the maximum still
-    # held, dull grey for the rest, so an hour reads as half a frame.
-    fw = max(1, s // 11)
-    inset = fw / 2.0
-    pts = _perimeter(inset, s - 1 - fw, max(1.0, s // 7 - inset))
-    cum = [0.0]
-    for i in range(1, len(pts)):
-        cum.append(cum[-1] + math.hypot(pts[i][0] - pts[i - 1][0],
-                                        pts[i][1] - pts[i - 1][1]))
-    total = cum[-1] or 1.0
-    d = ImageDraw.Draw(img)
-    d.line(pts, fill=_DULL + (0xFF,), width=fw, joint="curve")
-    a = max(0.0, min(1.0, frac))
-    if a <= 0:
-        return
-    held = [p for p, c in zip(pts, cum) if c >= (1.0 - a) * total]
-    if len(held) >= 2:
-        d.line(held, fill=FRAME["awake"] + (0xFF,), width=fw, joint="curve")
+def _rgba(col, alpha=0xFF):
+    return tuple(col) + (alpha,)
 
 
 def tile(state, ring, size):
-    s = size
-    img = Image.new("RGBA", (s, s), (0, 0, 0, 0))
+    big = size * OVERSAMPLE
+    img = Image.new("RGBA", (big, big), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
-    r = max(2, s // 7)
-    fw = max(1, s // 11)
-    if state == "awake":
-        d.rounded_rectangle([0, 0, s - 1, s - 1], r, fill=_screen(state))
-        _border(img, s, ring)
+    lw = max(OVERSAMPLE, big // 12)
+    box = [lw // 2, lw // 2, big - 1 - lw // 2, big - 1 - lw // 2]
+    grey = COLOUR["down"]
+    if state == "down":
+        # An empty face with a slash: nothing answered, so nothing is shown.
+        d.ellipse(box, outline=_rgba(grey, 0x90), width=lw)
+        d.line([box[0] + big * 0.18, box[3] - big * 0.18,
+                box[2] - big * 0.18, box[1] + big * 0.18],
+               fill=_rgba(grey, 0x90), width=lw)
+    elif state == "held":
+        d.ellipse(box, fill=_rgba(COLOUR["held"]))
     else:
-        d.rounded_rectangle([0, 0, s - 1, s - 1], r, fill=_screen(state),
-                            outline=FRAME.get(state, FRAME["down"]) + (0xFF,),
-                            width=fw)
-    _eye(d, s, state)
-    return img
+        d.ellipse(box, fill=_rgba(grey, _FAINT),
+                  outline=_rgba(grey, 0x90), width=lw)
+        a = max(0.0, min(1.0, ring)) if state == "awake" else 0.0
+        if a >= 1.0:
+            d.ellipse(box, fill=_rgba(COLOUR["awake"]))
+        elif a > 0:
+            # THE CLOCK: 12 o'clock is nothing left, the lit sector runs
+            # CLOCKWISE, so an hour of a two-hour maximum reaches 6 o'clock.
+            # Pillow measures from 3 o'clock, clockwise, hence the -90.
+            d.pieslice(box, -90, -90 + 360 * a, fill=_rgba(COLOUR["awake"]))
+    return img.resize((size, size), Image.LANCZOS)
 
 
 def _to_argb(img):
