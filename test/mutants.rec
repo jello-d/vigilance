@@ -1595,3 +1595,15 @@ f bin/vigilant
 t idle-query
 -   case "$_isty" in wayland|x11) ;; *)
 +   case "$_isty" in *) ;; *)
+
+= holders-drops-the-why
+f bin/vigilant
+t holder
+-     _ht="$_hw (uid $_hu, pid $_hp)${_hy:+: $_hy}"
++     _ht="$_hw (uid $_hu, pid $_hp)"
+
+= inhibit-holder-drops-the-why
+f bin/vigilant
+t triggers
+-         if (why != "") who = who " (" why ")"
++         if (0) who = who

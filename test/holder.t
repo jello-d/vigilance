@@ -250,7 +250,8 @@ printf '%s\n' '#!/bin/sh' \
 chmod +x "$VIGILANCE_HOOK_ROOT/holder.d/10-h"
 "$VIGILANT" keep-awake 1h > /dev/null
 PATH="$T/stub:$PATH" "$VIGILANT" holders > "$T/h.txt" 2>&1 || true
-for _want in 'keep-awake: 3' 'logind: Zoom Meeting (uid 997, pid 555)' \
+for _want in 'keep-awake: 3' \
+             'logind: Zoom Meeting (uid 997, pid 555): in a call' \
              '10-h: google-chrome (pid 42 chrome, hidden)'; do
   grep -q "^$_want" "$T/h.txt" || fail "holders did not list '$_want':
 $(cat "$T/h.txt")"
@@ -261,9 +262,13 @@ PATH="$T/stub:$PATH" "$VIGILANT" holders --json > "$T/h.json" 2>&1 || true
 _j=$(python3 -I -c 'import json,sys
 rows = [json.loads(l) for l in open(sys.argv[1]) if l.strip()]
 print(" ".join("%s/%s/%s" % (r["source"], r["who"], r.get("go")) for r in rows))
+print([r.get("why") for r in rows if r["source"] == "logind"])
 ' "$T/h.json" 2>&1)
+# THE WHY IS CARRIED: for a relay such as the ScreenSaver bridge it is the only
+# place the real app is named, so a tray showing WHO alone names the relay.
 [ "$_j" = "keep-awake/keep-awake/None logind/Zoom Meeting/None"\
-" 10-h/google-chrome/view:9" ] || fail "holders --json read '$_j' from:
+" 10-h/google-chrome/view:9
+['in a call']" ] || fail "holders --json read '$_j' from:
 $(cat "$T/h.json")"
 "$VIGILANT" keep-awake off > /dev/null
 

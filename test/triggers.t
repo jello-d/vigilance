@@ -157,6 +157,14 @@ esac
 # "Google Chrome" into "Google", which sat in this machine's real list during
 # the call that prompted the work. An alert whose entire value is naming what
 # to go and stop must name all of it.
+# AND ITS WHY: a relay names the app it relays for there and nowhere else, so
+# "idle-inhibit-bridge" alone is a name nobody can go and stop.
+case "$_o" in
+  *"realholder (why)"*) ;;
+  *) fail "the holder was named without its WHY, which is where a relay says
+which app it holds for:
+$_o" ;;
+esac
 case "$_o" in
   *"Two Words"*) ;;
   *) fail "a holder whose WHO is more than one word was truncated to its

@@ -2967,6 +2967,11 @@ _trig_holder() {   # <handler> -> "a, b" or nothing
         # time in this tree, and the rule was already recorded twice.
         who = $1
         for (k = 2; k < u; k++) who = who " " $k
+        # AND ITS WHY, which a relay uses to name the app it relays for:
+        # "idle-inhibit-bridge" alone names no process anyone can stop.
+        why = ""
+        for (k = w + 1; k < NF; k++) why = (why == "" ? "" : why " ") $k
+        if (why != "") who = who " (" why ")"
         n = split($w, p, ":")
         for (j = 1; j <= n; j++) {
           if (p[j] == h) { if (s != "") s = s ", "; s = s who }
@@ -2993,7 +2998,12 @@ _logind_idle_rows() {
         if (p[j] == "idle") {
           who = $1
           for (k = 2; k < u; k++) who = who " " $k
-          printf "%s\t%s\t%s\n", who, $u, $(u + 2)
+          # WHY is everything between WHAT and MODE, the last column. It is
+          # where a holder says what it is doing, and for a relay (the
+          # ScreenSaver bridge) it is the only place the real app is named.
+          why = ""
+          for (k = u + 5; k < NF; k++) why = (why == "" ? "" : why " ") $k
+          printf "%s\t%s\t%s\t%s\n", who, $u, $(u + 2), why
           break
         }
       }
@@ -3029,14 +3039,15 @@ cmd_holders() {   # [--json]
       echo "keep-awake: ${_hka}s left (of ${_hks}s)"
     fi
   fi
-  _logind_idle_rows | while IFS='	' read -r _hw _hu _hp; do
+  _logind_idle_rows | while IFS='	' read -r _hw _hu _hp _hy; do
     [ -n "$_hw" ] || continue
+    _ht="$_hw (uid $_hu, pid $_hp)${_hy:+: $_hy}"
     if [ -n "$_hj" ]; then
       printf '{"source": "logind", "who": %s, "uid": %s, "pid": %s,'\
-' "go": null, "text": %s}\n' "$(_json_str "$_hw")" "$_hu" "$_hp" \
-        "$(_json_str "$_hw (uid $_hu, pid $_hp)")"
+' "why": %s, "go": null, "text": %s}\n' "$(_json_str "$_hw")" "$_hu" \
+        "$_hp" "$(_json_str "$_hy")" "$(_json_str "$_ht")"
     else
-      echo "logind: $_hw (uid $_hu, pid $_hp)"
+      echo "logind: $_ht"
     fi
   done
   _hhl=$(_hooks_for holder)
