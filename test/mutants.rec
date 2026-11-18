@@ -1560,11 +1560,17 @@ t indicator
 -   if [ "$_st" = active ]; then ok "$UNIT running"
 +   if true; then ok "$UNIT running"
 
-= indicator-keep-awake-not-loudest
+= indicator-keep-awake-hides-the-hold
 f indicator/vigilance_indicator/__main__.py
 t indicator
--         state = "awake"
-+         state = "held"
+-         state = "awake+held" if others else "awake"
++         state = "awake"
+
+= indicator-hold-inside-only-without-keep-awake
+f indicator/vigilance_indicator/__main__.py
+t indicator
+-     held = state in ("held", "awake+held")
++     held = state == "held"
 
 = indicator-ring-not-scaled
 f indicator/vigilance_indicator/__main__.py
