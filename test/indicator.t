@@ -27,6 +27,7 @@ if python3 -c 'import PIL' 2>/dev/null; then :; else _vskip=" pillow"; fi
 if [ -z "$_vskip" ]; then
 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=$IND \
   python3 - "$T" <<'PYEOF' > "$T/py.out" 2>&1 || true
+import math
 import sys
 from vigilance_indicator.__main__ import (COLOUR, next_target, parse_rows,
                                           summarise, tile, icon_pixmap)
@@ -55,8 +56,8 @@ want(targets == ["10-wayfire:view:9"], "targets %r" % targets)
 want("titan" in tip and "Zoom" in tip, "the tooltip did not name every"
      " holder: %r" % tip)
 state, ring, tip, targets = summarise(rows)
-want(state == "awake", "keep-awake with others read as %s; the user's own"
-     " hold must be the loud one" % state)
+want(state == "awake+held", "keep-awake with others read as %s; the ring"
+     " and the inside are independent, so both must show" % state)
 want(abs(ring - 0.5) < 0.01, "1h of a 2h maximum gave ring %.2f, want 0.5"
      % ring)
 want(targets == ["10-wayfire:view:9"], "keep-awake hid the holders' targets")
@@ -68,33 +69,49 @@ want(next_target(t, "c:3") == "a:1", "the walk did not wrap")
 want(next_target(t, "gone:9") == "a:1", "a vanished last target stuck")
 want(next_target([], "a:1") is None, "no targets still produced one")
 
-# THE FACE IS A CLOCK, scaled to the maximum: 12 o'clock is nothing left, the
-# sector runs CLOCKWISE, and 1h of 2h reaches 6 o'clock.
+# THE RING IS A CLOCK, scaled to the maximum: 12 o'clock is nothing left, the
+# arc runs CLOCKWISE, and 1h of 2h reaches 6 o'clock.
+def near(p, col, tol=40):
+    return p[3] > 0xC0 and all(abs(p[i] - col[i]) <= tol for i in range(3))
+def on_ring(deg, s=48):
+    # A point mid-band on the ring, `deg` clockwise from 12 o'clock.
+    r = s / 2.0 - s / 9.0 / 2.0
+    a = math.radians(deg)
+    return int(s / 2.0 + r * math.sin(a)), int(s / 2.0 - r * math.cos(a))
 def blue(img):
     px = img.load()
     s = img.size[0]
     return sum(1 for x in range(s) for y in range(s)
-               if px[x, y] == COLOUR["awake"] + (0xFF,))
+               if near(px[x, y], COLOUR["awake"]))
 full = blue(tile("awake", 1.0, 48))
 half = blue(tile("awake", 0.5, 48))
 want(full > 0 and 0.4 < half / full < 0.6,
      "half the time left lit %d of %d, want about half" % (half, full))
 want(blue(tile("awake", 0.1, 48)) < half, "the clock did not wind back")
-want(blue(tile("awake", 0.0, 48)) == 0, "no time left still lit the face")
+want(blue(tile("awake", 0.0, 48)) == 0, "no time left still lit the ring")
 q = tile("awake", 0.25, 48).load()
-isblue = lambda p: p == COLOUR["awake"] + (0xFF,)
-want(isblue(q[34, 14]) and not isblue(q[14, 14]) and not isblue(q[34, 34]),
-     "a quarter left did not light 12 to 3 o'clock: the sector must start at"
+want(near(q[on_ring(45)], COLOUR["awake"])
+     and not near(q[on_ring(315)], COLOUR["awake"])
+     and not near(q[on_ring(135)], COLOUR["awake"]),
+     "a quarter left did not light 12 to 3 o'clock: the arc must start at"
      " the top and run clockwise")
 h = tile("awake", 0.5, 48).load()
-want(isblue(h[34, 34]) and not isblue(h[14, 34]),
+want(near(h[on_ring(135)], COLOUR["awake"])
+     and not near(h[on_ring(225)], COLOUR["awake"]),
      "an hour left did not reach 6 o'clock")
-# QUIET IS FAINT and round: a corner is empty, the centre barely there.
+# THE INSIDE IS THE APP'S HOLD, independent of the ring.
+inner = (24, 9)                                # inside the ring, above the eye
 qt = tile("quiet", 0, 48).load()
-want(qt[1, 1][3] == 0, "the quiet icon has a corner, so it is not a circle")
-want(0 < qt[24, 24][3] < 0x80, "the quiet face is not faint: alpha %d"
-     % qt[24, 24][3])
-for st in ("quiet", "held", "awake", "down"):
+want(qt[1, 1][3] == 0, "the quiet icon has a corner, so it is not round")
+want(near(qt[on_ring(0)], COLOUR["down"]), "the quiet ring is not grey")
+want(not near(qt[inner], COLOUR["held"], 90), "the quiet inside is amber")
+for st in ("held", "awake+held"):
+    hp = tile(st, 0.5, 48).load()
+    want(near(hp[inner], COLOUR["held"], 90),
+         "%s did not turn the inside amber: %r" % (st, hp[inner]))
+ah = tile("awake+held", 0.5, 48).load()
+want(near(ah[on_ring(90)], COLOUR["awake"]), "an app's hold hid the clock")
+for st in ("quiet", "held", "awake", "awake+held", "down"):
     pm = icon_pixmap(st, 0.5)
     want([p[0] for p in pm] == [22, 32, 48]
          and all(len(p[2]) == p[0] * p[0] * 4 for p in pm),
@@ -203,7 +220,7 @@ leave the tray link pointing at nothing"
 [ -x "$T/p2/share/vigilance/bin/vigilant" ] || fail "the carried venv cost
 the payload its own contents"
 
-pass "the presenter (states, clicks, a round clock face lit to 6 for 1h), an\
- optional installer that tells running from stopped and current from stale,\
- and a payload swap\
- that keeps the tray's venv${_vskip:+ (not checked:$_vskip)}"
+pass "the presenter (states, clicks, a ring lit to 6 for 1h, an amber inside\
+ for an app's hold), an optional installer that tells running from stopped\
+ and current from stale, and a payload swap that keeps the tray's\
+ venv${_vskip:+ (not checked:$_vskip)}"

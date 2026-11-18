@@ -2,20 +2,19 @@
 
 A PRESENTER. It reads `vigilant holders --json` and acts only through
 `vigilant` (`holder-go`, `keep-awake`), so it keeps no state of its own and
-stopping it changes nothing about what locks. A CIRCLE, so it does not run
-together with the square icons beside it in a tray.
+stopping it changes nothing about what locks.
 
-THE FACE IS THE STATE:
+AN EYE IN A RING, and the two halves say different things, so both can show:
 
-  quiet   faint grey disc   nothing holds the screen up
-  held    amber disc        something else does (a compositor inhibitor, a
-                            logind idle inhibitor), named in the tooltip
-  awake   a blue clock      the user's own keep-awake: lit clockwise from
-                            12 o'clock for the time left, scaled to the
-                            maximum, so 1h reaches 6 o'clock and 2h is the
-                            whole face; it winds back toward 12 as it runs
-  down    an empty slashed  vigilant did not answer
-          grey ring
+  the RING    hollow grey; while the user's own keep-awake runs it lights blue
+              as a CLOCK, clockwise from 12 o'clock for the time left, scaled
+              to the maximum, so 1h reaches 6 o'clock and 2h is the whole ring
+  the INSIDE  dark; amber while something ELSE holds the screen up (a
+              compositor inhibitor, a logind idle inhibitor), named in the
+              tooltip
+  struck through, dim   vigilant did not answer
+
+Round, so it does not run together with the square icons beside it.
 
 THE GESTURES (no right-click menu: like usher's, it has none):
 
@@ -97,7 +96,7 @@ def summarise(rows):
     targets = ["%s:%s" % (r["source"], r["go"]) for r in others
                if r.get("go") and r.get("source")]
     if awake:
-        state = "awake"
+        state = "awake+held" if others else "awake"
     elif others:
         state = "held"
     else:
@@ -126,43 +125,61 @@ def next_target(targets, last):
 
 
 # --- drawing: PURE -----------------------------------------------------------
-# A CIRCLE, NOT A TILE: a tray full of rounded squares runs together, and a
-# round face also reads as the clock the keep-awake is. Drawn OVERSAMPLE times
-# larger and scaled down, which is the antialiasing Pillow's shapes lack.
+# THE EYE IN A RING. The ring is the user's: hollow grey, lit as a clock while
+# a keep-awake runs. The inside is everyone else's: it turns amber while an
+# app holds the screen up. The two are independent, so both can show at once.
+# Round rather than square so it does not run together with the square icons
+# beside it in a tray. Drawn OVERSAMPLE times larger and scaled down, which is
+# the antialiasing Pillow's shapes lack.
 OVERSAMPLE = 4
-_FAINT = 0x50                     # the quiet face: there, and easy to ignore
+_BASE = (0x14, 0x15, 0x19)       # near-black inside: the eye reads on any bar
+_HELD_TINT = 0.7                 # how far the inside goes toward amber
 
 
 def _rgba(col, alpha=0xFF):
     return tuple(col) + (alpha,)
 
 
+def _mix(a, b, f):
+    return tuple(int(a[i] * (1 - f) + b[i] * f) for i in range(3))
+
+
+def _eye(d, big, sclera, pupil):
+    cx = cy = big / 2.0
+    w, h = big * 0.25, big * 0.14
+    d.ellipse([cx - w, cy - h, cx + w, cy + h], fill=_rgba(sclera))
+    r = big * 0.09
+    d.ellipse([cx - r, cy - r, cx + r, cy + r], fill=_rgba(pupil))
+
+
 def tile(state, ring, size):
+    """`state` is quiet, held, awake, awake+held or down; `ring` the fraction
+    of the keep-awake maximum left."""
     big = size * OVERSAMPLE
     img = Image.new("RGBA", (big, big), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
-    lw = max(OVERSAMPLE, big // 12)
-    box = [lw // 2, lw // 2, big - 1 - lw // 2, big - 1 - lw // 2]
+    lw = max(OVERSAMPLE, big // 9)
+    box = [0, 0, big - 1, big - 1]
     grey = COLOUR["down"]
+    held = state in ("held", "awake+held")
+    inside = _mix(_BASE, COLOUR["held"], _HELD_TINT) if held else _BASE
+    d.ellipse([lw, lw, big - 1 - lw, big - 1 - lw], fill=_rgba(inside))
     if state == "down":
-        # An empty face with a slash: nothing answered, so nothing is shown.
-        d.ellipse(box, outline=_rgba(grey, 0x90), width=lw)
-        d.line([box[0] + big * 0.18, box[3] - big * 0.18,
-                box[2] - big * 0.18, box[1] + big * 0.18],
-               fill=_rgba(grey, 0x90), width=lw)
-    elif state == "held":
-        d.ellipse(box, fill=_rgba(COLOUR["held"]))
+        # Nothing answered: a dim ring and a dim eye, struck through.
+        d.ellipse(box, outline=_rgba(grey, 0x80), width=lw)
+        _eye(d, big, _mix(_BASE, grey, 0.5), _BASE)
+        d.line([big * 0.22, big * 0.78, big * 0.78, big * 0.22],
+               fill=_rgba(grey), width=max(1, lw * 2 // 3))
     else:
-        d.ellipse(box, fill=_rgba(grey, _FAINT),
-                  outline=_rgba(grey, 0x90), width=lw)
-        a = max(0.0, min(1.0, ring)) if state == "awake" else 0.0
-        if a >= 1.0:
-            d.ellipse(box, fill=_rgba(COLOUR["awake"]))
-        elif a > 0:
-            # THE CLOCK: 12 o'clock is nothing left, the lit sector runs
+        d.ellipse(box, outline=_rgba(grey), width=lw)
+        a = max(0.0, min(1.0, ring)) if state.startswith("awake") else 0.0
+        if a > 0:
+            # THE CLOCK: 12 o'clock is nothing left, the lit arc runs
             # CLOCKWISE, so an hour of a two-hour maximum reaches 6 o'clock.
             # Pillow measures from 3 o'clock, clockwise, hence the -90.
-            d.pieslice(box, -90, -90 + 360 * a, fill=_rgba(COLOUR["awake"]))
+            d.arc(box, -90, -90 + 360 * a, fill=_rgba(COLOUR["awake"]),
+                  width=lw)
+        _eye(d, big, (0xD8, 0xD8, 0xDC), _BASE)
     return img.resize((size, size), Image.LANCZOS)
 
 
@@ -204,8 +221,9 @@ def read_rows():
 def render_test(outdir):
     os.makedirs(outdir, exist_ok=True)
     for state, ring in (("quiet", 0), ("held", 0), ("awake", 1.0),
-                        ("awake", 0.5), ("awake", 0.1), ("down", 0)):
-        name = "%s-%03d.png" % (state, int(ring * 100))
+                        ("awake", 0.5), ("awake", 0.1), ("awake+held", 0.5),
+                        ("down", 0)):
+        name = "%s-%03d.png" % (state.replace("+", "-"), int(ring * 100))
         tile(state, ring, 48).save(os.path.join(outdir, name))
         print(os.path.join(outdir, name))
 
