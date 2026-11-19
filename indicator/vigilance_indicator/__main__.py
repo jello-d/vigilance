@@ -7,13 +7,13 @@ stopping it changes nothing about what locks.
 AN EYE IN A RING, after the 1984 poster. The two halves say different
 things, so both can show:
 
-  the RING    faint grey; while the user's own keep-awake runs it lights gold
+  the RING    light grey; while the user's own keep-awake runs it lights gold
               as a CLOCK, clockwise from 12 o'clock for the time left, scaled
               to the maximum, so 1h reaches 6 o'clock and 2h is the whole ring
-  the EYE     a closed slit while nothing holds the screen up; wide open on a
-              red face, a black iris with a catchlight, while something ELSE
-              does (a compositor inhibitor, a logind idle inhibitor), named in
-              the tooltip
+  the EYE     a closed slit on a dark disc while nothing holds the screen
+              up; wide open on a red face, a black iris with a catchlight,
+              while something ELSE does (a compositor inhibitor, a logind idle
+              inhibitor), named in the tooltip
   struck through   vigilant did not answer
 
 Round, so it does not run together with the square icons beside it.
@@ -50,7 +50,7 @@ COLOUR = {
     "held":  (0xE0, 0x3A, 0x1E),  # red: something else holds it up
     "awake": (0xFF, 0xC2, 0x1A),  # gold: the user's own keep-awake, a
                                   # warning that stays apart from the red
-    "down":  (0x84, 0x84, 0x8A),  # grey: the quiet ring, and vigilant silent
+    "down":  (0xC8, 0xC8, 0xCE),  # light grey: the quiet ring and slit
 }
 
 
@@ -132,7 +132,7 @@ def next_target(targets, last):
 # A CIRCLE, after the 1984 poster's eye. Two halves, independent, so both can
 # show at once:
 #
-#   the RING   the user's: faint grey, and lit gold as a CLOCK while a
+#   the RING   the user's: light grey, and lit gold as a CLOCK while a
 #              keep-awake runs, clockwise from 12 o'clock for the time left
 #   the EYE    everyone else's: a closed slit, barely there, while nothing
 #              holds the screen up; WIDE OPEN while an app does, the whole
@@ -145,7 +145,12 @@ OVERSAMPLE = 4
 _INK = (0x16, 0x14, 0x15)        # the iris
 _CREAM = (0xEC, 0xE4, 0xDA)      # the white of the eye
 _GLINT = 0.18                    # the catchlight, of the iris radius
-_FAINT = 0x70                    # the quiet ring and slit: there, ignorable
+_FAINT = 0xC0                    # the quiet ring and slit: calm, not hidden
+# THE QUIET FACE SITS ON A DARK DISC. A dim grey alone vanished on a mid-tone
+# bar (measured on dragonfly's: the icon peaked at RGB 102 on a bar of 78) and
+# a light one vanishes on a light bar; a light glyph on its own dark disc
+# reads on both, so quiet stays calm without depending on the bar behind it.
+_DISC = (0x1A, 0x19, 0x20, 0xC0)
 
 
 def _rgba(col, alpha=0xFF):
@@ -205,7 +210,7 @@ def tile(state, ring, size):
                fill=_rgba(grey, _FAINT), width=int(big * 0.06),
                joint="curve")
     if state == "down":
-        # Nothing answered: the faint face, struck through.
+        # Nothing answered: the quiet face, struck through.
         d.line([big * 0.22, big * 0.78, big * 0.78, big * 0.22],
                fill=_rgba(grey, 0xB0), width=max(1, lw * 2 // 3))
     d.ellipse(box, outline=_rgba(grey, 0xFF if held else _FAINT), width=lw)
@@ -215,6 +220,13 @@ def tile(state, ring, size):
         # so an hour of a two-hour maximum reaches 6 o'clock. Pillow measures
         # from 3 o'clock, clockwise, hence the -90.
         d.arc(box, -90, -90 + 360 * a, fill=_rgba(COLOUR["awake"]), width=lw)
+    if not held:
+        # COMPOSITED, not drawn under: Pillow's shapes replace pixels, so a
+        # glyph drawn onto the disc would cut holes in it, not lie on it.
+        under = Image.new("RGBA", (big, big), (0, 0, 0, 0))
+        ImageDraw.Draw(under).ellipse(box, fill=_DISC)
+        under.alpha_composite(img)
+        img = under
     return img.resize((size, size), Image.LANCZOS)
 
 

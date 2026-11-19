@@ -99,17 +99,23 @@ h = tile("awake", 0.5, 48).load()
 want(near(h[on_ring(135)], COLOUR["awake"])
      and not near(h[on_ring(225)], COLOUR["awake"]),
      "an hour left did not reach 6 o'clock")
-# THE EYE IS THE APP'S HOLD, independent of the ring: a faint closed slit
+# THE EYE IS THE APP'S HOLD, independent of the ring: a closed slit
 # when quiet, wide open on a red face with a catchlight when held. Quiet is
 # meant to be ignorable, so it must be FAINT, not merely grey.
 inner = (24, 9)                                # inside the ring, above the eye
 qt = tile("quiet", 0, 48).load()
 want(qt[1, 1][3] == 0, "the quiet icon has a corner, so it is not round")
-_ra = qt[on_ring(0)][3]
-want(0x30 < _ra < 0xA0, "the quiet ring is not faint: alpha %d" % _ra)
-want(qt[24, 15][3] == 0, "the quiet eye is open: a closed one draws nothing"
-     " above the slit")
-want(0 < qt[24, 24][3] < 0xA0, "the quiet slit is missing or not faint")
+# Calm but not hidden: a light ring and slit on a dark disc, so it reads on
+# a mid-tone bar and a light one alike (a dim grey alone vanished on one).
+lum = lambda p: sum(p[:3]) / 3.0
+_ring, _face = qt[on_ring(0)], qt[24, 15]
+want(_ring[3] > 0xC0 and lum(_ring) > 150, "the quiet ring is not light"
+     " enough to read on a mid-tone bar: %r" % (_ring,))
+want(_face[3] > 0x80 and lum(_face) < 60, "the quiet face has no dark disc"
+     " behind it, so it vanishes on a bar of its own tone: %r" % (_face,))
+_slit = max((qt[24, y] for y in range(18, 32)), key=lum)
+want(lum(_slit) > lum(_face) + 60, "the quiet slit is missing or does not"
+     " stand off its disc: %r" % (_slit,))
 for st in ("held", "awake+held"):
     hp = tile(st, 0.5, 48).load()
     want(near(hp[inner], COLOUR["held"]),

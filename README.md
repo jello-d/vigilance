@@ -576,14 +576,14 @@ Either knob at `0` disables that half.
 
 `indicator/` is an SNI tray icon for who is keeping the screen awake: an eye in
 a ring, after the 1984 poster, round so it does not run together with the square
-icons beside it. The RING is yours: faint grey, lit gold as a clock while your
+icons beside it. The RING is yours: light grey, lit gold as a clock while your
 keep-awake runs, clockwise from 12 o'clock for the time left and scaled to the
 two-hour maximum, so one hour reaches 6 o'clock. The EYE is everyone else's: a
-faint closed slit while nothing holds the screen up, and wide open on a red
-face, a black iris with a catchlight, while an app does. Both can show at once;
-struck through means `vigilant` did not answer. It is a PRESENTER: it polls
-`vigilant holders --json` every 5 seconds and acts only through `vigilant`, so
-stopping it changes nothing about what locks.
+closed slit on a dark disc while nothing holds the screen up, and wide open on a
+red face, a black iris with a catchlight, while an app does. Both can show at
+once; struck through means `vigilant` did not answer. It is a PRESENTER: it
+polls `vigilant holders --json` every 5 seconds and acts only through
+`vigilant`, so stopping it changes nothing about what locks.
 
     left click     go to the holder's window (each click the next one); with
                    nothing else holding, `keep-awake cycle` (1h, 2h, off)
